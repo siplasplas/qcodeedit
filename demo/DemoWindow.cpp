@@ -154,6 +154,18 @@ void DemoWindow::buildMenus() {
     invertAct->setCheckable(true);
     invertAct->setChecked(false);
     connect(invertAct, &QAction::toggled, this, &DemoWindow::onInvertSelectionToggled);
+
+    auto* wrapAct = settingsMenu->addAction(tr("Word wrap"));
+    wrapAct->setCheckable(true);
+    wrapAct->setChecked(false);
+    connect(wrapAct, &QAction::toggled, m_editor->area(),
+            &qce::CodeEditArea::setWordWrap);
+
+    auto* wsAct = settingsMenu->addAction(tr("Show whitespace"));
+    wsAct->setCheckable(true);
+    wsAct->setChecked(false);
+    connect(wsAct, &QAction::toggled, m_editor->area(),
+            &qce::CodeEditArea::setShowWhitespace);
 }
 
 void DemoWindow::updateTitle() {

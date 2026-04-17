@@ -187,6 +187,15 @@ void CodeEditArea::setReadOnly(bool ro) {
     m_readOnly = ro;
 }
 
+void CodeEditArea::setShowWhitespace(bool show) {
+    m_renderer->setShowWhitespace(show);
+    viewport()->update();
+}
+
+bool CodeEditArea::showWhitespace() const {
+    return m_renderer->showWhitespace();
+}
+
 void CodeEditArea::setWordWrap(bool wrap) {
     if (m_wordWrap == wrap) return;
     m_wordWrap = wrap;

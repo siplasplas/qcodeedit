@@ -39,6 +39,9 @@ public:
     void setTabWidth(int spaces) { m_tabWidth = spaces > 0 ? spaces : 4; }
     int tabWidth() const { return m_tabWidth; }
 
+    void setShowWhitespace(bool show) { m_showWhitespace = show; }
+    bool showWhitespace() const { return m_showWhitespace; }
+
     /// Paints the visible region of the document.
     void paint(QPainter& painter,
                const ITextDocument* doc,
@@ -51,10 +54,22 @@ public:
 
 private:
     QFont m_font;
-    int m_tabWidth = 4;
+    int  m_tabWidth        = 4;
+    bool m_showWhitespace  = false;
 
     /// Column-aware tab expansion: each '\t' advances to the next tab stop.
     QString expandTabs(const QString& line) const;
+
+    /// Second-pass: draw · for spaces and → for tabs in a muted color.
+    /// seg is the raw (unexpanded) text for one visual row; visualStart is
+    /// the visual column offset at the beginning of seg (0 for wrap rows and
+    /// for the first row of a non-wrapped line).
+    void paintWhitespaceMarkers(QPainter& painter,
+                                const QString& seg,
+                                int baseX,
+                                int baselineY,
+                                int charWidth,
+                                int visualStart = 0) const;
 };
 
 } // namespace qce

@@ -31,35 +31,68 @@ void LineRenderer::paint(QPainter& painter,
     const int baseX = kLeftPaddingPx - vp.contentOffsetX;
 
     if (vp.wordWrap && !vp.rows.isEmpty()) {
-        // Word-wrap mode: each entry in vp.rows is one visual row.
         for (int ri = 0; ri < vp.rows.size(); ++ri) {
             const auto& row = vp.rows[ri];
             const int topY = vp.contentOffsetY + ri * lineHeight;
             const int baselineY = topY + ascent;
-
             const QString& line = doc->lineAt(row.logicalLine);
             const QString seg = line.mid(row.startCol, row.endCol - row.startCol);
             const QString text = expandTabs(seg);
             if (!text.isEmpty()) {
                 painter.drawText(kLeftPaddingPx, baselineY, text);
             }
+            if (m_showWhitespace) {
+                paintWhitespaceMarkers(painter, seg, kLeftPaddingPx, baselineY,
+                                       vp.charWidth);
+            }
         }
         return;
     }
 
     const int first = vp.firstVisibleLine;
-    const int last = vp.lastVisibleLine;
-
+    const int last  = vp.lastVisibleLine;
     for (int i = first; i <= last && i < lineCount; ++i) {
         const int topY = vp.contentOffsetY + (i - first) * lineHeight;
         const int baselineY = topY + ascent;
-
-        const QString text = expandTabs(doc->lineAt(i));
-        if (text.isEmpty()) {
-            continue;
+        const QString& line = doc->lineAt(i);
+        const QString text = expandTabs(line);
+        if (!text.isEmpty()) {
+            painter.drawText(baseX, baselineY, text);
         }
-        painter.drawText(baseX, baselineY, text);
+        if (m_showWhitespace) {
+            paintWhitespaceMarkers(painter, line, baseX, baselineY, vp.charWidth);
+        }
     }
+}
+
+void LineRenderer::paintWhitespaceMarkers(QPainter& painter,
+                                           const QString& seg,
+                                           int baseX,
+                                           int baselineY,
+                                           int charWidth,
+                                           int visualStart) const {
+    static const QString kDot(QChar(0x00B7));  // · middle dot
+    static const QString kArrow(QChar(0x2192)); // → rightwards arrow
+
+    painter.save();
+    QColor wsColor = painter.pen().color();
+    wsColor.setAlphaF(0.35);
+    painter.setPen(wsColor);
+
+    int visual = visualStart;
+    for (QChar ch : seg) {
+        if (ch == QLatin1Char(' ')) {
+            painter.drawText(baseX + visual * charWidth, baselineY, kDot);
+            ++visual;
+        } else if (ch == QLatin1Char('\t')) {
+            const int tabSpaces = m_tabWidth - (visual % m_tabWidth);
+            painter.drawText(baseX + visual * charWidth, baselineY, kArrow);
+            visual += tabSpaces;
+        } else {
+            ++visual;
+        }
+    }
+    painter.restore();
 }
 
 int LineRenderer::visualColumn(const QString& line, int charIndex, int tabWidth) {

@@ -79,6 +79,9 @@ public:
     void setWordWrap(bool wrap);
     bool wordWrap() const { return m_wordWrap; }
 
+    void setShowWhitespace(bool show);
+    bool showWhitespace() const;
+
     void setCaretBlinkInterval(int ms);
     int  caretBlinkInterval() const;
 

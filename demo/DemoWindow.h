@@ -9,6 +9,7 @@ class CodeEdit;
 class SimpleTextDocument;
 class LineNumberGutter;
 class RulesHighlighter;
+class RuleBasedFoldingProvider;
 }
 
 class QAction;
@@ -34,6 +35,7 @@ private:
     qce::SimpleTextDocument* m_doc         = nullptr;
     std::unique_ptr<qce::LineNumberGutter> m_lineNumbers;
     std::unique_ptr<qce::RulesHighlighter> m_highlighter;
+    std::unique_ptr<qce::RuleBasedFoldingProvider> m_foldProvider;
     QString m_currentPath;
 
     // Settings state

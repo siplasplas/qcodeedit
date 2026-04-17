@@ -1,5 +1,6 @@
 #include "qce/CodeEditArea.h"
 
+#include "qce/IFoldingProvider.h"
 #include "qce/IHighlighter.h"
 #include "qce/ITextDocument.h"
 #include "CaretPainter.h"
@@ -65,6 +66,8 @@ void CodeEditArea::setDocument(ITextDocument* doc) {
     m_undoStack->clear();
 
     rebuildHighlightCache();
+    rebuildFolds();
+    rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
     viewport()->update();
@@ -211,6 +214,25 @@ void CodeEditArea::setHighlighter(IHighlighter* hl) {
         m_renderer->setSpansProvider({});
     }
     rebuildHighlightCache();
+    viewport()->update();
+}
+
+void CodeEditArea::setFoldingProvider(IFoldingProvider* p) {
+    m_foldingProvider = p;
+    rebuildFolds();
+    rebuildWrapLayout();
+    updateScrollBarRanges();
+    refreshViewportState();
+    viewport()->update();
+}
+
+void CodeEditArea::toggleFoldAt(int line) {
+    const int idx = m_foldState.regionStartingAt(line);
+    if (idx < 0) return;
+    m_foldState.toggle(idx);
+    rebuildWrapLayout();
+    updateScrollBarRanges();
+    refreshViewportState();
     viewport()->update();
 }
 
@@ -425,6 +447,15 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
         m_caretPainter->setOverwrite(m_overwrite);
         break;
 
+    case Qt::Key_Minus:
+        if (ctrl && !shift) { toggleFoldAt(m_cursor.line); break; }
+        goto handle_printable;
+
+    case Qt::Key_Plus:
+    case Qt::Key_Equal:
+        if (ctrl && !shift) { toggleFoldAt(m_cursor.line); break; }
+        goto handle_printable;
+
     case Qt::Key_Z:
         if (ctrl && !shift) { undo(); break; }
         if (ctrl &&  shift) { redo(); break; }
@@ -509,6 +540,7 @@ void CodeEditArea::onDocumentReset() {
     m_anchor = m_cursor;
     m_undoStack->clear();
     rebuildHighlightCache();
+    rebuildFolds();
     rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
@@ -527,6 +559,7 @@ void CodeEditArea::onLinesInserted(int startLine, int count) {
         }
         rehighlightFrom(startLine);
     }
+    rebuildFolds();
     rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
@@ -543,6 +576,7 @@ void CodeEditArea::onLinesRemoved(int startLine, int count) {
         }
         rehighlightFrom(startLine);
     }
+    rebuildFolds();
     rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
@@ -553,6 +587,7 @@ void CodeEditArea::onLinesChanged(int startLine, int) {
     if (m_highlighter) {
         rehighlightFrom(startLine);
     }
+    rebuildFolds();
     rebuildWrapLayout();
     refreshViewportState();
     viewport()->update();
@@ -594,6 +629,12 @@ void CodeEditArea::refreshViewportState() {
                 ri.startCol    = wr.startCol;
                 ri.endCol      = wr.endCol;
                 ri.isFirstRow  = (wr.logicalLine != prevLogical);
+                if (ri.isFirstRow) {
+                    const int regIdx = m_foldState.regionStartingAt(wr.logicalLine);
+                    if (regIdx >= 0 && m_foldState.isCollapsed(regIdx)) {
+                        ri.foldPlaceholder = m_foldState.regions()[regIdx].placeholder;
+                    }
+                }
                 s.rows.push_back(ri);
                 prevLogical = wr.logicalLine;
             }
@@ -790,7 +831,8 @@ void CodeEditArea::rebuildWrapLayout() {
     const int cw = fm.horizontalAdvance(QLatin1Char('M'));
     if (cw <= 0) return;
     const int availCols = qMax(1, (viewport()->width() - LineRenderer::kLeftPaddingPx) / cw);
-    m_wrapLayout->rebuild(m_doc, availCols, tabWidth());
+    const FoldState* fs = (m_foldState.regions().isEmpty()) ? nullptr : &m_foldState;
+    m_wrapLayout->rebuild(m_doc, availCols, tabWidth(), fs);
 }
 
 int CodeEditArea::visualRowOf(TextCursor pos) const {
@@ -840,6 +882,16 @@ void CodeEditArea::rehighlightFrom(int startLine) {
         }
         stateIn = stateOut;
     }
+}
+
+// --- Folding helpers -----------------------------------------------------
+
+void CodeEditArea::rebuildFolds() {
+    if (!m_foldingProvider || !m_doc) {
+        m_foldState.setRegions({});
+        return;
+    }
+    m_foldState.setRegions(m_foldingProvider->computeRegions(m_doc));
 }
 
 // ------------------------------------------------------------------------

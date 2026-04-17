@@ -6,6 +6,7 @@
 namespace qce {
 
 class ITextDocument;
+class FoldState;
 
 /// Maps visual rows to logical document positions for word-wrap mode.
 /// Rebuilt whenever the document or viewport changes.
@@ -21,7 +22,12 @@ public:
 
     /// Rebuild from document. availableVisualCols is the number of character
     /// cells that fit in the viewport width (already excluding left padding).
-    void rebuild(const ITextDocument* doc, int availableVisualCols, int tabWidth);
+    /// When foldState is non-null, lines it reports as not visible are skipped
+    /// (they map to the previous visible line's first-row, so rowForCursor on
+    /// a hidden line returns the row of the visible header of the collapsed
+    /// region that contains it).
+    void rebuild(const ITextDocument* doc, int availableVisualCols, int tabWidth,
+                 const FoldState* foldState = nullptr);
 
     int totalRows() const { return m_rows.size(); }
     const Row& rowAt(int visualRow) const { return m_rows[visualRow]; }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QString>
 #include <QVector>
 
 namespace qce {
@@ -60,6 +61,10 @@ struct ViewportState {
         int  startCol;    ///< first logical column of this visual row
         int  endCol;      ///< one past last logical column
         bool isFirstRow;  ///< first visual row of logicalLine?
+        /// When non-empty, this row is the header of a collapsed fold region
+        /// and the renderer should draw the placeholder text after the line
+        /// content. Empty otherwise.
+        QString foldPlaceholder;
     };
     QVector<RowInfo> rows;
 

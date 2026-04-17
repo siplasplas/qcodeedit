@@ -1,12 +1,14 @@
 #include "WrapLayout.h"
 
+#include <qce/FoldState.h>
 #include <qce/ITextDocument.h>
 
 namespace qce {
 
 void WrapLayout::rebuild(const ITextDocument* doc,
                           int availableVisualCols,
-                          int tabWidth) {
+                          int tabWidth,
+                          const FoldState* foldState) {
     m_rows.clear();
     m_lineFirstRow.clear();
 
@@ -16,8 +18,17 @@ void WrapLayout::rebuild(const ITextDocument* doc,
     m_lineFirstRow.reserve(n);
     m_rows.reserve(n + 16);
 
+    // Hidden lines map to the first row of the last visible line before them
+    // so that rowForCursor on a hidden cursor lands on the region's header.
+    int lastVisibleFirstRow = 0;
+
     for (int li = 0; li < n; ++li) {
-        m_lineFirstRow.push_back(m_rows.size());
+        if (foldState && !foldState->isLineVisible(li)) {
+            m_lineFirstRow.push_back(lastVisibleFirstRow);
+            continue;
+        }
+        lastVisibleFirstRow = m_rows.size();
+        m_lineFirstRow.push_back(lastVisibleFirstRow);
         const QString line = doc->lineAt(li);
 
         if (line.isEmpty()) {

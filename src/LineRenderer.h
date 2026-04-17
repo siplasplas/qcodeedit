@@ -94,6 +94,11 @@ private:
                               int charWidth,
                               const QVector<StyleSpan>* spans) const;
 
+    /// Draw the fold placeholder text in a faint rounded rectangle; used on
+    /// lines that are the header of a collapsed region.
+    void drawFoldPlaceholder(QPainter& painter, const QString& text,
+                              int x, int topY, int lineHeight) const;
+
     /// Second-pass: draw · for spaces and → for tabs in a muted color.
     /// seg is the raw (unexpanded) text for one visual row; visualStart is
     /// the visual column offset at the beginning of seg (0 for wrap rows and

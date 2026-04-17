@@ -45,6 +45,15 @@ void LineRenderer::paint(QPainter& painter,
                 paintWhitespaceMarkers(painter, seg, kLeftPaddingPx, baselineY,
                                        vp.charWidth);
             }
+            if (!row.foldPlaceholder.isEmpty()) {
+                // Compute visual end of the already-drawn segment.
+                const QString seg = line.mid(row.startCol, row.endCol - row.startCol);
+                const int segVisualLen = expandTabsAt(seg, 0).size();
+                const int segEndX = kLeftPaddingPx + segVisualLen * vp.charWidth
+                                    + vp.charWidth; // one-char gap
+                drawFoldPlaceholder(painter, row.foldPlaceholder,
+                                    segEndX, topY, lineHeight);
+            }
         }
         return;
     }
@@ -62,6 +71,31 @@ void LineRenderer::paint(QPainter& painter,
             paintWhitespaceMarkers(painter, line, baseX, baselineY, vp.charWidth);
         }
     }
+}
+
+void LineRenderer::drawFoldPlaceholder(QPainter& painter, const QString& text,
+                                        int x, int topY, int lineHeight) const {
+    const QFontMetrics fm(m_font);
+    const int pad = 3;
+    const int textW = fm.horizontalAdvance(text);
+    const int w = textW + 2 * pad;
+    const int h = lineHeight - 2;
+    const QRect r(x, topY + 1, w, h);
+
+    painter.save();
+    QColor bg = painter.pen().color();
+    bg.setAlphaF(0.08);
+    painter.fillRect(r, bg);
+    QColor border = painter.pen().color();
+    border.setAlphaF(0.35);
+    painter.setPen(border);
+    painter.drawRoundedRect(r, 3, 3);
+    QColor fg = painter.pen().color();
+    fg.setAlphaF(0.75);
+    painter.setPen(fg);
+    painter.setFont(m_font);
+    painter.drawText(x + pad, topY + fm.ascent(), text);
+    painter.restore();
 }
 
 void LineRenderer::paintWhitespaceMarkers(QPainter& painter,

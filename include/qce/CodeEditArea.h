@@ -1,5 +1,6 @@
 #pragma once
 
+#include "FoldState.h"
 #include "HighlightState.h"
 #include "StyleSpan.h"
 #include "TextCursor.h"
@@ -18,6 +19,7 @@ namespace qce {
 
 class ITextDocument;
 class IHighlighter;
+class IFoldingProvider;
 class LineRenderer;
 class CursorController;
 class CaretPainter;
@@ -91,6 +93,20 @@ public:
     void setHighlighter(IHighlighter* hl);
     IHighlighter* highlighter() const { return m_highlighter; }
 
+    /// Attach a folding provider (non-owning). Pass nullptr to disable.
+    /// Recomputes regions immediately.
+    void setFoldingProvider(IFoldingProvider* p);
+    IFoldingProvider* foldingProvider() const { return m_foldingProvider; }
+
+    /// Editor-owned fold state. Exposed so margins (gutter) can read it and
+    /// invoke toggleFoldAt(). Non-const so FoldingGutter can call into it.
+    FoldState& foldState() { return m_foldState; }
+    const FoldState& foldState() const { return m_foldState; }
+
+    /// If a region starts on `line`, toggle its collapsed state. Rebuilds
+    /// layout and repaints.
+    void toggleFoldAt(int line);
+
     void setCaretBlinkInterval(int ms);
     int  caretBlinkInterval() const;
 
@@ -135,6 +151,9 @@ private:
     IHighlighter*                      m_highlighter = nullptr;
     QVector<HighlightState>            m_lineEndStates;
     QVector<QVector<StyleSpan>>        m_lineSpans;
+
+    IFoldingProvider*                  m_foldingProvider = nullptr;
+    FoldState                          m_foldState;
     std::unique_ptr<CursorController>  m_cursorCtrl;
     std::unique_ptr<CaretPainter>      m_caretPainter;
     QUndoStack*                        m_undoStack = nullptr;
@@ -156,6 +175,9 @@ private:
     // --- Highlighting helpers ---
     void rebuildHighlightCache();
     void rehighlightFrom(int startLine);
+
+    // --- Folding helpers ---
+    void rebuildFolds();
 
     // --- Edit helpers ---
     /// Insert text at cursor (replacing selection if present).

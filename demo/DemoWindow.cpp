@@ -4,6 +4,8 @@
 
 #include <qce/CodeEdit.h>
 #include <qce/CodeEditArea.h>
+#include <qce/FoldState.h>
+#include <qce/RuleBasedFoldingProvider.h>
 #include <qce/RulesHighlighter.h>
 #include <qce/SimpleTextDocument.h>
 #include <qce/margins/LineNumberGutter.h>
@@ -33,6 +35,11 @@ DemoWindow::DemoWindow(QWidget* parent)
 
     buildDemoHighlighter();
     m_editor->area()->setHighlighter(m_highlighter.get());
+    m_foldProvider = std::make_unique<qce::RuleBasedFoldingProvider>(m_highlighter.get());
+    m_foldProvider->setPlaceholderFor(QStringLiteral("curly"), QStringLiteral("{…}"));
+    m_foldProvider->setPlaceholderFor(QStringLiteral("Comment"), QStringLiteral("/*…*/"));
+    m_editor->area()->setFoldingProvider(m_foldProvider.get());
+    m_editor->area()->setWordWrap(true);  // MVP: fold needs wrap mode for rendering
 
     setCentralWidget(m_editor);
     buildMenus();
@@ -90,6 +97,13 @@ void DemoWindow::onLoadSyntax() {
     }
     m_highlighter = std::move(hl);
     m_editor->area()->setHighlighter(m_highlighter.get());
+    m_foldProvider = std::make_unique<qce::RuleBasedFoldingProvider>(m_highlighter.get());
+    m_foldProvider->setPlaceholderFor(QStringLiteral("Brace1"),  QStringLiteral("{…}"));
+    m_foldProvider->setPlaceholderFor(QStringLiteral("curly"),   QStringLiteral("{…}"));
+    m_foldProvider->setPlaceholderFor(QStringLiteral("square"),  QStringLiteral("[…]"));
+    m_foldProvider->setPlaceholderFor(QStringLiteral("paren"),   QStringLiteral("(…)"));
+    m_foldProvider->setPlaceholderFor(QStringLiteral("Comment"), QStringLiteral("/*…*/"));
+    m_editor->area()->setFoldingProvider(m_foldProvider.get());
 }
 
 void DemoWindow::onScrollBarSideToggled(bool left) {
@@ -286,6 +300,28 @@ void DemoWindow::buildDemoHighlighter() {
         {HighlightRule::Detect2Chars, '*', '/', {}, true, {}, -1, -1,
          attrComment, -1, 1, false, false});
     // LineComment has no rules beyond the default attribute and lineEnd #pop.
+
+    // Folding: braces and block comment.
+    const int rgCurly = m_highlighter->regionIdForName(QStringLiteral("curly"));
+    const int rgComm  = m_highlighter->regionIdForName(QStringLiteral("Comment"));
+
+    HighlightRule openBrace;
+    openBrace.kind = HighlightRule::DetectChar;
+    openBrace.ch = QLatin1Char('{');
+    openBrace.beginRegionId = rgCurly;
+    m_highlighter->contextRef(ctxNormal).rules.push_back(openBrace);
+
+    HighlightRule closeBrace;
+    closeBrace.kind = HighlightRule::DetectChar;
+    closeBrace.ch = QLatin1Char('}');
+    closeBrace.endRegionId = rgCurly;
+    m_highlighter->contextRef(ctxNormal).rules.push_back(closeBrace);
+
+    // Mark the existing /* and */ rules with region markers.
+    // (The block-open rule is the second entry in the Normal context; the
+    // block-close rule is the only entry in BlockComment.)
+    m_highlighter->contextRef(ctxNormal).rules[1].beginRegionId = rgComm;
+    m_highlighter->contextRef(ctxBlockComment).rules[0].endRegionId = rgComm;
 
     m_highlighter->setInitialContextId(ctxNormal);
 }

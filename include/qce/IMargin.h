@@ -1,6 +1,7 @@
 #pragma once
 
 class QPainter;
+class QPoint;
 class QRect;
 
 namespace qce {
@@ -29,6 +30,12 @@ public:
     virtual void paint(QPainter& painter,
                        const ViewportState& vp,
                        const QRect& marginRect) = 0;
+
+    /// Optional: react to a left-button mouse press on this margin. `local`
+    /// is in the rail's coordinate system. Default: no-op.
+    virtual void mousePressed(const QPoint& /*local*/,
+                              const ViewportState& /*vp*/,
+                              const QRect& /*marginRect*/) {}
 };
 
 } // namespace qce

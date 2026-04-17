@@ -8,6 +8,7 @@ namespace qce {
 class CodeEdit;
 class SimpleTextDocument;
 class LineNumberGutter;
+class FoldingGutter;
 class RulesHighlighter;
 class RuleBasedFoldingProvider;
 }
@@ -34,6 +35,7 @@ private:
     qce::CodeEdit*           m_editor      = nullptr;
     qce::SimpleTextDocument* m_doc         = nullptr;
     std::unique_ptr<qce::LineNumberGutter> m_lineNumbers;
+    std::unique_ptr<qce::FoldingGutter>    m_foldGutter;
     std::unique_ptr<qce::RulesHighlighter> m_highlighter;
     std::unique_ptr<qce::RuleBasedFoldingProvider> m_foldProvider;
     QString m_currentPath;

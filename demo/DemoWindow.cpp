@@ -8,6 +8,7 @@
 #include <qce/RuleBasedFoldingProvider.h>
 #include <qce/RulesHighlighter.h>
 #include <qce/SimpleTextDocument.h>
+#include <qce/margins/FoldingGutter.h>
 #include <qce/margins/LineNumberGutter.h>
 
 #include <QAction>
@@ -32,6 +33,11 @@ DemoWindow::DemoWindow(QWidget* parent)
     m_lineNumbers = std::make_unique<qce::LineNumberGutter>(m_doc);
     m_lineNumbers->setFont(m_editor->area()->font());
     m_editor->addLeftMargin(m_lineNumbers.get());
+
+    m_foldGutter = std::make_unique<qce::FoldingGutter>(
+        &m_editor->area()->foldState(),
+        [this](int line) { m_editor->area()->toggleFoldAt(line); });
+    m_editor->addLeftMargin(m_foldGutter.get());
 
     buildDemoHighlighter();
     m_editor->area()->setHighlighter(m_highlighter.get());

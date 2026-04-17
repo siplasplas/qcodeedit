@@ -39,6 +39,7 @@ public:
 
 protected:
     void paintEvent(QPaintEvent* e) override;
+    void mousePressEvent(QMouseEvent* e) override;
 
 private slots:
     void onViewportChanged(const ViewportState& vp);

@@ -3,6 +3,7 @@
 #include <qce/CodeEditArea.h>
 #include <qce/IMargin.h>
 
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPaintEvent>
 
@@ -52,6 +53,25 @@ void Rail::paintEvent(QPaintEvent*) {
         m->paint(painter, m_vp, QRect(x, 0, w, height()));
         x += w;
     }
+}
+
+void Rail::mousePressEvent(QMouseEvent* e) {
+    if (e->button() != Qt::LeftButton || !m_vp.isValid()) {
+        QWidget::mousePressEvent(e);
+        return;
+    }
+    int x = 0;
+    const QPoint pt = e->pos();
+    for (IMargin* m : m_margins) {
+        const int w = m->preferredWidth(m_vp);
+        if (pt.x() >= x && pt.x() < x + w) {
+            m->mousePressed(pt, m_vp, QRect(x, 0, w, height()));
+            e->accept();
+            return;
+        }
+        x += w;
+    }
+    QWidget::mousePressEvent(e);
 }
 
 void Rail::onViewportChanged(const ViewportState& vp) {

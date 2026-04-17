@@ -512,6 +512,33 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
 
 void CodeEditArea::mousePressEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton) {
+        // Placeholder hit-test: if the click falls on a collapsed region's
+        // "{…}" box, unfold it instead of moving the cursor.
+        if (m_viewportState.isValid() && !m_viewportState.rows.isEmpty()
+                && m_viewportState.lineHeight > 0 && m_doc) {
+            const int rowIdx = e->pos().y() / m_viewportState.lineHeight;
+            if (rowIdx >= 0 && rowIdx < m_viewportState.rows.size()) {
+                const auto& row = m_viewportState.rows[rowIdx];
+                if (!row.foldPlaceholder.isEmpty()) {
+                    const QString& line = m_doc->lineAt(row.logicalLine);
+                    const int drawEnd = (row.foldStartColumn >= 0)
+                        ? qMin((int)row.endCol, row.foldStartColumn)
+                        : row.endCol;
+                    const int visLen = LineRenderer::visualColumn(
+                        line, drawEnd, tabWidth())
+                        - LineRenderer::visualColumn(line, row.startCol, tabWidth());
+                    const int phX = LineRenderer::kLeftPaddingPx
+                                    + visLen * m_viewportState.charWidth;
+                    const QFontMetrics fm(font());
+                    const int phW = fm.horizontalAdvance(row.foldPlaceholder) + 6;
+                    if (e->pos().x() >= phX && e->pos().x() <= phX + phW) {
+                        toggleFoldAt(row.logicalLine);
+                        e->accept();
+                        return;
+                    }
+                }
+            }
+        }
         const TextCursor pos = cursorFromPoint(e->pos());
         if (e->modifiers() & Qt::ShiftModifier) {
             applySelectionMove(pos);

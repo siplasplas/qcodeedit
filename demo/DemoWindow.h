@@ -24,6 +24,7 @@ public:
 private slots:
     void onFileOpen();
     void onFileClose();
+    void onLoadSyntax();
     void onScrollBarSideToggled(bool left);
     void onLineNumberSideToggled(bool left);
     void onInvertSelectionToggled(bool invert);

@@ -26,5 +26,21 @@ qce_add_test(test_line_renderer     INTERNAL)
 qce_add_test(test_wrap_layout       INTERNAL)
 qce_add_test(test_rules_highlighter)
 qce_add_test(test_highlighter_integration)
+
+# test_kate_xml_reader pulls in KateXmlReader from demo/ — it links the core
+# library plus the reader source directly (the reader deliberately lives in
+# demo/, not libqcodeedit).
+add_executable(test_kate_xml_reader
+    test_kate_xml_reader.cpp
+    ${CMAKE_SOURCE_DIR}/demo/KateXmlReader.cpp
+)
+target_link_libraries(test_kate_xml_reader PRIVATE
+    qcodeedit::qcodeedit
+    Qt6::Test
+)
+target_include_directories(test_kate_xml_reader PRIVATE
+    ${CMAKE_SOURCE_DIR}/demo
+)
+add_test(NAME test_kate_xml_reader COMMAND test_kate_xml_reader)
 qce_add_test(test_line_number_gutter)
 qce_add_test(test_code_edit_area_keys)

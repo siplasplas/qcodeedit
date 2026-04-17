@@ -1,5 +1,7 @@
 #include "DemoWindow.h"
 
+#include "KateXmlReader.h"
+
 #include <qce/CodeEdit.h>
 #include <qce/CodeEditArea.h>
 #include <qce/RulesHighlighter.h>
@@ -8,6 +10,7 @@
 
 #include <QAction>
 #include <QActionGroup>
+#include <QDir>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -70,6 +73,23 @@ void DemoWindow::onFileClose() {
     updateTitle();
 }
 
+void DemoWindow::onLoadSyntax() {
+    const QString initial =
+        QDir::homePath() + QStringLiteral("/.local/share/org.kde.syntax-highlighting/syntax");
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Open Kate syntax XML"), initial,
+        tr("Kate syntax (*.xml);;All files (*)"));
+    if (path.isEmpty()) return;
+    auto hl = KateXmlReader::load(path);
+    if (!hl) {
+        QMessageBox::warning(this, tr("Load failed"),
+                             tr("Could not parse %1").arg(path));
+        return;
+    }
+    m_highlighter = std::move(hl);
+    m_editor->area()->setHighlighter(m_highlighter.get());
+}
+
 void DemoWindow::onScrollBarSideToggled(bool left) {
     using Side = qce::CodeEdit::ScrollBarSide;
     m_editor->setScrollBarSide(left ? Side::Left : Side::Right);
@@ -106,6 +126,11 @@ void DemoWindow::buildMenus() {
     auto* closeAct = fileMenu->addAction(tr("&Close"));
     closeAct->setShortcut(QKeySequence::Close);
     connect(closeAct, &QAction::triggered, this, &DemoWindow::onFileClose);
+
+    fileMenu->addSeparator();
+
+    auto* loadSyntaxAct = fileMenu->addAction(tr("&Load Kate syntax..."));
+    connect(loadSyntaxAct, &QAction::triggered, this, &DemoWindow::onLoadSyntax);
 
     fileMenu->addSeparator();
 

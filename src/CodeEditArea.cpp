@@ -413,7 +413,7 @@ void CodeEditArea::paintSelection(QPainter& painter) {
     const TextCursor s = selectionStart();
     const TextCursor e = selectionEnd();
     const ViewportState& vp = m_viewportState;
-    const QColor highlight = palette().highlight().color();
+    const QColor highlight(QStringLiteral("#94CAEF"));
 
     const int first = qMax(s.line, vp.firstVisibleLine);
     const int last  = qMin(e.line, vp.lastVisibleLine);

@@ -2,9 +2,12 @@
 
 #include <QMainWindow>
 
+#include <memory>
+
 namespace qce {
 class CodeEdit;
 class SimpleTextDocument;
+class LineNumberGutter;
 }
 
 /// Main window for the qcodeedit demo application.
@@ -29,6 +32,7 @@ private slots:
 private:
     qce::CodeEdit* m_editor = nullptr;
     qce::SimpleTextDocument* m_doc = nullptr;
+    std::unique_ptr<qce::LineNumberGutter> m_lineNumbers;
     QString m_currentPath;
 
     /// Builds the menu bar. Called once from the constructor.

@@ -1,7 +1,9 @@
 #include "DemoWindow.h"
 
 #include <qce/CodeEdit.h>
+#include <qce/CodeEditArea.h>
 #include <qce/SimpleTextDocument.h>
+#include <qce/margins/LineNumberGutter.h>
 
 #include <QAction>
 #include <QFile>
@@ -18,6 +20,11 @@ DemoWindow::DemoWindow(QWidget* parent)
 
     m_editor = new qce::CodeEdit(this);
     m_editor->setDocument(m_doc);
+
+    m_lineNumbers = std::make_unique<qce::LineNumberGutter>(m_doc);
+    m_lineNumbers->setFont(m_editor->area()->font());
+    m_editor->addLeftMargin(m_lineNumbers.get());
+
     setCentralWidget(m_editor);
 
     buildMenus();

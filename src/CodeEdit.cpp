@@ -1,5 +1,8 @@
 #include "qce/CodeEdit.h"
 #include "qce/CodeEditArea.h"
+#include "qce/IMargin.h"
+#include "qce/LeftRail.h"
+#include "qce/RightRail.h"
 
 #include <QHBoxLayout>
 
@@ -7,14 +10,19 @@ namespace qce {
 
 CodeEdit::CodeEdit(QWidget* parent)
     : QWidget(parent) {
-    m_area = new CodeEditArea(this);
+    m_area      = new CodeEditArea(this);
+    m_leftRail  = new LeftRail(this);
+    m_rightRail = new RightRail(this);
 
-    // v1: plain horizontal layout with only the area. Left/right rails
-    // (gutters, margins) will be inserted in a later milestone.
+    m_leftRail->connectToArea(m_area);
+    m_rightRail->connectToArea(m_area);
+
     auto* layout = new QHBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    layout->addWidget(m_area);
+    layout->addWidget(m_leftRail);
+    layout->addWidget(m_area, /*stretch=*/1);
+    layout->addWidget(m_rightRail);
     setLayout(layout);
 }
 
@@ -28,10 +36,16 @@ ITextDocument* CodeEdit::document() const {
     return m_area->document();
 }
 
+void CodeEdit::addLeftMargin(IMargin* margin) {
+    m_leftRail->addMargin(margin);
+}
+
+void CodeEdit::addRightMargin(IMargin* margin) {
+    m_rightRail->addMargin(margin);
+}
+
 void CodeEdit::setScrollBarSide(ScrollBarSide side) {
-    // v1 stub: store the preference but do not actually rearrange anything.
-    // The real implementation requires hiding QAbstractScrollArea's built-in
-    // scroll bar and placing our own QScrollBar in the left rail.
+    // Stub: stored but not yet acted upon (section 6.5).
     m_scrollBarSide = side;
 }
 

@@ -6,21 +6,18 @@ namespace qce {
 
 class CodeEditArea;
 class ITextDocument;
+class IMargin;
+class LeftRail;
+class RightRail;
 
 /// Top-level code editor widget.
 ///
-/// Compositional container that holds the central CodeEditArea and arranges
-/// optional margins (gutters, side bars, minimaps) on its left and right
-/// sides. Also owns the decision of which side the vertical scroll bar lives
-/// on — this is configurable, which is the primary motivation for building
-/// this widget instead of using QPlainTextEdit.
+/// Compositional container: [ LeftRail | CodeEditArea | RightRail ].
+/// Each rail is always present in the layout; it takes zero width when
+/// no margins have been added to it.
 ///
-/// CodeEdit does not render text itself; it only arranges child widgets.
-/// Text rendering is entirely delegated to CodeEditArea.
-///
-/// v1: minimal container. No margins yet, no scrollbar-side switch yet
-/// (comes in the next milestone). This is just a stub that places the
-/// CodeEditArea in the center.
+/// CodeEdit does not render text itself — text rendering is delegated to
+/// CodeEditArea. Margin rendering is delegated to Rail/IMargin.
 class CodeEdit : public QWidget {
     Q_OBJECT
 public:
@@ -36,18 +33,25 @@ public:
     void setDocument(ITextDocument* doc);
     ITextDocument* document() const;
 
-    /// Access to the underlying area, e.g. for direct viewport-state queries
-    /// or signal connection from margins.
+    /// Direct access to the rendering area, e.g. for font queries or
+    /// additional signal connections.
     CodeEditArea* area() const { return m_area; }
 
-    /// Switches the vertical scroll bar to the left or right side. Default
-    /// is Right. v1: stub; actual switching will be implemented alongside
-    /// the left rail.
+    /// Adds a margin to the left rail. Non-owning; caller manages lifetime.
+    void addLeftMargin(IMargin* margin);
+
+    /// Adds a margin to the right rail. Non-owning; caller manages lifetime.
+    void addRightMargin(IMargin* margin);
+
+    /// Switches the vertical scroll bar to the left or right side.
+    /// Default is Right. Full implementation comes in section 6.5.
     void setScrollBarSide(ScrollBarSide side);
     ScrollBarSide scrollBarSide() const { return m_scrollBarSide; }
 
 private:
-    CodeEditArea* m_area = nullptr;
+    CodeEditArea* m_area      = nullptr;
+    LeftRail*     m_leftRail  = nullptr;
+    RightRail*    m_rightRail = nullptr;
     ScrollBarSide m_scrollBarSide = ScrollBarSide::Right;
 };
 

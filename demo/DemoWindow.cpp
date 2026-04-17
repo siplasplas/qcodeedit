@@ -4,8 +4,6 @@
 
 #include <qce/CodeEdit.h>
 #include <qce/CodeEditArea.h>
-#include <qce/FillerLine.h>
-#include <qce/FillerState.h>
 #include <qce/FoldState.h>
 #include <qce/RuleBasedFoldingProvider.h>
 #include <qce/RulesHighlighter.h>
@@ -60,16 +58,6 @@ DemoWindow::DemoWindow(QWidget* parent)
         }
     });
 
-    // Demo filler lines: two virtual rows before line 7 (simulating
-    // "other side has extra content") and two more before line 12.
-    m_fillerState = std::make_unique<qce::FillerState>();
-    m_fillerState->setFillers({
-        qce::FillerLine{7,  2, QColor("#D4F4DD"),
-                        QStringLiteral("added in other file")},
-        qce::FillerLine{12, 2, QColor("#FBDADA"),
-                        QStringLiteral("removed in this file")},
-    });
-    m_editor->area()->setFillerState(m_fillerState.get());
 
     setCentralWidget(m_editor);
     buildMenus();

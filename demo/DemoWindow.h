@@ -11,7 +11,6 @@ class LineNumberGutter;
 class FoldingGutter;
 class RulesHighlighter;
 class RuleBasedFoldingProvider;
-class FillerState;
 }
 
 class QAction;
@@ -38,7 +37,6 @@ private:
     std::unique_ptr<qce::FoldingGutter>    m_foldGutter;
     std::unique_ptr<qce::RulesHighlighter> m_highlighter;
     std::unique_ptr<qce::RuleBasedFoldingProvider> m_foldProvider;
-    std::unique_ptr<qce::FillerState> m_fillerState;
     QString m_currentPath;
 
     // Settings state

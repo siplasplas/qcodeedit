@@ -131,10 +131,6 @@ void DemoWindow::onLineNumberSideToggled(bool left) {
     }
 }
 
-void DemoWindow::onInvertSelectionToggled(bool invert) {
-    m_editor->area()->setInvertSelection(invert);
-}
-
 // --- Private helpers --------------------------------------------------------
 
 void DemoWindow::buildMenus() {
@@ -220,13 +216,7 @@ void DemoWindow::buildMenus() {
         onLineNumberSideToggled(a->text().startsWith(tr("Left")));
     });
 
-    // --- Invert selection ---
     settingsMenu->addSeparator();
-
-    auto* invertAct = settingsMenu->addAction(tr("Invert selection colors"));
-    invertAct->setCheckable(true);
-    invertAct->setChecked(false);
-    connect(invertAct, &QAction::toggled, this, &DemoWindow::onInvertSelectionToggled);
 
     auto* wrapAct = settingsMenu->addAction(tr("Word wrap"));
     wrapAct->setCheckable(true);

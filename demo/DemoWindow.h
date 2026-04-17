@@ -29,7 +29,6 @@ private slots:
     void onLoadSyntax();
     void onScrollBarSideToggled(bool left);
     void onLineNumberSideToggled(bool left);
-    void onInvertSelectionToggled(bool invert);
 
 private:
     qce::CodeEdit*           m_editor      = nullptr;
@@ -46,7 +45,6 @@ private:
     // Settings actions (kept for initial check-state sync)
     QAction* m_actScrollLeft    = nullptr;
     QAction* m_actLineNumLeft   = nullptr;
-    QAction* m_actInvertSel     = nullptr;
 
     void buildMenus();
     void buildDemoHighlighter();

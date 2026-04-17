@@ -135,20 +135,6 @@ void CodeEditArea::setSelectionColor(const QColor& color) {
     }
 }
 
-void CodeEditArea::setInvertSelection(bool invert) {
-    m_invertSelection = invert;
-    if (hasSelection()) {
-        viewport()->update();
-    }
-}
-
-void CodeEditArea::setSelectionForeground(const QColor& color) {
-    m_selectionForeground = color;
-    if (hasSelection() && m_invertSelection) {
-        viewport()->update();
-    }
-}
-
 // --- Undo / redo --------------------------------------------------------
 
 void CodeEditArea::undo() {
@@ -280,17 +266,6 @@ void CodeEditArea::paintEvent(QPaintEvent* e) {
     paintSelection(p);
     p.setPen(palette().text().color());
     m_renderer->paint(p, m_doc, m_viewportState);
-    if (m_invertSelection && hasSelection()) {
-        // TODO: disable text antialiasing for this pass so that subpixel
-        // blending does not bleed the background color into glyph edges.
-        // Candidate fix: p.setRenderHint(QPainter::TextAntialiasing, false)
-        // — needs visual validation across font sizes and platforms.
-        p.save();
-        p.setClipRegion(selectionRegion());
-        p.setPen(m_selectionForeground);
-        m_renderer->paint(p, m_doc, m_viewportState);
-        p.restore();
-    }
     int caretVisualCol, caretVisualRow;
     if (m_doc) {
         caretVisualRow = visualRowOf(m_cursor);

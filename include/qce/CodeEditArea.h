@@ -52,12 +52,6 @@ public:
     void setSelectionColor(const QColor& color);
     QColor selectionColor() const { return m_selectionColor; }
 
-    void setInvertSelection(bool invert);
-    bool invertSelection() const { return m_invertSelection; }
-
-    void setSelectionForeground(const QColor& color);
-    QColor selectionForeground() const { return m_selectionForeground; }
-
     // --- Undo / redo ---
     void undo();
     void redo();
@@ -141,9 +135,7 @@ private:
     ViewportState  m_viewportState;
     TextCursor     m_cursor;
     TextCursor     m_anchor;
-    QColor m_selectionColor{QStringLiteral("#94CAEF")};
-    QColor m_selectionForeground{Qt::white};
-    bool   m_invertSelection = false;
+    QColor m_selectionColor{QStringLiteral("#A6D2FF")};
     bool   m_tabCaptured     = true;
     bool   m_readOnly        = false;
     bool   m_overwrite       = false;

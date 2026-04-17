@@ -10,34 +10,37 @@ class SimpleTextDocument;
 class LineNumberGutter;
 }
 
-/// Main window for the qcodeedit demo application.
-///
-/// Provides a minimal File menu (Open, Close, Quit) around a qce::CodeEdit.
-/// Extracted from main.cpp to keep main.cpp small and to demonstrate how
-/// consumers typically wrap the editor widget.
+class QAction;
+
 class DemoWindow : public QMainWindow {
     Q_OBJECT
 public:
     explicit DemoWindow(QWidget* parent = nullptr);
     ~DemoWindow() override;
 
-    /// Loads the given file into the editor. On failure, shows a message box
-    /// and leaves the current document untouched.
     void loadFile(const QString& path);
 
 private slots:
     void onFileOpen();
     void onFileClose();
+    void onScrollBarSideToggled(bool left);
+    void onLineNumberSideToggled(bool left);
+    void onInvertSelectionToggled(bool invert);
 
 private:
-    qce::CodeEdit* m_editor = nullptr;
-    qce::SimpleTextDocument* m_doc = nullptr;
+    qce::CodeEdit*           m_editor      = nullptr;
+    qce::SimpleTextDocument* m_doc         = nullptr;
     std::unique_ptr<qce::LineNumberGutter> m_lineNumbers;
     QString m_currentPath;
 
-    /// Builds the menu bar. Called once from the constructor.
-    void buildMenus();
+    // Settings state
+    bool m_lineNumbersOnLeft = true;
 
-    /// Updates the window title to reflect the currently loaded file.
+    // Settings actions (kept for initial check-state sync)
+    QAction* m_actScrollLeft    = nullptr;
+    QAction* m_actLineNumLeft   = nullptr;
+    QAction* m_actInvertSel     = nullptr;
+
+    void buildMenus();
     void updateTitle();
 };

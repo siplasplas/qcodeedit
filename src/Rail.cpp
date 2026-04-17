@@ -22,6 +22,13 @@ void Rail::addMargin(IMargin* margin) {
     }
 }
 
+void Rail::removeMargin(IMargin* margin) {
+    if (m_margins.removeOne(margin)) {
+        updateGeometry();
+        update();
+    }
+}
+
 void Rail::connectToArea(CodeEditArea* area) {
     connect(area, &CodeEditArea::viewportChanged,
             this, &Rail::onViewportChanged);

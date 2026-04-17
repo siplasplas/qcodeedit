@@ -41,8 +41,16 @@ void CodeEdit::addLeftMargin(IMargin* margin) {
     m_leftRail->addMargin(margin);
 }
 
+void CodeEdit::removeLeftMargin(IMargin* margin) {
+    m_leftRail->removeMargin(margin);
+}
+
 void CodeEdit::addRightMargin(IMargin* margin) {
     m_rightRail->addMargin(margin);
+}
+
+void CodeEdit::removeRightMargin(IMargin* margin) {
+    m_rightRail->removeMargin(margin);
 }
 
 void CodeEdit::setScrollBarSide(ScrollBarSide side) {

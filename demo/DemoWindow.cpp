@@ -6,10 +6,12 @@
 #include <qce/margins/LineNumberGutter.h>
 
 #include <QAction>
+#include <QActionGroup>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QKeySequence>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QTextStream>
@@ -26,7 +28,6 @@ DemoWindow::DemoWindow(QWidget* parent)
     m_editor->addLeftMargin(m_lineNumbers.get());
 
     setCentralWidget(m_editor);
-
     buildMenus();
     updateTitle();
     resize(900, 600);
@@ -47,16 +48,15 @@ void DemoWindow::loadFile(const QString& path) {
     updateTitle();
 }
 
-// --- Slots --------------------------------------------------------------
+// --- Slots ------------------------------------------------------------------
 
 void DemoWindow::onFileOpen() {
     const QString path = QFileDialog::getOpenFileName(
         this, tr("Open file"), QString(),
         tr("Text files (*.txt *.md *.cpp *.h *.cmake);;All files (*)"));
-    if (path.isEmpty()) {
-        return;
+    if (!path.isEmpty()) {
+        loadFile(path);
     }
-    loadFile(path);
 }
 
 void DemoWindow::onFileClose() {
@@ -65,9 +65,33 @@ void DemoWindow::onFileClose() {
     updateTitle();
 }
 
-// --- Private helpers ----------------------------------------------------
+void DemoWindow::onScrollBarSideToggled(bool left) {
+    using Side = qce::CodeEdit::ScrollBarSide;
+    m_editor->setScrollBarSide(left ? Side::Left : Side::Right);
+}
+
+void DemoWindow::onLineNumberSideToggled(bool left) {
+    if (left == m_lineNumbersOnLeft) {
+        return;
+    }
+    m_lineNumbersOnLeft = left;
+    if (left) {
+        m_editor->removeRightMargin(m_lineNumbers.get());
+        m_editor->addLeftMargin(m_lineNumbers.get());
+    } else {
+        m_editor->removeLeftMargin(m_lineNumbers.get());
+        m_editor->addRightMargin(m_lineNumbers.get());
+    }
+}
+
+void DemoWindow::onInvertSelectionToggled(bool invert) {
+    m_editor->area()->setInvertSelection(invert);
+}
+
+// --- Private helpers --------------------------------------------------------
 
 void DemoWindow::buildMenus() {
+    // File menu
     auto* fileMenu = menuBar()->addMenu(tr("&File"));
 
     auto* openAct = fileMenu->addAction(tr("&Open..."));
@@ -83,6 +107,53 @@ void DemoWindow::buildMenus() {
     auto* quitAct = fileMenu->addAction(tr("&Quit"));
     quitAct->setShortcut(QKeySequence::Quit);
     connect(quitAct, &QAction::triggered, this, &QWidget::close);
+
+    // Settings menu
+    auto* settingsMenu = menuBar()->addMenu(tr("&Settings"));
+
+    // --- Scrollbar side ---
+    auto* scrollMenu = settingsMenu->addMenu(tr("Scrollbar side"));
+    auto* scrollGroup = new QActionGroup(this);
+    scrollGroup->setExclusive(true);
+
+    auto* scrollRight = scrollMenu->addAction(tr("Right (default)"));
+    scrollRight->setCheckable(true);
+    scrollRight->setChecked(true);
+    scrollGroup->addAction(scrollRight);
+
+    auto* scrollLeft = scrollMenu->addAction(tr("Left"));
+    scrollLeft->setCheckable(true);
+    scrollGroup->addAction(scrollLeft);
+
+    connect(scrollGroup, &QActionGroup::triggered, this, [this](QAction* a) {
+        onScrollBarSideToggled(a->text() == tr("Left"));
+    });
+
+    // --- Line numbers side ---
+    auto* lineNumMenu = settingsMenu->addMenu(tr("Line numbers side"));
+    auto* lineNumGroup = new QActionGroup(this);
+    lineNumGroup->setExclusive(true);
+
+    auto* lineNumLeft = lineNumMenu->addAction(tr("Left (default)"));
+    lineNumLeft->setCheckable(true);
+    lineNumLeft->setChecked(true);
+    lineNumGroup->addAction(lineNumLeft);
+
+    auto* lineNumRight = lineNumMenu->addAction(tr("Right"));
+    lineNumRight->setCheckable(true);
+    lineNumGroup->addAction(lineNumRight);
+
+    connect(lineNumGroup, &QActionGroup::triggered, this, [this](QAction* a) {
+        onLineNumberSideToggled(a->text().startsWith(tr("Left")));
+    });
+
+    // --- Invert selection ---
+    settingsMenu->addSeparator();
+
+    auto* invertAct = settingsMenu->addAction(tr("Invert selection colors"));
+    invertAct->setCheckable(true);
+    invertAct->setChecked(false);
+    connect(invertAct, &QAction::toggled, this, &DemoWindow::onInvertSelectionToggled);
 }
 
 void DemoWindow::updateTitle() {

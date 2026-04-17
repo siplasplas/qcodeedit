@@ -28,6 +28,9 @@ public:
     /// Appends a margin to the rail. The rail does not take ownership.
     void addMargin(IMargin* margin);
 
+    /// Removes a margin from the rail. No-op if not present.
+    void removeMargin(IMargin* margin);
+
     /// Connects viewportChanged() from the area to this rail's update slot.
     void connectToArea(CodeEditArea* area);
 

@@ -42,8 +42,14 @@ public:
     /// Adds a margin to the left rail. Non-owning; caller manages lifetime.
     void addLeftMargin(IMargin* margin);
 
+    /// Removes a margin from the left rail. No-op if not present.
+    void removeLeftMargin(IMargin* margin);
+
     /// Adds a margin to the right rail. Non-owning; caller manages lifetime.
     void addRightMargin(IMargin* margin);
+
+    /// Removes a margin from the right rail. No-op if not present.
+    void removeRightMargin(IMargin* margin);
 
     /// Moves the vertical scroll bar to the left or right side of the editor.
     /// Default is Right. On Left, the area's built-in scroll bar is hidden

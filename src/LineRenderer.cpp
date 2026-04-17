@@ -48,13 +48,36 @@ void LineRenderer::paint(QPainter& painter,
     }
 }
 
+int LineRenderer::visualColumn(const QString& line, int charIndex, int tabWidth) {
+    int visual = 0;
+    const int limit = qMin(charIndex, (int)line.size());
+    for (int i = 0; i < limit; ++i) {
+        if (line.at(i) == QLatin1Char('\t')) {
+            visual = (visual / tabWidth + 1) * tabWidth;
+        } else {
+            ++visual;
+        }
+    }
+    return visual;
+}
+
 QString LineRenderer::expandTabs(const QString& line) const {
     if (!line.contains(QLatin1Char('\t'))) {
         return line;
     }
-    const QString spaces(m_tabWidth, QLatin1Char(' '));
-    QString out = line;
-    out.replace(QLatin1Char('\t'), spaces);
+    QString out;
+    out.reserve(line.size() + 16);
+    int visual = 0;
+    for (QChar ch : line) {
+        if (ch == QLatin1Char('\t')) {
+            const int spaces = m_tabWidth - (visual % m_tabWidth);
+            out.append(QString(spaces, QLatin1Char(' ')));
+            visual += spaces;
+        } else {
+            out.append(ch);
+            ++visual;
+        }
+    }
     return out;
 }
 

@@ -54,6 +54,7 @@ void CaretPainter::onTimerTick() {
 
 void CaretPainter::paint(QPainter& painter,
                           const TextCursor& cursor,
+                          int visualCol,
                           const ViewportState& vp,
                           const QFont& font) const {
     if (!m_focused || !m_shown || !vp.isValid()) {
@@ -64,7 +65,7 @@ void CaretPainter::paint(QPainter& painter,
     }
 
     const int x = LineRenderer::kLeftPaddingPx
-                  + cursor.column * vp.charWidth
+                  + visualCol * vp.charWidth
                   - vp.contentOffsetX;
     const int topY = vp.contentOffsetY
                      + (cursor.line - vp.firstVisibleLine) * vp.lineHeight;

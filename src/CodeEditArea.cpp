@@ -211,7 +211,11 @@ void CodeEditArea::paintEvent(QPaintEvent* e) {
         m_renderer->paint(p, m_doc, m_viewportState);
         p.restore();
     }
-    m_caretPainter->paint(p, m_cursor, m_viewportState, font());
+    const int caretVisualCol = m_doc
+        ? LineRenderer::visualColumn(m_doc->lineAt(m_cursor.line),
+                                     m_cursor.column, tabWidth())
+        : m_cursor.column;
+    m_caretPainter->paint(p, m_cursor, caretVisualCol, m_viewportState, font());
 }
 
 void CodeEditArea::resizeEvent(QResizeEvent* e) {
@@ -302,7 +306,7 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
             return;
         }
         if (m_tabCaptured) {
-            executeInsert(QString(tabWidth(), QLatin1Char(' ')));
+            executeInsert(QStringLiteral("\t"));
         } else {
             QAbstractScrollArea::keyPressEvent(e);
             return;
@@ -316,15 +320,19 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
             return;
         }
         if (m_tabCaptured) {
-            // Dedent: remove up to tabWidth leading spaces on current line.
+            // Dedent: remove one leading tab, or up to tabWidth leading spaces.
             const QString line = m_doc->lineAt(m_cursor.line);
-            int spaces = 0;
-            while (spaces < tabWidth() && spaces < line.size()
-                   && line.at(spaces) == QLatin1Char(' ')) {
-                ++spaces;
-            }
-            if (spaces > 0) {
-                executeRemove({m_cursor.line, 0}, {m_cursor.line, spaces});
+            if (!line.isEmpty() && line.at(0) == QLatin1Char('\t')) {
+                executeRemove({m_cursor.line, 0}, {m_cursor.line, 1});
+            } else {
+                int spaces = 0;
+                while (spaces < tabWidth() && spaces < line.size()
+                       && line.at(spaces) == QLatin1Char(' ')) {
+                    ++spaces;
+                }
+                if (spaces > 0) {
+                    executeRemove({m_cursor.line, 0}, {m_cursor.line, spaces});
+                }
             }
         } else {
             QAbstractScrollArea::keyPressEvent(e);
@@ -589,11 +597,28 @@ TextCursor CodeEditArea::cursorFromPoint(const QPoint& pt) const {
     if (!m_doc || !vp.isValid()) {
         return {};
     }
-    const int line = vp.firstVisibleLine + pt.y() / vp.lineHeight;
-    const int col  = qMax(0, (pt.x() - LineRenderer::kLeftPaddingPx
-                               + vp.contentOffsetX + vp.charWidth / 2)
-                              / vp.charWidth);
-    return m_cursorCtrl->clamp({line, col});
+    const int lineNum = qBound(0,
+        vp.firstVisibleLine + pt.y() / vp.lineHeight,
+        m_doc->lineCount() - 1);
+
+    // Target x in virtual "visual column" pixels (0 = first char pixel).
+    const int targetX = pt.x() - LineRenderer::kLeftPaddingPx + vp.contentOffsetX;
+
+    const QString lineStr = m_doc->lineAt(lineNum);
+    const int tw = tabWidth();
+    int visual = 0;
+    int col = 0;
+    for (; col < lineStr.size(); ++col) {
+        const int charVisualWidth = (lineStr.at(col) == QLatin1Char('\t'))
+            ? (tw - (visual % tw))
+            : 1;
+        // Stop if target is in the first half of this character's visual span.
+        if (targetX * 2 < (2 * visual + charVisualWidth) * vp.charWidth) {
+            break;
+        }
+        visual += charVisualWidth;
+    }
+    return m_cursorCtrl->clamp({lineNum, col});
 }
 
 void CodeEditArea::ensureCursorVisible(TextCursor pos) {
@@ -698,13 +723,17 @@ QRegion CodeEditArea::selectionRegion() const {
     for (int i = first; i <= last; ++i) {
         const int topY = vp.contentOffsetY + (i - vp.firstVisibleLine) * vp.lineHeight;
 
-        const int startCol = (i == s.line) ? s.column : 0;
+        const QString lineStr = m_doc->lineAt(i);
+        const int tw = tabWidth();
+        const int startCol = (i == s.line)
+            ? LineRenderer::visualColumn(lineStr, s.column, tw)
+            : 0;
         int endCol;
         if (i == e.line) {
-            endCol = e.column;
+            endCol = LineRenderer::visualColumn(lineStr, e.column, tw);
         } else {
-            const int lineLen = m_doc->lineAt(i).length();
-            endCol = qMax(lineLen, vp.viewportWidth / vp.charWidth + 1);
+            const int lineVisualLen = LineRenderer::visualColumn(lineStr, lineStr.size(), tw);
+            endCol = qMax(lineVisualLen, vp.viewportWidth / vp.charWidth + 1);
         }
 
         const int x = LineRenderer::kLeftPaddingPx

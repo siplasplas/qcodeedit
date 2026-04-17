@@ -35,8 +35,12 @@ public:
     bool overwrite() const { return m_overwrite; }
 
     /// Paints the caret. No-op when hidden, out of focus, or off-screen.
+    /// `visualCol` is the tab-expanded column used to compute the pixel x
+    /// position; the caller (CodeEditArea) derives it via
+    /// LineRenderer::visualColumn().
     void paint(QPainter& painter,
                const TextCursor& cursor,
+               int visualCol,
                const ViewportState& vp,
                const QFont& font) const;
 

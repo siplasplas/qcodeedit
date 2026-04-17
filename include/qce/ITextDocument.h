@@ -44,6 +44,10 @@ public:
     /// Emits linesChanged / linesRemoved as appropriate.
     virtual QString removeText(TextCursor start, TextCursor end) = 0;
 
+    /// Removes trailing whitespace from every line. Not undoable — intended
+    /// for "save with cleanup" workflows. Emits linesChanged per modified line.
+    void stripTrailingWhitespace();
+
 signals:
     void linesInserted(int startLine, int count);
     void linesRemoved(int startLine, int count);

@@ -40,21 +40,20 @@ public:
     int tabWidth() const { return m_tabWidth; }
 
     /// Paints the visible region of the document.
-    ///
-    /// - painter: target, already clipped to the viewport rect
-    /// - doc: source document (may be null -> nothing drawn)
-    /// - vp: current viewport state, provides first/last visible line,
-    ///       lineHeight, contentOffsetX, etc.
     void paint(QPainter& painter,
                const ITextDocument* doc,
                const ViewportState& vp) const;
+
+    /// Visual column (number of displayed characters) at logical char index
+    /// `charIndex` in `line`, given `tabWidth`. Tabs advance to the next tab
+    /// stop. Used by CodeEditArea to position the caret and selection rects.
+    static int visualColumn(const QString& line, int charIndex, int tabWidth);
 
 private:
     QFont m_font;
     int m_tabWidth = 4;
 
-    /// Returns a copy of `line` with every '\t' replaced by `m_tabWidth`
-    /// spaces. A simple, non-column-aware expansion — good enough for v0.2.
+    /// Column-aware tab expansion: each '\t' advances to the next tab stop.
     QString expandTabs(const QString& line) const;
 };
 

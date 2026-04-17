@@ -33,6 +33,8 @@ private slots:
     void removeText_samePosition_returnsEmpty();
     void removeText_returnsRemovedText();
     void removeText_emitsLinesChanged();
+    void stripTrailingWhitespace_removesSpacesAndTabs();
+    void stripTrailingWhitespace_leavesCleanLinesUntouched();
     void removeText_emitsLinesRemoved_forMultiLine();
 };
 
@@ -271,6 +273,28 @@ void TestSimpleDocument::removeText_emitsLinesRemoved_forMultiLine() {
     QCOMPARE(spyRemoved.count(), 1);
     QCOMPARE(spyRemoved.at(0).at(1).toInt(), 2); // removed 2 lines
     QCOMPARE(spyChanged.count(), 1);
+}
+
+void TestSimpleDocument::stripTrailingWhitespace_removesSpacesAndTabs() {
+    qce::SimpleTextDocument doc;
+    doc.setText(QStringLiteral("hello   \nworld\t\nfoo"));
+
+    doc.stripTrailingWhitespace();
+
+    QCOMPARE(doc.lineAt(0), QStringLiteral("hello"));
+    QCOMPARE(doc.lineAt(1), QStringLiteral("world"));
+    QCOMPARE(doc.lineAt(2), QStringLiteral("foo")); // no trailing ws
+}
+
+void TestSimpleDocument::stripTrailingWhitespace_leavesCleanLinesUntouched() {
+    qce::SimpleTextDocument doc;
+    doc.setText(QStringLiteral("clean\nlines\nhere"));
+    QSignalSpy spy(&doc, &qce::ITextDocument::linesChanged);
+
+    doc.stripTrailingWhitespace();
+
+    QCOMPARE(spy.count(), 0); // no signals for unchanged lines
+    QCOMPARE(doc.toPlainText(), QStringLiteral("clean\nlines\nhere"));
 }
 
 QTEST_APPLESS_MAIN(TestSimpleDocument)

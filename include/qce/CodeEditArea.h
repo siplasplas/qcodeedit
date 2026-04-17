@@ -49,6 +49,26 @@ public:
     /// previous one.
     void setCursorPosition(TextCursor pos);
 
+    // --- Selection API ---
+
+    /// Returns true if there is a non-empty selection.
+    bool hasSelection() const { return m_anchor != m_cursor; }
+
+    /// Start of the selection (the lesser of anchor and cursor).
+    TextCursor selectionStart() const;
+
+    /// End of the selection (the greater of anchor and cursor).
+    TextCursor selectionEnd() const;
+
+    /// Returns the selected text, or an empty string if nothing is selected.
+    QString selectedText() const;
+
+    /// Selects the entire document.
+    void selectAll();
+
+    /// Collapses the selection to the current cursor position.
+    void clearSelection();
+
     // --- Configuration ---
 
     /// Number of space characters a tab expands to. Default 4. Affects
@@ -71,11 +91,17 @@ signals:
     /// moves (e.g. pressing Down when already on the last line).
     void cursorPositionChanged(TextCursor pos);
 
+    /// Emitted whenever the selection changes (including when it is cleared).
+    void selectionChanged();
+
 protected:
     void paintEvent(QPaintEvent* e) override;
     void resizeEvent(QResizeEvent* e) override;
     void scrollContentsBy(int dx, int dy) override;
     void keyPressEvent(QKeyEvent* e) override;
+    void mousePressEvent(QMouseEvent* e) override;
+    void mouseMoveEvent(QMouseEvent* e) override;
+    void mouseReleaseEvent(QMouseEvent* e) override;
     void focusInEvent(QFocusEvent* e) override;
     void focusOutEvent(QFocusEvent* e) override;
 
@@ -89,6 +115,7 @@ private:
     ITextDocument* m_doc = nullptr;
     ViewportState m_viewportState;
     TextCursor m_cursor;
+    TextCursor m_anchor; // selection anchor; equals m_cursor when no selection
 
     // Owned helpers. unique_ptr so we can forward-declare in the header.
     std::unique_ptr<LineRenderer> m_renderer;
@@ -97,28 +124,23 @@ private:
 
     // --- Private helpers ---
 
-    /// Recomputes ViewportState from current scroll/size and emits
-    /// viewportChanged(). Called after any relevant change.
     void refreshViewportState();
-
-    /// Recomputes scroll bar ranges based on document size and viewport size.
     void updateScrollBarRanges();
-
-    /// Disconnects signal handlers from the current document (if any) and
-    /// connects them to the new one.
     void rebindDocumentSignals(ITextDocument* newDoc);
 
-    /// Core cursor move: applies `newPos`, clamps, emits signals, scrolls
-    /// the viewport to keep the cursor visible, and requests a repaint.
-    /// No-op if newPos equals current position after clamping.
+    /// Moves cursor + collapses selection. No-op if nothing changes.
     void applyCursorMove(TextCursor newPos);
 
-    /// Adjusts scroll bars so the given cursor is visible in the viewport.
-    /// Only scrolls if the cursor is currently off-screen.
-    void ensureCursorVisible(TextCursor pos);
+    /// Moves cursor, keeps anchor (Shift+key / mouse drag).
+    void applySelectionMove(TextCursor newPos);
 
-    /// Returns the number of full lines that fit in the viewport (>=1).
-    /// Used for PageUp/PageDown step size.
+    /// Converts a viewport pixel position to a document cursor.
+    TextCursor cursorFromPoint(const QPoint& pt) const;
+
+    /// Paints the selection highlight behind the text.
+    void paintSelection(QPainter& painter);
+
+    void ensureCursorVisible(TextCursor pos);
     int pageLineCount() const;
 };
 

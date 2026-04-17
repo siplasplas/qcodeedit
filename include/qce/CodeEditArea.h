@@ -9,6 +9,8 @@
 
 #include <memory>
 
+class QUndoStack;
+
 namespace qce {
 
 class ITextDocument;
@@ -16,97 +18,64 @@ class LineRenderer;
 class CursorController;
 class CaretPainter;
 
-/// The actual text-rendering widget.
-///
-/// Inherits QAbstractScrollArea and renders the document's lines in its
-/// viewport. Publishes ViewportState via viewportChanged() so that margins
-/// (gutters, side bars) can paint themselves in sync without needing direct
-/// access to this class's internals.
+/// The actual text-rendering and editing widget.
 class CodeEditArea : public QAbstractScrollArea {
     Q_OBJECT
 public:
     explicit CodeEditArea(QWidget* parent = nullptr);
     ~CodeEditArea() override;
 
-    /// Attaches a document to the view. The view does not take ownership;
-    /// the caller is responsible for the document's lifetime. Pass nullptr
-    /// to detach.
     void setDocument(ITextDocument* doc);
-
-    /// Returns the currently attached document, or nullptr if none.
     ITextDocument* document() const { return m_doc; }
 
-    /// Returns the current viewport state snapshot. Cheap: just a struct copy.
     ViewportState viewportState() const { return m_viewportState; }
 
-    // --- Cursor API ---
-
-    /// Current cursor position. Always clamped to a valid range when there
-    /// is a document; (0, 0) for an empty or detached document.
+    // --- Cursor ---
     TextCursor cursorPosition() const { return m_cursor; }
-
-    /// Moves the cursor to the given position. Clamps to document bounds
-    /// and scrolls the viewport to keep the cursor visible. Emits
-    /// cursorPositionChanged if the effective position differs from the
-    /// previous one.
     void setCursorPosition(TextCursor pos);
 
-    // --- Selection API ---
-
-    /// Returns true if there is a non-empty selection.
+    // --- Selection ---
     bool hasSelection() const { return m_anchor != m_cursor; }
-
-    /// Start of the selection (the lesser of anchor and cursor).
     TextCursor selectionStart() const;
-
-    /// End of the selection (the greater of anchor and cursor).
     TextCursor selectionEnd() const;
-
-    /// Returns the selected text, or an empty string if nothing is selected.
     QString selectedText() const;
-
-    /// Selects the entire document.
     void selectAll();
-
-    /// Collapses the selection to the current cursor position.
     void clearSelection();
 
-    /// Background color used to highlight the selected text. Default #94CAEF.
     void setSelectionColor(const QColor& color);
     QColor selectionColor() const { return m_selectionColor; }
 
-    /// When true, selected text is redrawn in selectionForeground() color
-    /// (default white) on top of the selection background. Default false.
     void setInvertSelection(bool invert);
     bool invertSelection() const { return m_invertSelection; }
 
-    /// Foreground color used when invertSelection() is true. Default white.
     void setSelectionForeground(const QColor& color);
     QColor selectionForeground() const { return m_selectionForeground; }
 
+    // --- Undo / redo ---
+    void undo();
+    void redo();
+    bool canUndo() const;
+    bool canRedo() const;
+
+    /// Exposes the undo stack for external wiring (e.g. menu enable/disable).
+    QUndoStack* undoStack() const { return m_undoStack; }
+
     // --- Configuration ---
-
-    /// Number of space characters a tab expands to. Default 4. Affects
-    /// rendering only in v0.2. Must be > 0; values <= 0 are silently
-    /// treated as 4.
     void setTabWidth(int spaces);
-    int tabWidth() const;
+    int  tabWidth() const;
 
-    /// Caret blink interval in milliseconds. Default 500. Values <= 0 are
-    /// silently treated as 500.
+    /// When true (default), Tab inserts spaces and Shift+Tab dedents.
+    /// When false, Tab / Shift+Tab pass through to Qt focus navigation.
+    /// Ctrl+Tab and Shift+Ctrl+Tab always pass through regardless.
+    void setTabCaptured(bool captured);
+    bool tabCaptured() const { return m_tabCaptured; }
+
     void setCaretBlinkInterval(int ms);
-    int caretBlinkInterval() const;
+    int  caretBlinkInterval() const;
 
 signals:
-    /// Emitted whenever the viewport state changes (scroll, resize, document
-    /// modification). Margins connect to this to schedule their own repaint.
     void viewportChanged(const ViewportState& state);
-
-    /// Emitted whenever the cursor position changes. Not emitted on no-op
-    /// moves (e.g. pressing Down when already on the last line).
     void cursorPositionChanged(TextCursor pos);
-
-    /// Emitted whenever the selection changes (including when it is cleared).
     void selectionChanged();
 
 protected:
@@ -128,42 +97,42 @@ private slots:
 
 private:
     ITextDocument* m_doc = nullptr;
-    ViewportState m_viewportState;
-    TextCursor m_cursor;
-    TextCursor m_anchor; // selection anchor; equals m_cursor when no selection
+    ViewportState  m_viewportState;
+    TextCursor     m_cursor;
+    TextCursor     m_anchor;
     QColor m_selectionColor{QStringLiteral("#94CAEF")};
     QColor m_selectionForeground{Qt::white};
     bool   m_invertSelection = false;
+    bool   m_tabCaptured     = true;
 
-    // Owned helpers. unique_ptr so we can forward-declare in the header.
-    std::unique_ptr<LineRenderer> m_renderer;
-    std::unique_ptr<CursorController> m_cursorCtrl;
-    std::unique_ptr<CaretPainter> m_caretPainter;
+    std::unique_ptr<LineRenderer>      m_renderer;
+    std::unique_ptr<CursorController>  m_cursorCtrl;
+    std::unique_ptr<CaretPainter>      m_caretPainter;
+    QUndoStack*                        m_undoStack = nullptr;
 
-    // --- Private helpers ---
-
+    // --- Navigation helpers ---
     void refreshViewportState();
     void updateScrollBarRanges();
     void rebindDocumentSignals(ITextDocument* newDoc);
-
-    /// Moves cursor + collapses selection. No-op if nothing changes.
     void applyCursorMove(TextCursor newPos);
-
-    /// Moves cursor, keeps anchor (Shift+key / mouse drag).
     void applySelectionMove(TextCursor newPos);
-
-    /// Converts a viewport pixel position to a document cursor.
     TextCursor cursorFromPoint(const QPoint& pt) const;
-
-    /// Paints the selection highlight behind the text.
-    void paintSelection(QPainter& painter);
-
-    /// Returns the pixel region covered by the current selection.
-    /// Used both for painting the highlight and for clipping inverted text.
-    QRegion selectionRegion() const;
-
     void ensureCursorVisible(TextCursor pos);
-    int pageLineCount() const;
+    int  pageLineCount() const;
+
+    // --- Edit helpers ---
+    /// Insert text at cursor (replacing selection if present).
+    void executeInsert(const QString& text);
+    /// Remove the range [start, end) as one undo step.
+    void executeRemove(TextCursor start, TextCursor end);
+    /// Remove current selection as one undo step. No-op if no selection.
+    void executeRemoveSelection();
+    /// Called after any edit or undo/redo to sync visuals.
+    void updateAfterEdit();
+
+    // --- Painting helpers ---
+    void paintSelection(QPainter& painter);
+    QRegion selectionRegion() const;
 };
 
 } // namespace qce

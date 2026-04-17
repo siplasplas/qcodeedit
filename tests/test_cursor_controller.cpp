@@ -42,6 +42,12 @@ private slots:
     void movePageDown_stepsByPageLines();
     void movePageDown_pageLinesZero_clampsToOne();
 
+    // Word movement
+    void moveWordRight_skipsWordThenSpace();
+    void moveWordRight_atLineEnd_wrapsToNextLine();
+    void moveWordLeft_skipsSpaceThenWord();
+    void moveWordLeft_atColumnZero_wrapsToPreviousLine();
+
 private:
     qce::SimpleTextDocument m_doc;
 };
@@ -190,6 +196,50 @@ void TestCursorController::movePageDown_pageLinesZero_clampsToOne() {
     CursorController cc(&m_doc);
     const TextCursor r = cc.movePageDown(TextCursor{0, 0}, 0);
     QCOMPARE(r.line, 1); // clamped to 1 line move
+}
+
+// --- Word movement -------------------------------------------------------
+
+void TestCursorController::moveWordRight_skipsWordThenSpace() {
+    // Line 1: "a much longer line"
+    // From col 0 ('a') → skip 'a', skip ' ' → col 2 (start of 'much')
+    CursorController cc(&m_doc);
+    const TextCursor r = cc.moveWordRight(TextCursor{1, 0});
+    QCOMPARE(r.line, 1);
+    QCOMPARE(r.column, 2);
+}
+
+void TestCursorController::moveWordRight_atLineEnd_wrapsToNextLine() {
+    CursorController cc(&m_doc);
+    // Line 0 ends at col 5; move right wraps to line 1 col 0.
+    const TextCursor r = cc.moveWordRight(TextCursor{0, 5});
+    QCOMPARE(r.line, 1);
+    QCOMPARE(r.column, 0);
+}
+
+void TestCursorController::moveWordLeft_skipsSpaceThenWord() {
+    // Line 1: "a much longer line", col 7 (middle of 'longer')
+    // Skip non-ws 'onger' → col 2; skip ' ' → col 1 (end of 'a'); skip 'a' → col 0
+    // Actually: skip non-ws to the left from col 7: 'l','o','n','g' back to col 2 start of 'longer'
+    // Then skip ws: ' ' → col 1. Then skip non-ws: 'a' → col 0.
+    // But wait: the implementation skips whitespace first, then non-whitespace.
+    // From col 7 ('o' in 'longer'): line[6]='l', not space, skip ws: nothing.
+    // Skip non-ws to the left: 'l','o','n','g','e','r'... back to col 2 (start of 'longer')?
+    // Wait let me re-check: line = "a much longer line"
+    // indices: 0='a', 1=' ', 2='m', 3='u', 4='c', 5='h', 6=' ', 7='l', 8='o', ...
+    // From col 7 ('l'): skip ws left (line[6]=' ') → col 6; skip non-ws left: line[5]='h', 4='c',3='u',2='m' → col 2
+    CursorController cc(&m_doc);
+    const TextCursor r = cc.moveWordLeft(TextCursor{1, 7});
+    QCOMPARE(r.line, 1);
+    QCOMPARE(r.column, 2);
+}
+
+void TestCursorController::moveWordLeft_atColumnZero_wrapsToPreviousLine() {
+    CursorController cc(&m_doc);
+    // Line 1, col 0 → wraps to end of line 0 (col 5).
+    const TextCursor r = cc.moveWordLeft(TextCursor{1, 0});
+    QCOMPARE(r.line, 0);
+    QCOMPARE(r.column, 5);
 }
 
 QTEST_APPLESS_MAIN(TestCursorController)

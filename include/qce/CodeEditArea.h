@@ -70,6 +70,11 @@ public:
     void setTabCaptured(bool captured);
     bool tabCaptured() const { return m_tabCaptured; }
 
+    void setReadOnly(bool ro);
+    bool readOnly() const { return m_readOnly; }
+
+    bool overwriteMode() const { return m_overwrite; }
+
     void setCaretBlinkInterval(int ms);
     int  caretBlinkInterval() const;
 
@@ -104,6 +109,8 @@ private:
     QColor m_selectionForeground{Qt::white};
     bool   m_invertSelection = false;
     bool   m_tabCaptured     = true;
+    bool   m_readOnly        = false;
+    bool   m_overwrite       = false;
 
     std::unique_ptr<LineRenderer>      m_renderer;
     std::unique_ptr<CursorController>  m_cursorCtrl;

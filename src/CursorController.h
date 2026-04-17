@@ -46,6 +46,9 @@ public:
     TextCursor movePageUp(TextCursor c, int pageLines) const;
     TextCursor movePageDown(TextCursor c, int pageLines) const;
 
+    TextCursor moveWordLeft(TextCursor c) const;
+    TextCursor moveWordRight(TextCursor c) const;
+
     /// Clamps the cursor to the valid range of the document. Useful after
     /// document changes (e.g. lines removed below the cursor).
     TextCursor clamp(TextCursor c) const;

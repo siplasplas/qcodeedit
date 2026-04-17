@@ -178,6 +178,10 @@ void CodeEditArea::setTabCaptured(bool captured) {
     m_tabCaptured = captured;
 }
 
+void CodeEditArea::setReadOnly(bool ro) {
+    m_readOnly = ro;
+}
+
 void CodeEditArea::setCaretBlinkInterval(int ms) {
     m_caretPainter->setBlinkInterval(ms);
 }
@@ -248,8 +252,12 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
     // --- Navigation ---
     case Qt::Key_Up:       move(cc.moveUp(c));                              break;
     case Qt::Key_Down:     move(cc.moveDown(c));                            break;
-    case Qt::Key_Left:     move(cc.moveLeft(c));                            break;
-    case Qt::Key_Right:    move(cc.moveRight(c));                           break;
+    case Qt::Key_Left:
+        move(ctrl ? cc.moveWordLeft(c) : cc.moveLeft(c));
+        break;
+    case Qt::Key_Right:
+        move(ctrl ? cc.moveWordRight(c) : cc.moveRight(c));
+        break;
     case Qt::Key_Home:     move(ctrl ? cc.moveToDocumentStart(c)
                                      : cc.moveToLineStart(c));              break;
     case Qt::Key_End:      move(ctrl ? cc.moveToDocumentEnd(c)
@@ -336,6 +344,29 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
         }
         goto handle_printable;
 
+    case Qt::Key_X:
+        if (ctrl && hasSelection()) {
+            QGuiApplication::clipboard()->setText(selectedText());
+            executeRemoveSelection();
+            break;
+        }
+        goto handle_printable;
+
+    case Qt::Key_V:
+        if (ctrl) {
+            const QString text = QGuiApplication::clipboard()->text();
+            if (!text.isEmpty()) {
+                executeInsert(text);
+            }
+            break;
+        }
+        goto handle_printable;
+
+    case Qt::Key_Insert:
+        m_overwrite = !m_overwrite;
+        viewport()->update();
+        break;
+
     case Qt::Key_Z:
         if (ctrl && !shift) { undo(); break; }
         if (ctrl &&  shift) { redo(); break; }
@@ -349,7 +380,17 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
     handle_printable: {
         const QString text = e->text();
         if (!text.isEmpty() && !ctrl && !alt && text.at(0).isPrint()) {
-            executeInsert(text);
+            if (m_overwrite && !hasSelection()
+                    && m_doc
+                    && m_cursor.column < m_doc->lineAt(m_cursor.line).size()) {
+                // Replace character under cursor in one undo step.
+                m_undoStack->beginMacro(QString());
+                executeRemove(m_cursor, {m_cursor.line, m_cursor.column + 1});
+                executeInsert(text);
+                m_undoStack->endMacro();
+            } else {
+                executeInsert(text);
+            }
             break;
         }
         QAbstractScrollArea::keyPressEvent(e);
@@ -592,7 +633,7 @@ int CodeEditArea::pageLineCount() const {
 // ------------------------------------------------------------------------
 
 void CodeEditArea::executeInsert(const QString& text) {
-    if (!m_doc) {
+    if (!m_doc || m_readOnly) {
         return;
     }
     if (hasSelection()) {
@@ -609,7 +650,7 @@ void CodeEditArea::executeInsert(const QString& text) {
 }
 
 void CodeEditArea::executeRemove(TextCursor start, TextCursor end) {
-    if (!m_doc || start == end) {
+    if (!m_doc || m_readOnly || start == end) {
         return;
     }
     m_undoStack->push(new RemoveCommand(
@@ -618,7 +659,7 @@ void CodeEditArea::executeRemove(TextCursor start, TextCursor end) {
 }
 
 void CodeEditArea::executeRemoveSelection() {
-    if (!m_doc || !hasSelection()) {
+    if (!m_doc || m_readOnly || !hasSelection()) {
         return;
     }
     m_undoStack->push(new RemoveCommand(

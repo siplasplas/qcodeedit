@@ -100,6 +100,47 @@ TextCursor CursorController::moveToDocumentEnd(TextCursor /*c*/) const {
     return r;
 }
 
+// --- Movement: word -----------------------------------------------------
+
+TextCursor CursorController::moveWordLeft(TextCursor c) const {
+    if (!m_doc) return c;
+    // If at column 0, wrap to end of previous line.
+    if (c.column == 0) {
+        if (c.line == 0) return c;
+        --c.line;
+        c.column = lineLength(c.line);
+        return c;
+    }
+    const QString line = m_doc->lineAt(c.line);
+    int col = c.column;
+    // Skip whitespace to the left.
+    while (col > 0 && line.at(col - 1).isSpace()) --col;
+    // Skip non-whitespace to the left.
+    while (col > 0 && !line.at(col - 1).isSpace()) --col;
+    c.column = col;
+    return c;
+}
+
+TextCursor CursorController::moveWordRight(TextCursor c) const {
+    if (!m_doc) return c;
+    const int len = lineLength(c.line);
+    // If at end of line, wrap to start of next line.
+    if (c.column >= len) {
+        if (c.line >= lineCount() - 1) return c;
+        ++c.line;
+        c.column = 0;
+        return c;
+    }
+    const QString line = m_doc->lineAt(c.line);
+    int col = c.column;
+    // Skip non-whitespace to the right.
+    while (col < len && !line.at(col).isSpace()) ++col;
+    // Skip whitespace to the right.
+    while (col < len && line.at(col).isSpace()) ++col;
+    c.column = col;
+    return c;
+}
+
 // --- Clamp --------------------------------------------------------------
 
 TextCursor CursorController::clamp(TextCursor c) const {

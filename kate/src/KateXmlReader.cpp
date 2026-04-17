@@ -70,11 +70,32 @@ static const QHash<QString, ThemeEntry>& theme() {
 // -----------------------------------------------------------------------------
 // DTD entity pre-expansion
 // -----------------------------------------------------------------------------
+
+// Find the closing ']' of a DTD internal subset, skipping quoted strings so
+// that ']' characters inside entity values (e.g. "[]{|}") are not mistaken
+// for the closing bracket.
+static int findDtdBracketClose(const QString& raw, int from) {
+    bool inQuote = false;
+    QChar quoteChar;
+    for (int i = from; i < raw.size(); ++i) {
+        const QChar c = raw.at(i);
+        if (inQuote) {
+            if (c == quoteChar) inQuote = false;
+        } else if (c == QLatin1Char('"') || c == QLatin1Char('\'')) {
+            inQuote = true;
+            quoteChar = c;
+        } else if (c == QLatin1Char(']')) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 static QString expandDtdEntities(const QString& raw) {
     const int docStart = raw.indexOf(QStringLiteral("<!DOCTYPE"));
     if (docStart < 0) return raw;
     const int bracketOpen = raw.indexOf(QLatin1Char('['), docStart);
-    const int bracketClose = raw.indexOf(QLatin1Char(']'), bracketOpen);
+    const int bracketClose = findDtdBracketClose(raw, bracketOpen + 1);
     if (bracketOpen < 0 || bracketClose < 0) return raw;
 
     const QString dtd = raw.mid(bracketOpen + 1, bracketClose - bracketOpen - 1);
@@ -385,14 +406,30 @@ private:
             return n.isEmpty() ? -1 : resolved.ctxByName.value(n, -1);
         };
 
-        // Step 4: fill context rules
+        // Step 4: fill context rules.
+        // IMPORTANT: ensureLoaded() called for cross-language ## references may
+        // call m_hl->addContext(), reallocating the internal QVector and
+        // invalidating any previously-taken HighlightContext reference.
+        // We therefore collect rules into a local vector and write them back
+        // via a fresh contextRef() call after the inner loop completes.
+        struct PendingCtx {
+            int                     ctxId;
+            int                     defaultAttribute;
+            int                     lineEndPopCount;
+            int                     lineEndNextContext;
+            QVector<HighlightRule>  rules;
+        };
+        QVector<PendingCtx> pending;
+        pending.reserve(data.contexts.size());
+
         for (const RawContext& rc : data.contexts) {
-            HighlightContext& hc =
-                m_hl->contextRef(resolved.ctxByName.value(rc.name));
-            hc.defaultAttribute   = resolveAttr(rc.attribute);
+            const int ctxId = resolved.ctxByName.value(rc.name);
             const ContextSwitch leSw = parseContextSwitch(rc.lineEndContext);
-            hc.lineEndPopCount    = leSw.popCount;
-            hc.lineEndNextContext = resolveCtxLocal(leSw.pushName);
+            PendingCtx pc;
+            pc.ctxId             = ctxId;
+            pc.defaultAttribute  = resolveAttr(rc.attribute);
+            pc.lineEndPopCount   = leSw.popCount;
+            pc.lineEndNextContext = resolveCtxLocal(leSw.pushName);
 
             for (const RawRule& rr : rc.rules) {
                 HighlightRule hr;
@@ -423,6 +460,8 @@ private:
                     const int sep = ctxRef.indexOf(QStringLiteral("##"));
                     if (sep >= 0) {
                         // Cross-language: [CtxName]##LangName
+                        // ensureLoaded may call addContext → realloc, but we
+                        // accumulate into pc.rules (local), not into hc.rules.
                         const QString foreignLang = ctxRef.mid(sep + 2);
                         const QString foreignCtxName =
                             sep > 0 ? ctxRef.left(sep) : QString();
@@ -493,8 +532,18 @@ private:
                     continue; // unknown rule tag
                 }
 
-                hc.rules.push_back(std::move(hr));
+                pc.rules.push_back(std::move(hr));
             }
+            pending.push_back(std::move(pc));
+        }
+
+        // Write back: all ensureLoaded calls are done, no more reallocs expected.
+        for (PendingCtx& pc : pending) {
+            HighlightContext& hc = m_hl->contextRef(pc.ctxId);
+            hc.defaultAttribute   = pc.defaultAttribute;
+            hc.lineEndPopCount    = pc.lineEndPopCount;
+            hc.lineEndNextContext = pc.lineEndNextContext;
+            hc.rules              = std::move(pc.rules);
         }
     }
 };

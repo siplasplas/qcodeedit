@@ -37,6 +37,7 @@ add_library(qcodeedit STATIC
     src/EditCommands.cpp
     src/WrapLayout.cpp
     src/RulesHighlighter.cpp
+    src/FoldState.cpp
 
     # Internal headers (in src/) are listed so AUTOMOC / IDEs pick them up.
     src/LineRenderer.h
@@ -58,6 +59,9 @@ add_library(qcodeedit STATIC
     include/qce/HighlightState.h
     include/qce/IHighlighter.h
     include/qce/RulesHighlighter.h
+    include/qce/FoldRegion.h
+    include/qce/IFoldingProvider.h
+    include/qce/FoldState.h
     include/qce/margins/LineNumberGutter.h
     include/qce/Rail.h
     include/qce/LeftRail.h

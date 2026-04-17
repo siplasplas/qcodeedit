@@ -26,6 +26,7 @@ qce_add_test(test_line_renderer     INTERNAL)
 qce_add_test(test_wrap_layout       INTERNAL)
 qce_add_test(test_rules_highlighter)
 qce_add_test(test_highlighter_integration)
+qce_add_test(test_fold_state)
 
 # test_kate_xml_reader pulls in KateXmlReader from demo/ — it links the core
 # library plus the reader source directly (the reader deliberately lives in

@@ -55,12 +55,13 @@ void CaretPainter::onTimerTick() {
 void CaretPainter::paint(QPainter& painter,
                           const TextCursor& cursor,
                           int visualCol,
+                          int visualRow,
                           const ViewportState& vp,
                           const QFont& font) const {
     if (!m_focused || !m_shown || !vp.isValid()) {
         return;
     }
-    if (cursor.line < vp.firstVisibleLine || cursor.line > vp.lastVisibleLine) {
+    if (visualRow < vp.firstVisibleRow || visualRow > vp.lastVisibleRow) {
         return;
     }
 
@@ -68,7 +69,7 @@ void CaretPainter::paint(QPainter& painter,
                   + visualCol * vp.charWidth
                   - vp.contentOffsetX;
     const int topY = vp.contentOffsetY
-                     + (cursor.line - vp.firstVisibleLine) * vp.lineHeight;
+                     + (visualRow - vp.firstVisibleRow) * vp.lineHeight;
 
     const QFontMetrics fm(font);
     const int caretHeight = fm.ascent() + fm.descent();

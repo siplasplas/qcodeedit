@@ -38,9 +38,12 @@ public:
     /// `visualCol` is the tab-expanded column used to compute the pixel x
     /// position; the caller (CodeEditArea) derives it via
     /// LineRenderer::visualColumn().
+    /// visualCol  — tab-expanded column (from LineRenderer::visualColumn).
+    /// visualRow  — absolute visual row index (equals cursor.line when !wordWrap).
     void paint(QPainter& painter,
                const TextCursor& cursor,
                int visualCol,
+               int visualRow,
                const ViewportState& vp,
                const QFont& font) const;
 

@@ -60,15 +60,27 @@ void LineNumberGutter::paint(QPainter& painter,
     const int last  = vp.lastVisibleLine;
     const int lineCount = m_doc->lineCount();
 
-    for (int i = first; i <= last && i < lineCount; ++i) {
-        const int topY = marginRect.top()
-                         + vp.contentOffsetY
-                         + (i - first) * vp.lineHeight;
-        const int baselineY = topY + ascent;
-
-        const QString label = QString::number(i + 1); // 1-based
-        const int textWidth = fm.horizontalAdvance(label);
-        painter.drawText(rightEdge - textWidth, baselineY, label);
+    if (vp.wordWrap && !vp.rows.isEmpty()) {
+        for (int ri = 0; ri < vp.rows.size(); ++ri) {
+            const auto& row = vp.rows[ri];
+            if (!row.isFirstRow) continue; // draw number only on first visual row of line
+            if (row.logicalLine >= lineCount) continue;
+            const int topY = marginRect.top() + vp.contentOffsetY + ri * vp.lineHeight;
+            const int baselineY = topY + ascent;
+            const QString label = QString::number(row.logicalLine + 1);
+            const int textWidth = fm.horizontalAdvance(label);
+            painter.drawText(rightEdge - textWidth, baselineY, label);
+        }
+    } else {
+        for (int i = first; i <= last && i < lineCount; ++i) {
+            const int topY = marginRect.top()
+                             + vp.contentOffsetY
+                             + (i - first) * vp.lineHeight;
+            const int baselineY = topY + ascent;
+            const QString label = QString::number(i + 1);
+            const int textWidth = fm.horizontalAdvance(label);
+            painter.drawText(rightEdge - textWidth, baselineY, label);
+        }
     }
 
     painter.restore();

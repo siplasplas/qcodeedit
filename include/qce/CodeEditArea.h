@@ -17,6 +17,7 @@ class ITextDocument;
 class LineRenderer;
 class CursorController;
 class CaretPainter;
+class WrapLayout;
 
 /// The actual text-rendering and editing widget.
 class CodeEditArea : public QAbstractScrollArea {
@@ -75,6 +76,9 @@ public:
 
     bool overwriteMode() const { return m_overwrite; }
 
+    void setWordWrap(bool wrap);
+    bool wordWrap() const { return m_wordWrap; }
+
     void setCaretBlinkInterval(int ms);
     int  caretBlinkInterval() const;
 
@@ -111,8 +115,10 @@ private:
     bool   m_tabCaptured     = true;
     bool   m_readOnly        = false;
     bool   m_overwrite       = false;
+    bool   m_wordWrap        = false;
 
     std::unique_ptr<LineRenderer>      m_renderer;
+    std::unique_ptr<WrapLayout>        m_wrapLayout;
     std::unique_ptr<CursorController>  m_cursorCtrl;
     std::unique_ptr<CaretPainter>      m_caretPainter;
     QUndoStack*                        m_undoStack = nullptr;
@@ -126,6 +132,10 @@ private:
     TextCursor cursorFromPoint(const QPoint& pt) const;
     void ensureCursorVisible(TextCursor pos);
     int  pageLineCount() const;
+
+    // --- Word-wrap helpers ---
+    void rebuildWrapLayout();
+    int  visualRowOf(TextCursor pos) const;
 
     // --- Edit helpers ---
     /// Insert text at cursor (replacing selection if present).

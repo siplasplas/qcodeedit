@@ -35,12 +35,14 @@ add_library(qcodeedit STATIC
     src/LineNumberGutter.cpp
     src/Rail.cpp
     src/EditCommands.cpp
+    src/WrapLayout.cpp
 
     # Internal headers (in src/) are listed so AUTOMOC / IDEs pick them up.
     src/LineRenderer.h
     src/CursorController.h
     src/CaretPainter.h
     src/EditCommands.h
+    src/WrapLayout.h
 
     # Public headers.
     include/qce/ViewportState.h

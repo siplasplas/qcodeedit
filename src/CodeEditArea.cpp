@@ -5,6 +5,7 @@
 #include "CursorController.h"
 #include "EditCommands.h"
 #include "LineRenderer.h"
+#include "WrapLayout.h"
 
 #include <QClipboard>
 #include <QFocusEvent>
@@ -29,7 +30,8 @@ CodeEditArea::CodeEditArea(QWidget* parent)
       m_renderer(std::make_unique<LineRenderer>()),
       m_cursorCtrl(std::make_unique<CursorController>(nullptr)),
       m_caretPainter(std::make_unique<CaretPainter>(this)),
-      m_undoStack(new QUndoStack(this)) {
+      m_undoStack(new QUndoStack(this)),
+      m_wrapLayout(std::make_unique<WrapLayout>()) {
     QFont f(QStringLiteral("Monospace"));
     f.setStyleHint(QFont::TypeWriter);
     setFont(f);
@@ -167,6 +169,9 @@ bool CodeEditArea::canRedo() const { return m_undoStack->canRedo(); }
 
 void CodeEditArea::setTabWidth(int spaces) {
     m_renderer->setTabWidth(spaces);
+    rebuildWrapLayout();
+    updateScrollBarRanges();
+    refreshViewportState();
     viewport()->update();
 }
 
@@ -180,6 +185,16 @@ void CodeEditArea::setTabCaptured(bool captured) {
 
 void CodeEditArea::setReadOnly(bool ro) {
     m_readOnly = ro;
+}
+
+void CodeEditArea::setWordWrap(bool wrap) {
+    if (m_wordWrap == wrap) return;
+    m_wordWrap = wrap;
+    horizontalScrollBar()->setVisible(!wrap);
+    rebuildWrapLayout();
+    updateScrollBarRanges();
+    refreshViewportState();
+    viewport()->update();
 }
 
 void CodeEditArea::setCaretBlinkInterval(int ms) {
@@ -211,15 +226,23 @@ void CodeEditArea::paintEvent(QPaintEvent* e) {
         m_renderer->paint(p, m_doc, m_viewportState);
         p.restore();
     }
-    const int caretVisualCol = m_doc
-        ? LineRenderer::visualColumn(m_doc->lineAt(m_cursor.line),
-                                     m_cursor.column, tabWidth())
-        : m_cursor.column;
-    m_caretPainter->paint(p, m_cursor, caretVisualCol, m_viewportState, font());
+    int caretVisualCol, caretVisualRow;
+    if (m_doc) {
+        caretVisualRow = visualRowOf(m_cursor);
+        const int rowStart = m_wordWrap
+            ? m_wrapLayout->rowAt(caretVisualRow).startCol : 0;
+        const QString seg = m_doc->lineAt(m_cursor.line).mid(rowStart);
+        caretVisualCol = LineRenderer::visualColumn(seg, m_cursor.column - rowStart, tabWidth());
+    } else {
+        caretVisualRow = m_cursor.line;
+        caretVisualCol = m_cursor.column;
+    }
+    m_caretPainter->paint(p, m_cursor, caretVisualCol, caretVisualRow, m_viewportState, font());
 }
 
 void CodeEditArea::resizeEvent(QResizeEvent* e) {
     QAbstractScrollArea::resizeEvent(e);
+    rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
 }
@@ -458,6 +481,7 @@ void CodeEditArea::onDocumentReset() {
     m_cursor = m_cursorCtrl->clamp(TextCursor{});
     m_anchor = m_cursor;
     m_undoStack->clear();
+    rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
     viewport()->update();
@@ -468,6 +492,7 @@ void CodeEditArea::onDocumentReset() {
 void CodeEditArea::onLinesInserted(int, int) {
     m_cursor = m_cursorCtrl->clamp(m_cursor);
     m_anchor = m_cursorCtrl->clamp(m_anchor);
+    rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
     viewport()->update();
@@ -476,12 +501,14 @@ void CodeEditArea::onLinesInserted(int, int) {
 void CodeEditArea::onLinesRemoved(int, int) {
     m_cursor = m_cursorCtrl->clamp(m_cursor);
     m_anchor = m_cursorCtrl->clamp(m_anchor);
+    rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
     viewport()->update();
 }
 
 void CodeEditArea::onLinesChanged(int, int) {
+    rebuildWrapLayout();
     refreshViewportState();
     viewport()->update();
 }
@@ -496,27 +523,58 @@ void CodeEditArea::refreshViewportState() {
     const int charWidth  = fm.horizontalAdvance(QLatin1Char('M'));
     const int vpW = viewport()->width();
     const int vpH = viewport()->height();
-    const int lineCount = m_doc ? m_doc->lineCount() : 0;
 
     ViewportState s;
-    s.lineHeight = lineHeight;
-    s.charWidth  = charWidth;
+    s.lineHeight     = lineHeight;
+    s.charWidth      = charWidth;
     s.viewportWidth  = vpW;
     s.viewportHeight = vpH;
-    s.contentOffsetX = (charWidth > 0)
-        ? horizontalScrollBar()->value() * charWidth
-        : 0;
+    s.contentOffsetY = 0;
+    s.wordWrap       = m_wordWrap;
 
-    if (lineHeight > 0 && lineCount > 0) {
-        const int scrollY = verticalScrollBar()->value();
-        s.firstVisibleLine = qMin(scrollY, lineCount - 1);
-        s.contentOffsetY   = 0;
-        const int maxVisible = (vpH + lineHeight - 1) / lineHeight;
-        s.lastVisibleLine  = qMin(s.firstVisibleLine + maxVisible - 1, lineCount - 1);
+    if (m_wordWrap) {
+        s.contentOffsetX = 0;
+        const int totalRows = m_wrapLayout->totalRows();
+        if (lineHeight > 0 && totalRows > 0) {
+            const int firstRow = verticalScrollBar()->value();
+            s.firstVisibleRow = qMin(firstRow, totalRows - 1);
+            const int maxVisible = (vpH + lineHeight - 1) / lineHeight;
+            s.lastVisibleRow = qMin(s.firstVisibleRow + maxVisible - 1, totalRows - 1);
+
+            int prevLogical = -1;
+            for (int r = s.firstVisibleRow; r <= s.lastVisibleRow; ++r) {
+                const WrapLayout::Row& wr = m_wrapLayout->rowAt(r);
+                ViewportState::RowInfo ri;
+                ri.logicalLine = wr.logicalLine;
+                ri.startCol    = wr.startCol;
+                ri.endCol      = wr.endCol;
+                ri.isFirstRow  = (wr.logicalLine != prevLogical);
+                s.rows.push_back(ri);
+                prevLogical = wr.logicalLine;
+            }
+            s.firstVisibleLine = s.rows.isEmpty() ? 0 : s.rows.first().logicalLine;
+            s.lastVisibleLine  = s.rows.isEmpty() ? -1 : s.rows.last().logicalLine;
+        } else {
+            s.firstVisibleRow = 0;
+            s.lastVisibleRow  = -1;
+            s.firstVisibleLine = 0;
+            s.lastVisibleLine  = -1;
+        }
     } else {
-        s.firstVisibleLine = 0;
-        s.lastVisibleLine  = -1;
-        s.contentOffsetY   = 0;
+        s.contentOffsetX = (charWidth > 0)
+            ? horizontalScrollBar()->value() * charWidth : 0;
+        const int lineCount = m_doc ? m_doc->lineCount() : 0;
+        if (lineHeight > 0 && lineCount > 0) {
+            const int scrollY = verticalScrollBar()->value();
+            s.firstVisibleLine = qMin(scrollY, lineCount - 1);
+            const int maxVisible = (vpH + lineHeight - 1) / lineHeight;
+            s.lastVisibleLine = qMin(s.firstVisibleLine + maxVisible - 1, lineCount - 1);
+        } else {
+            s.firstVisibleLine = 0;
+            s.lastVisibleLine  = -1;
+        }
+        s.firstVisibleRow = s.firstVisibleLine;
+        s.lastVisibleRow  = s.lastVisibleLine;
     }
 
     m_viewportState = s;
@@ -524,25 +582,34 @@ void CodeEditArea::refreshViewportState() {
 }
 
 void CodeEditArea::updateScrollBarRanges() {
-    const int lineCount = m_doc ? m_doc->lineCount() : 0;
     const QFontMetrics fm(font());
     const int lineHeight = fm.height();
     const int charWidth  = fm.horizontalAdvance(QLatin1Char('M'));
     const int vpH = viewport()->height();
     const int vpW = viewport()->width();
     const int visibleLines = (lineHeight > 0) ? (vpH / lineHeight) : 0;
-    const int visibleCols  = (charWidth  > 0) ? (vpW / charWidth)  : 0;
 
-    const int vMax = qMax(0, lineCount - visibleLines);
-    verticalScrollBar()->setRange(0, vMax);
-    verticalScrollBar()->setPageStep(qMax(1, visibleLines));
-    verticalScrollBar()->setSingleStep(1);
+    if (m_wordWrap) {
+        const int totalRows = m_wrapLayout->totalRows();
+        const int vMax = qMax(0, totalRows - visibleLines);
+        verticalScrollBar()->setRange(0, vMax);
+        verticalScrollBar()->setPageStep(qMax(1, visibleLines));
+        verticalScrollBar()->setSingleStep(1);
+        horizontalScrollBar()->setRange(0, 0);
+    } else {
+        const int lineCount = m_doc ? m_doc->lineCount() : 0;
+        const int vMax = qMax(0, lineCount - visibleLines);
+        verticalScrollBar()->setRange(0, vMax);
+        verticalScrollBar()->setPageStep(qMax(1, visibleLines));
+        verticalScrollBar()->setSingleStep(1);
 
-    const int maxCols = m_doc ? m_doc->maxLineLength() : 0;
-    const int hMax = qMax(0, maxCols - visibleCols);
-    horizontalScrollBar()->setRange(0, hMax);
-    horizontalScrollBar()->setPageStep(qMax(1, visibleCols));
-    horizontalScrollBar()->setSingleStep(1);
+        const int visibleCols = (charWidth > 0) ? (vpW / charWidth) : 0;
+        const int maxCols = m_doc ? m_doc->maxLineLength() : 0;
+        const int hMax = qMax(0, maxCols - visibleCols);
+        horizontalScrollBar()->setRange(0, hMax);
+        horizontalScrollBar()->setPageStep(qMax(1, visibleCols));
+        horizontalScrollBar()->setSingleStep(1);
+    }
 }
 
 void CodeEditArea::rebindDocumentSignals(ITextDocument* newDoc) {
@@ -594,38 +661,58 @@ void CodeEditArea::applySelectionMove(TextCursor newPos) {
 
 TextCursor CodeEditArea::cursorFromPoint(const QPoint& pt) const {
     const ViewportState& vp = m_viewportState;
-    if (!m_doc || !vp.isValid()) {
-        return {};
+    if (!m_doc || !vp.isValid()) return {};
+
+    const int tw = tabWidth();
+
+    if (m_wordWrap && !vp.rows.isEmpty()) {
+        const int ri = qBound(0, pt.y() / vp.lineHeight, vp.rows.size() - 1);
+        const ViewportState::RowInfo& row = vp.rows[ri];
+        const int targetX = pt.x() - LineRenderer::kLeftPaddingPx;
+        const QString seg = m_doc->lineAt(row.logicalLine)
+                                .mid(row.startCol, row.endCol - row.startCol);
+        int visual = 0, segCol = 0;
+        for (; segCol < seg.size(); ++segCol) {
+            const int cw = (seg.at(segCol) == QLatin1Char('\t'))
+                ? (tw - (visual % tw)) : 1;
+            if (targetX * 2 < (2 * visual + cw) * vp.charWidth) break;
+            visual += cw;
+        }
+        return m_cursorCtrl->clamp({row.logicalLine, row.startCol + segCol});
     }
+
     const int lineNum = qBound(0,
         vp.firstVisibleLine + pt.y() / vp.lineHeight,
         m_doc->lineCount() - 1);
-
-    // Target x in virtual "visual column" pixels (0 = first char pixel).
     const int targetX = pt.x() - LineRenderer::kLeftPaddingPx + vp.contentOffsetX;
-
     const QString lineStr = m_doc->lineAt(lineNum);
-    const int tw = tabWidth();
-    int visual = 0;
-    int col = 0;
+    int visual = 0, col = 0;
     for (; col < lineStr.size(); ++col) {
-        const int charVisualWidth = (lineStr.at(col) == QLatin1Char('\t'))
-            ? (tw - (visual % tw))
-            : 1;
-        // Stop if target is in the first half of this character's visual span.
-        if (targetX * 2 < (2 * visual + charVisualWidth) * vp.charWidth) {
-            break;
-        }
-        visual += charVisualWidth;
+        const int cw = (lineStr.at(col) == QLatin1Char('\t'))
+            ? (tw - (visual % tw)) : 1;
+        if (targetX * 2 < (2 * visual + cw) * vp.charWidth) break;
+        visual += cw;
     }
     return m_cursorCtrl->clamp({lineNum, col});
 }
 
 void CodeEditArea::ensureCursorVisible(TextCursor pos) {
-    const int first = m_viewportState.firstVisibleLine;
-    const int last  = m_viewportState.lastVisibleLine;
     QScrollBar* vBar = verticalScrollBar();
 
+    if (m_wordWrap) {
+        const int row   = visualRowOf(pos);
+        const int first = m_viewportState.firstVisibleRow;
+        const int last  = m_viewportState.lastVisibleRow;
+        if (row < first) {
+            vBar->setValue(row);
+        } else if (row > last) {
+            vBar->setValue(qMax(0, row - pageLineCount() + 1));
+        }
+        return; // no horizontal scroll in wrap mode
+    }
+
+    const int first = m_viewportState.firstVisibleLine;
+    const int last  = m_viewportState.lastVisibleLine;
     if (pos.line < first) {
         vBar->setValue(pos.line);
     } else if (pos.line > last) {
@@ -633,14 +720,11 @@ void CodeEditArea::ensureCursorVisible(TextCursor pos) {
     }
 
     const int charWidth = m_viewportState.charWidth;
-    if (charWidth <= 0) {
-        return;
-    }
+    if (charWidth <= 0) return;
     QScrollBar* hBar = horizontalScrollBar();
     const int firstCol    = hBar->value();
     const int visibleCols = m_viewportState.viewportWidth / charWidth;
     const int lastCol     = firstCol + visibleCols - 1;
-
     if (pos.column < firstCol) {
         hBar->setValue(pos.column);
     } else if (pos.column > lastCol) {
@@ -651,6 +735,22 @@ void CodeEditArea::ensureCursorVisible(TextCursor pos) {
 int CodeEditArea::pageLineCount() const {
     const int lh = m_viewportState.lineHeight;
     return (lh <= 0) ? 1 : qMax(1, m_viewportState.viewportHeight / lh);
+}
+
+// --- Word-wrap helpers ---------------------------------------------------
+
+void CodeEditArea::rebuildWrapLayout() {
+    if (!m_wordWrap || !m_doc) return;
+    const QFontMetrics fm(font());
+    const int cw = fm.horizontalAdvance(QLatin1Char('M'));
+    if (cw <= 0) return;
+    const int availCols = qMax(1, (viewport()->width() - LineRenderer::kLeftPaddingPx) / cw);
+    m_wrapLayout->rebuild(m_doc, availCols, tabWidth());
+}
+
+int CodeEditArea::visualRowOf(TextCursor pos) const {
+    if (!m_wordWrap) return pos.line;
+    return m_wrapLayout->rowForCursor(pos.line, pos.column);
 }
 
 // ------------------------------------------------------------------------
@@ -709,40 +809,63 @@ void CodeEditArea::updateAfterEdit() {
 // ------------------------------------------------------------------------
 
 QRegion CodeEditArea::selectionRegion() const {
-    if (!hasSelection() || !m_doc || !m_viewportState.isValid()) {
-        return {};
-    }
+    if (!hasSelection() || !m_doc || !m_viewportState.isValid()) return {};
     const TextCursor s = selectionStart();
     const TextCursor e = selectionEnd();
     const ViewportState& vp = m_viewportState;
+    const int tw = tabWidth();
+    QRegion region;
+
+    if (m_wordWrap && !vp.rows.isEmpty()) {
+        for (int ri = 0; ri < vp.rows.size(); ++ri) {
+            const ViewportState::RowInfo& row = vp.rows[ri];
+            // Skip rows outside selection's logical line range.
+            if (row.logicalLine < s.line || row.logicalLine > e.line) continue;
+            if (row.logicalLine == s.line && row.endCol <= s.column)   continue;
+            if (row.logicalLine == e.line && row.startCol >= e.column) continue;
+
+            const QString line = m_doc->lineAt(row.logicalLine);
+            const QString seg  = line.mid(row.startCol, row.endCol - row.startCol);
+
+            const int selStartInSeg = (row.logicalLine == s.line)
+                ? qMax(s.column - row.startCol, 0) : 0;
+            const int selEndInSeg = (row.logicalLine == e.line)
+                ? qMin(e.column - row.startCol, (int)seg.size()) : (int)seg.size();
+
+            const int vcStart = LineRenderer::visualColumn(seg, selStartInSeg, tw);
+            int vcEnd;
+            if (row.logicalLine == e.line) {
+                vcEnd = LineRenderer::visualColumn(seg, selEndInSeg, tw);
+            } else {
+                vcEnd = qMax(LineRenderer::visualColumn(seg, seg.size(), tw),
+                             vp.viewportWidth / vp.charWidth + 1);
+            }
+
+            const int topY = vp.contentOffsetY + ri * vp.lineHeight;
+            const int x = LineRenderer::kLeftPaddingPx + vcStart * vp.charWidth;
+            const int w = (vcEnd - vcStart) * vp.charWidth;
+            if (w > 0) region += QRect(x, topY, w, vp.lineHeight);
+        }
+        return region;
+    }
 
     const int first = qMax(s.line, vp.firstVisibleLine);
     const int last  = qMin(e.line, vp.lastVisibleLine);
-
-    QRegion region;
     for (int i = first; i <= last; ++i) {
         const int topY = vp.contentOffsetY + (i - vp.firstVisibleLine) * vp.lineHeight;
-
         const QString lineStr = m_doc->lineAt(i);
-        const int tw = tabWidth();
         const int startCol = (i == s.line)
-            ? LineRenderer::visualColumn(lineStr, s.column, tw)
-            : 0;
+            ? LineRenderer::visualColumn(lineStr, s.column, tw) : 0;
         int endCol;
         if (i == e.line) {
             endCol = LineRenderer::visualColumn(lineStr, e.column, tw);
         } else {
-            const int lineVisualLen = LineRenderer::visualColumn(lineStr, lineStr.size(), tw);
-            endCol = qMax(lineVisualLen, vp.viewportWidth / vp.charWidth + 1);
+            endCol = qMax(LineRenderer::visualColumn(lineStr, lineStr.size(), tw),
+                          vp.viewportWidth / vp.charWidth + 1);
         }
-
-        const int x = LineRenderer::kLeftPaddingPx
-                      + startCol * vp.charWidth
-                      - vp.contentOffsetX;
+        const int x = LineRenderer::kLeftPaddingPx + startCol * vp.charWidth - vp.contentOffsetX;
         const int w = (endCol - startCol) * vp.charWidth;
-        if (w > 0) {
-            region += QRect(x, topY, w, vp.lineHeight);
-        }
+        if (w > 0) region += QRect(x, topY, w, vp.lineHeight);
     }
     return region;
 }

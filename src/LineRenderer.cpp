@@ -30,13 +30,27 @@ void LineRenderer::paint(QPainter& painter,
     // will draw off-screen and simply be clipped by the painter.
     const int baseX = kLeftPaddingPx - vp.contentOffsetX;
 
+    if (vp.wordWrap && !vp.rows.isEmpty()) {
+        // Word-wrap mode: each entry in vp.rows is one visual row.
+        for (int ri = 0; ri < vp.rows.size(); ++ri) {
+            const auto& row = vp.rows[ri];
+            const int topY = vp.contentOffsetY + ri * lineHeight;
+            const int baselineY = topY + ascent;
+
+            const QString& line = doc->lineAt(row.logicalLine);
+            const QString seg = line.mid(row.startCol, row.endCol - row.startCol);
+            const QString text = expandTabs(seg);
+            if (!text.isEmpty()) {
+                painter.drawText(kLeftPaddingPx, baselineY, text);
+            }
+        }
+        return;
+    }
+
     const int first = vp.firstVisibleLine;
     const int last = vp.lastVisibleLine;
 
     for (int i = first; i <= last && i < lineCount; ++i) {
-        // Baseline Y: top of line + offsetY + ascent.
-        // offsetY is <= 0 when the first line is partially scrolled off;
-        // for subsequent lines we add (i - first) * lineHeight.
         const int topY = vp.contentOffsetY + (i - first) * lineHeight;
         const int baselineY = topY + ascent;
 

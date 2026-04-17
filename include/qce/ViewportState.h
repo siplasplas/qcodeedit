@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QVector>
+
 namespace qce {
 
 /// Snapshot of the editor viewport at a given moment.
@@ -38,6 +40,28 @@ struct ViewportState {
 
     /// Total height of the viewport in pixels.
     int viewportHeight = 0;
+
+    // -----------------------------------------------------------------------
+    // Word-wrap additions. Ignored by margins that do not support wrap yet.
+    // -----------------------------------------------------------------------
+
+    /// True when the editor is in word-wrap mode.
+    bool wordWrap = false;
+
+    /// First / last visible visual row index (= firstVisibleLine/lastVisibleLine
+    /// when wordWrap is false; may differ when wrap is active).
+    int firstVisibleRow = 0;
+    int lastVisibleRow  = -1;
+
+    /// Per-visual-row descriptor. Populated only when wordWrap=true; empty
+    /// otherwise. Element 0 corresponds to firstVisibleRow.
+    struct RowInfo {
+        int  logicalLine; ///< which document line
+        int  startCol;    ///< first logical column of this visual row
+        int  endCol;      ///< one past last logical column
+        bool isFirstRow;  ///< first visual row of logicalLine?
+    };
+    QVector<RowInfo> rows;
 
     /// Returns true if the viewport has a valid, renderable state.
     bool isValid() const noexcept {

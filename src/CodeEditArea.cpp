@@ -1045,7 +1045,7 @@ void CodeEditArea::paintLineBackgrounds(QPainter& painter) {
     // visual glyph extent — Qt renders glyphs with a few pixels of
     // leading above and a tail below. Match the band to the glyph
     // bounds so breakpoint / diff highlights line up with the text.
-    const int topPad    = 3;
+    const int topPad    = 4;
     const int bandHeight = qMax(1, vp.lineHeight - 1);
     auto fill = [&](int line, int topY) {
         const QColor bg = m_lineBgProvider(line);

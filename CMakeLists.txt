@@ -41,6 +41,7 @@ add_library(qcodeedit STATIC
     # Public headers.
     include/qce/ViewportState.h
     include/qce/ITextDocument.h
+    include/qce/IMargin.h
     include/qce/SimpleTextDocument.h
     include/qce/CodeEditArea.h
     include/qce/CodeEdit.h

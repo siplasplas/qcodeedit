@@ -4,6 +4,7 @@
 #include "ViewportState.h"
 
 #include <QAbstractScrollArea>
+#include <QColor>
 
 #include <memory>
 
@@ -69,6 +70,10 @@ public:
     /// Collapses the selection to the current cursor position.
     void clearSelection();
 
+    /// Background color used to highlight the selected text. Default #94CAEF.
+    void setSelectionColor(const QColor& color);
+    QColor selectionColor() const { return m_selectionColor; }
+
     // --- Configuration ---
 
     /// Number of space characters a tab expands to. Default 4. Affects
@@ -116,6 +121,7 @@ private:
     ViewportState m_viewportState;
     TextCursor m_cursor;
     TextCursor m_anchor; // selection anchor; equals m_cursor when no selection
+    QColor m_selectionColor{QStringLiteral("#94CAEF")};
 
     // Owned helpers. unique_ptr so we can forward-declare in the header.
     std::unique_ptr<LineRenderer> m_renderer;

@@ -136,6 +136,13 @@ int CodeEditArea::tabWidth() const {
     return m_renderer->tabWidth();
 }
 
+void CodeEditArea::setSelectionColor(const QColor& color) {
+    m_selectionColor = color;
+    if (hasSelection()) {
+        viewport()->update();
+    }
+}
+
 void CodeEditArea::setCaretBlinkInterval(int ms) {
     m_caretPainter->setBlinkInterval(ms);
 }
@@ -413,7 +420,7 @@ void CodeEditArea::paintSelection(QPainter& painter) {
     const TextCursor s = selectionStart();
     const TextCursor e = selectionEnd();
     const ViewportState& vp = m_viewportState;
-    const QColor highlight(QStringLiteral("#94CAEF"));
+    const QColor highlight = m_selectionColor;
 
     const int first = qMax(s.line, vp.firstVisibleLine);
     const int last  = qMin(e.line, vp.lastVisibleLine);

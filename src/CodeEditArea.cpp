@@ -176,11 +176,17 @@ void CodeEditArea::paintEvent(QPaintEvent* e) {
     p.setPen(palette().text().color());
     m_renderer->paint(p, m_doc, m_viewportState);
     if (m_invertSelection && hasSelection()) {
+        QFont boldFont = m_renderer->font();
+        boldFont.setBold(true);
+        m_renderer->setFont(boldFont);
+
         p.save();
         p.setClipRegion(selectionRegion());
         p.setPen(m_selectionForeground);
         m_renderer->paint(p, m_doc, m_viewportState);
         p.restore();
+
+        m_renderer->setFont(font()); // restore original
     }
     m_caretPainter->paint(p, m_cursor, m_viewportState, font());
 }

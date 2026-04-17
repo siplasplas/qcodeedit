@@ -1,0 +1,24 @@
+# Build output
+build/
+build-*/
+cmake-build-*/
+
+# IDE / editor
+.idea/
+.vscode/
+.cache/
+*.user
+*.user.*
+*.swp
+*~
+
+# CMake leftovers
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+*.cbp
+
+# OS junk
+.DS_Store
+Thumbs.db

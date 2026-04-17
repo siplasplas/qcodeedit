@@ -1,0 +1,74 @@
+cmake_minimum_required(VERSION 3.21)
+project(qcodeedit LANGUAGES CXX VERSION 0.2.0)
+
+# --- Global options -----------------------------------------------------
+
+option(QCE_BUILD_DEMO  "Build the qcodeedit demo application" ON)
+option(QCE_BUILD_TESTS "Build the qcodeedit test suite"       ON)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# --- Qt -----------------------------------------------------------------
+
+find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets)
+if(QCE_BUILD_TESTS)
+    find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
+    enable_testing()
+endif()
+
+# --- Library ------------------------------------------------------------
+
+add_library(qcodeedit STATIC
+    src/ITextDocument.cpp
+    src/SimpleTextDocument.cpp
+    src/CodeEditArea.cpp
+    src/CodeEdit.cpp
+    src/LineRenderer.cpp
+    src/CursorController.cpp
+
+    # Internal headers (in src/) are listed so AUTOMOC / IDEs pick them up.
+    src/LineRenderer.h
+    src/CursorController.h
+
+    # Public headers.
+    include/qce/ViewportState.h
+    include/qce/ITextDocument.h
+    include/qce/SimpleTextDocument.h
+    include/qce/CodeEditArea.h
+    include/qce/CodeEdit.h
+    include/qce/TextCursor.h
+)
+
+# src/ is a private include directory so library .cpp files can include
+# internal headers (CursorController.h, LineRenderer.h) without "../src/".
+target_include_directories(qcodeedit
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_include_directories(qcodeedit PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
+
+target_link_libraries(qcodeedit
+    PUBLIC  Qt6::Core Qt6::Gui Qt6::Widgets
+)
+
+# Alias so users can write qcodeedit::qcodeedit in target_link_libraries,
+# consistent with DiffMerge's diffcore::diffcore convention.
+add_library(qcodeedit::qcodeedit ALIAS qcodeedit)
+
+# --- Subdirectories -----------------------------------------------------
+
+if(QCE_BUILD_DEMO)
+    add_subdirectory(demo)
+endif()
+
+if(QCE_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()

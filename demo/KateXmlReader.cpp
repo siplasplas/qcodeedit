@@ -335,6 +335,12 @@ std::unique_ptr<RulesHighlighter> KateXmlReader::load(const QString& path) {
             hr.lookAhead      = attrBool(rr.attrs, QStringLiteral("lookAhead"));
             hr.firstNonSpace  = attrBool(rr.attrs, QStringLiteral("firstNonSpace"));
 
+            // Folding markers (can be on any rule; Kate allows both on one rule).
+            const QString beginR = rr.attrs.value(QStringLiteral("beginRegion"));
+            const QString endR   = rr.attrs.value(QStringLiteral("endRegion"));
+            if (!beginR.isEmpty()) hr.beginRegionId = hl->regionIdForName(beginR);
+            if (!endR.isEmpty())   hr.endRegionId   = hl->regionIdForName(endR);
+
             const bool insensitive = attrBool(rr.attrs, QStringLiteral("insensitive"));
             hr.caseSensitive = !insensitive;
 

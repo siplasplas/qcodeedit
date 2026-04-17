@@ -31,6 +31,21 @@ int RulesHighlighter::addKeywordList(KeywordList kw) {
     return id;
 }
 
+int RulesHighlighter::regionIdForName(const QString& name) {
+    if (name.isEmpty()) return -1;
+    auto it = m_regionIdByName.find(name);
+    if (it != m_regionIdByName.end()) return it.value();
+    const int id = m_regionNames.size();
+    m_regionNames.push_back(name);
+    m_regionIdByName.insert(name, id);
+    return id;
+}
+
+QString RulesHighlighter::regionNameById(int id) const {
+    if (id < 0 || id >= m_regionNames.size()) return {};
+    return m_regionNames[id];
+}
+
 HighlightContext& RulesHighlighter::contextRef(int id) {
     Q_ASSERT(id >= 0 && id < m_contexts.size());
     return m_contexts[id];
@@ -240,7 +255,17 @@ void RulesHighlighter::highlightLine(const QString&        line,
                                       const HighlightState& stateIn,
                                       QVector<StyleSpan>&   spans,
                                       HighlightState&       stateOut) const {
+    QVector<FoldMarker> throwaway;
+    highlightLineEx(line, stateIn, spans, stateOut, throwaway);
+}
+
+void RulesHighlighter::highlightLineEx(const QString&        line,
+                                       const HighlightState& stateIn,
+                                       QVector<StyleSpan>&   spans,
+                                       HighlightState&       stateOut,
+                                       QVector<FoldMarker>&  folds) const {
     spans.clear();
+    folds.clear();
     stateOut = stateIn;
 
     // Guarantee a non-empty stack: if caller passed an empty state, treat it
@@ -290,6 +315,13 @@ void RulesHighlighter::highlightLine(const QString&        line,
         if (matched) {
             const int attr = (matched->attributeId >= 0)
                 ? matched->attributeId : ctx.defaultAttribute;
+            // End event before begin — matches Kate's 'elif' semantics.
+            if (matched->endRegionId >= 0) {
+                folds.push_back({pos, matchedLen, matched->endRegionId, false});
+            }
+            if (matched->beginRegionId >= 0) {
+                folds.push_back({pos, matchedLen, matched->beginRegionId, true});
+            }
             if (!matched->lookAhead) {
                 emitSpan(spans, pos, matchedLen, attr);
                 pos += matchedLen;

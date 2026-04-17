@@ -2,7 +2,9 @@
 
 #include <QColor>
 #include <QDebug>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QHash>
 #include <QMap>
 #include <QRegularExpression>
@@ -68,14 +70,7 @@ static const QHash<QString, ThemeEntry>& theme() {
 // -----------------------------------------------------------------------------
 // DTD entity pre-expansion
 // -----------------------------------------------------------------------------
-// Kate XML files use <!ENTITY name "..."> declarations, e.g. in c.xml:
-//   <!ENTITY int "(?:[0-9](?:'?[0-9]++)*+)">
-// ...and reference them as &int; inside regex bodies. Qt 6's XML reader does
-// NOT replace general entities by default, so we scan the file ourselves,
-// collect the definitions, and substitute &name; before handing the text to
-// QXmlStreamReader.
 static QString expandDtdEntities(const QString& raw) {
-    // Find <!DOCTYPE ... [ ... ]>
     const int docStart = raw.indexOf(QStringLiteral("<!DOCTYPE"));
     if (docStart < 0) return raw;
     const int bracketOpen = raw.indexOf(QLatin1Char('['), docStart);
@@ -83,7 +78,6 @@ static QString expandDtdEntities(const QString& raw) {
     if (bracketOpen < 0 || bracketClose < 0) return raw;
 
     const QString dtd = raw.mid(bracketOpen + 1, bracketClose - bracketOpen - 1);
-    // Parse <!ENTITY name "value">
     static const QRegularExpression re(
         QStringLiteral("<!ENTITY\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+\"([^\"]*)\""));
     QMap<QString, QString> entities;
@@ -94,14 +88,11 @@ static QString expandDtdEntities(const QString& raw) {
     }
     if (entities.isEmpty()) return raw;
 
-    // Strip the DOCTYPE so Qt's parser doesn't complain about unresolved refs.
     const int docEnd = raw.indexOf(QLatin1Char('>'), bracketClose);
     QString out = raw;
-    if (docEnd > docStart) {
+    if (docEnd > docStart)
         out.remove(docStart, docEnd - docStart + 1);
-    }
 
-    // Iterative expansion (entity bodies may reference other entities).
     for (int pass = 0; pass < 8; ++pass) {
         bool changed = false;
         for (auto i = entities.begin(); i != entities.end(); ++i) {
@@ -117,17 +108,16 @@ static QString expandDtdEntities(const QString& raw) {
 }
 
 // -----------------------------------------------------------------------------
-// Raw (name-based) intermediate structures
+// Raw intermediate structures
 // -----------------------------------------------------------------------------
 struct RawRule {
     QString tag;
     QMap<QString, QString> attrs;
-    int includedContextIdxHint = -1; // for IncludeRules fast path (not used here)
 };
 struct RawContext {
     QString name;
-    QString attribute;         // itemData name
-    QString lineEndContext;    // "#stay", "#pop", "Name", "#pop!Name" ...
+    QString attribute;
+    QString lineEndContext;
     QVector<RawRule> rules;
 };
 struct RawList {
@@ -140,9 +130,16 @@ struct RawItemData {
     bool italic = false, bold = false, underline = false;
     bool italicSet = false, boldSet = false, underlineSet = false;
 };
+struct LangData {
+    QString              name;
+    QVector<RawContext>  contexts;
+    QVector<RawList>     lists;
+    QVector<RawItemData> itemDatas;
+    bool                 caseSensitive = true;
+};
 
 static bool attrBool(const QMap<QString, QString>& a, const QString& key,
-                      bool defaultValue = false) {
+                     bool defaultValue = false) {
     const auto it = a.find(key);
     if (it == a.end()) return defaultValue;
     const QString v = it.value().trimmed().toLower();
@@ -151,7 +148,7 @@ static bool attrBool(const QMap<QString, QString>& a, const QString& key,
 
 struct ContextSwitch {
     int popCount = 0;
-    QString pushName; // empty if no push
+    QString pushName;
 };
 static ContextSwitch parseContextSwitch(const QString& raw) {
     ContextSwitch r;
@@ -167,248 +164,350 @@ static ContextSwitch parseContextSwitch(const QString& raw) {
     return r;
 }
 
-} // namespace
+// -----------------------------------------------------------------------------
+// Parse a single Kate XML file into raw structures
+// -----------------------------------------------------------------------------
+static LangData parseKateFile(const QString& path) {
+    LangData data;
 
-// -----------------------------------------------------------------------------
-// The reader
-// -----------------------------------------------------------------------------
-std::unique_ptr<RulesHighlighter> KateXmlReader::load(const QString& path) {
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qWarning() << "KateXmlReader: cannot open" << path;
-        return nullptr;
+        return data;
     }
     const QString raw = QString::fromUtf8(f.readAll());
     const QString src = expandDtdEntities(raw);
     QXmlStreamReader xml(src);
 
-    QVector<RawContext>   rawContexts;
-    QVector<RawList>      rawLists;
-    QVector<RawItemData>  rawItemDatas;
-    bool keywordsCaseSensitive = true;
-
-    // -------- Pass 1: collect raw structures ---------------------------------
     while (!xml.atEnd()) {
         xml.readNext();
         if (!xml.isStartElement()) continue;
         const QString name = xml.name().toString();
 
-        if (name == QLatin1String("list")) {
+        if (name == QLatin1String("language")) {
+            data.name = xml.attributes().value(QStringLiteral("name")).toString();
+        } else if (name == QLatin1String("list")) {
             RawList rl;
             rl.name = xml.attributes().value(QStringLiteral("name")).toString();
             while (!(xml.isEndElement() && xml.name() == QLatin1String("list"))
-                    && !xml.atEnd()) {
+                   && !xml.atEnd()) {
                 xml.readNext();
-                if (xml.isStartElement() && xml.name() == QLatin1String("item")) {
+                if (xml.isStartElement() && xml.name() == QLatin1String("item"))
                     rl.items.insert(xml.readElementText().trimmed());
-                }
             }
-            rawLists.push_back(std::move(rl));
-        }
-        else if (name == QLatin1String("context")) {
+            data.lists.push_back(std::move(rl));
+        } else if (name == QLatin1String("context")) {
             RawContext rc;
-            const auto attrs = xml.attributes();
-            rc.name           = attrs.value(QStringLiteral("name")).toString();
-            rc.attribute      = attrs.value(QStringLiteral("attribute")).toString();
-            rc.lineEndContext = attrs.value(QStringLiteral("lineEndContext")).toString();
+            const auto a = xml.attributes();
+            rc.name           = a.value(QStringLiteral("name")).toString();
+            rc.attribute      = a.value(QStringLiteral("attribute")).toString();
+            rc.lineEndContext = a.value(QStringLiteral("lineEndContext")).toString();
             while (!(xml.isEndElement() && xml.name() == QLatin1String("context"))
-                    && !xml.atEnd()) {
+                   && !xml.atEnd()) {
                 xml.readNext();
                 if (xml.isStartElement()) {
                     RawRule rr;
                     rr.tag = xml.name().toString();
-                    const auto ra = xml.attributes();
-                    for (const QXmlStreamAttribute& a : ra) {
-                        rr.attrs.insert(a.name().toString(), a.value().toString());
-                    }
+                    for (const QXmlStreamAttribute& xa : xml.attributes())
+                        rr.attrs.insert(xa.name().toString(), xa.value().toString());
                     rc.rules.push_back(std::move(rr));
                 }
             }
-            rawContexts.push_back(std::move(rc));
-        }
-        else if (name == QLatin1String("itemData")) {
+            data.contexts.push_back(std::move(rc));
+        } else if (name == QLatin1String("itemData")) {
             RawItemData rid;
             const auto a = xml.attributes();
             rid.name        = a.value(QStringLiteral("name")).toString();
             rid.defStyleNum = a.value(QStringLiteral("defStyleNum")).toString();
-            if (a.hasAttribute(QStringLiteral("italic"))) {
-                rid.italic = attrBool(QMap<QString, QString>{
-                    {QStringLiteral("italic"),
-                     a.value(QStringLiteral("italic")).toString()}},
-                    QStringLiteral("italic"));
-                rid.italicSet = true;
-            }
-            if (a.hasAttribute(QStringLiteral("bold"))) {
-                rid.bold = attrBool(QMap<QString, QString>{
-                    {QStringLiteral("bold"),
-                     a.value(QStringLiteral("bold")).toString()}},
-                    QStringLiteral("bold"));
-                rid.boldSet = true;
-            }
-            if (a.hasAttribute(QStringLiteral("underline"))) {
-                rid.underline = attrBool(QMap<QString, QString>{
-                    {QStringLiteral("underline"),
-                     a.value(QStringLiteral("underline")).toString()}},
-                    QStringLiteral("underline"));
-                rid.underlineSet = true;
-            }
-            rawItemDatas.push_back(std::move(rid));
-        }
-        else if (name == QLatin1String("keywords")) {
+            auto readBool = [&](const QString& key, bool& dst, bool& set) {
+                if (!a.hasAttribute(key)) return;
+                const QString v = a.value(key).toString().trimmed().toLower();
+                dst = (v == QLatin1String("1") || v == QLatin1String("true"));
+                set = true;
+            };
+            readBool(QStringLiteral("italic"),    rid.italic,    rid.italicSet);
+            readBool(QStringLiteral("bold"),      rid.bold,      rid.boldSet);
+            readBool(QStringLiteral("underline"), rid.underline, rid.underlineSet);
+            data.itemDatas.push_back(std::move(rid));
+        } else if (name == QLatin1String("keywords")) {
             const auto a = xml.attributes();
             if (a.hasAttribute(QStringLiteral("casesensitive"))) {
-                keywordsCaseSensitive = attrBool(QMap<QString, QString>{
-                    {QStringLiteral("casesensitive"),
-                     a.value(QStringLiteral("casesensitive")).toString()}},
-                    QStringLiteral("casesensitive"), true);
+                const QString v = a.value(QStringLiteral("casesensitive"))
+                                   .toString().trimmed().toLower();
+                data.caseSensitive = (v == QLatin1String("1") || v == QLatin1String("true"));
             }
         }
     }
 
-    if (xml.hasError()) {
+    if (xml.hasError())
         qWarning() << "KateXmlReader:" << path << ":" << xml.errorString();
-        return nullptr;
-    }
-    if (rawContexts.isEmpty()) {
-        qWarning() << "KateXmlReader:" << path << "— no contexts found";
-        return nullptr;
-    }
 
-    // -------- Pass 2: build the highlighter ---------------------------------
-    auto hl = std::make_unique<RulesHighlighter>();
-    const auto& th = theme();
+    return data;
+}
 
-    QHash<QString, int> attrIdByName;
-    for (const RawItemData& rid : rawItemDatas) {
-        TextAttribute ta;
-        const auto tIt = th.find(rid.defStyleNum);
-        if (tIt != th.end()) {
-            ta.foreground = tIt->fg;
-            ta.bold       = tIt->bold;
-            ta.italic     = tIt->italic;
+// -----------------------------------------------------------------------------
+// Directory index: language name → file path
+// -----------------------------------------------------------------------------
+static QHash<QString, QString> buildSyntaxIndex(const QString& dir) {
+    static const QRegularExpression nameRe(
+        QStringLiteral("<language[^>]+name=\"([^\"]+)\""));
+    QHash<QString, QString> index;
+    const QStringList entries = QDir(dir).entryList({"*.xml"}, QDir::Files);
+    for (const QString& entry : entries) {
+        const QString filePath = dir + QLatin1Char('/') + entry;
+        QFile f(filePath);
+        if (!f.open(QIODevice::ReadOnly)) continue;
+        const QString head = QString::fromUtf8(f.read(2048));
+        f.close();
+        const auto m = nameRe.match(head);
+        if (m.hasMatch())
+            index.insert(m.captured(1), filePath);
+    }
+    return index;
+}
+
+// -----------------------------------------------------------------------------
+// Resolved IDs within a shared RulesHighlighter
+// -----------------------------------------------------------------------------
+struct ResolvedLang {
+    QHash<QString, int> attrByName;
+    QHash<QString, int> klByName;
+    QHash<QString, int> ctxByName;
+    QString             initialCtxName;
+};
+
+// -----------------------------------------------------------------------------
+// Loader: manages loading multiple Kate language files into one highlighter
+// -----------------------------------------------------------------------------
+class Loader {
+public:
+    Loader(const QString& syntaxDir, RulesHighlighter* hl)
+        : m_dir(syntaxDir), m_hl(hl) {}
+
+    // Load the main (top-level) language file and set the initial context.
+    // Returns false on failure.
+    bool loadMain(const QString& path) {
+        LangData data = parseKateFile(path);
+        if (data.contexts.isEmpty()) {
+            qWarning() << "KateXmlReader:" << path << "— no contexts found";
+            return false;
         }
-        if (rid.italicSet)    ta.italic    = rid.italic;
-        if (rid.boldSet)      ta.bold      = rid.bold;
-        if (rid.underlineSet) ta.underline = rid.underline;
-        attrIdByName.insert(rid.name, hl->addAttribute(ta));
+        // Use empty string as the key for the main language so same-language
+        // context references resolve without any prefix.
+        doLoad(QString(), data);
+        const auto it = m_resolved.find(QString());
+        if (it == m_resolved.end()) return false;
+        m_hl->setInitialContextId(it->ctxByName.value(it->initialCtxName, 0));
+        return true;
     }
 
-    QHash<QString, int> klIdByName;
-    for (const RawList& rl : rawLists) {
-        klIdByName.insert(rl.name, hl->addKeywordList({rl.name, rl.items,
-                                                       keywordsCaseSensitive}));
+private:
+    QString          m_dir;
+    RulesHighlighter* m_hl;
+
+    QHash<QString, QString>      m_index;       // langName → file path (lazy)
+    bool                         m_indexBuilt = false;
+    QHash<QString, ResolvedLang> m_resolved;    // langName → resolved IDs
+    QSet<QString>                m_inProgress;  // cycle detection
+
+    void ensureIndex() {
+        if (m_indexBuilt) return;
+        m_index = buildSyntaxIndex(m_dir);
+        m_indexBuilt = true;
     }
 
-    // First pass on contexts: create empty contexts so that forward-references
-    // in rule attributes resolve to valid ids. We fill rules in the second
-    // loop below.
-    QHash<QString, int> ctxIdByName;
-    for (const RawContext& rc : rawContexts) {
-        HighlightContext hc;
-        hc.name = rc.name;
-        const int id = hl->addContext(std::move(hc));
-        ctxIdByName.insert(rc.name, id);
+    // Ensure language `langName` is loaded. Returns pointer or nullptr.
+    const ResolvedLang* ensureLoaded(const QString& langName) {
+        if (m_resolved.contains(langName)) return &m_resolved[langName];
+        if (m_inProgress.contains(langName)) {
+            qWarning() << "KateXmlReader: circular IncludeRules for language" << langName;
+            return nullptr;
+        }
+        ensureIndex();
+        const QString path = m_index.value(langName);
+        if (path.isEmpty()) {
+            qWarning() << "KateXmlReader: language not found in syntax directory:" << langName;
+            return nullptr;
+        }
+        LangData data = parseKateFile(path);
+        if (data.contexts.isEmpty()) return nullptr;
+
+        m_inProgress.insert(langName);
+        doLoad(langName, data);
+        m_inProgress.remove(langName);
+
+        return m_resolved.contains(langName) ? &m_resolved[langName] : nullptr;
     }
 
-    auto resolveAttr = [&](const QString& name) -> int {
-        return name.isEmpty() ? -1 : attrIdByName.value(name, -1);
-    };
-    auto resolveCtx = [&](const QString& name) -> int {
-        return name.isEmpty() ? -1 : ctxIdByName.value(name, -1);
-    };
+    // Build a LangData into the shared highlighter and store the result.
+    void doLoad(const QString& langName, const LangData& data) {
+        ResolvedLang resolved;
+        resolved.initialCtxName = data.contexts.isEmpty()
+                                  ? QString()
+                                  : data.contexts.first().name;
+        const auto& th = theme();
 
-    for (const RawContext& rc : rawContexts) {
-        HighlightContext& hc = hl->contextRef(ctxIdByName.value(rc.name));
-        hc.defaultAttribute = resolveAttr(rc.attribute);
-        const ContextSwitch leSw = parseContextSwitch(rc.lineEndContext);
-        hc.lineEndPopCount    = leSw.popCount;
-        hc.lineEndNextContext = resolveCtx(leSw.pushName);
-
-        for (const RawRule& rr : rc.rules) {
-            HighlightRule hr;
-            const int attr = resolveAttr(rr.attrs.value(QStringLiteral("attribute")));
-            const ContextSwitch sw = parseContextSwitch(
-                rr.attrs.value(QStringLiteral("context")));
-            hr.attributeId    = attr;
-            hr.popCount       = sw.popCount;
-            hr.nextContextId  = resolveCtx(sw.pushName);
-            hr.lookAhead      = attrBool(rr.attrs, QStringLiteral("lookAhead"));
-            hr.firstNonSpace  = attrBool(rr.attrs, QStringLiteral("firstNonSpace"));
-
-            // Folding markers (can be on any rule; Kate allows both on one rule).
-            const QString beginR = rr.attrs.value(QStringLiteral("beginRegion"));
-            const QString endR   = rr.attrs.value(QStringLiteral("endRegion"));
-            if (!beginR.isEmpty()) hr.beginRegionId = hl->regionIdForName(beginR);
-            if (!endR.isEmpty())   hr.endRegionId   = hl->regionIdForName(endR);
-
-            const bool insensitive = attrBool(rr.attrs, QStringLiteral("insensitive"));
-            hr.caseSensitive = !insensitive;
-
-            auto charAttr = [&](const QString& key) -> QChar {
-                const QString v = rr.attrs.value(key);
-                return v.isEmpty() ? QChar() : v.at(0);
-            };
-
-            if (rr.tag == QLatin1String("DetectChar")) {
-                hr.kind = HighlightRule::DetectChar;
-                hr.ch = charAttr(QStringLiteral("char"));
-            } else if (rr.tag == QLatin1String("Detect2Chars")) {
-                hr.kind = HighlightRule::Detect2Chars;
-                hr.ch  = charAttr(QStringLiteral("char"));
-                hr.ch1 = charAttr(QStringLiteral("char1"));
-            } else if (rr.tag == QLatin1String("AnyChar")) {
-                hr.kind = HighlightRule::AnyChar;
-                hr.str  = rr.attrs.value(QStringLiteral("String"));
-            } else if (rr.tag == QLatin1String("StringDetect")) {
-                hr.kind = HighlightRule::StringDetect;
-                hr.str  = rr.attrs.value(QStringLiteral("String"));
-            } else if (rr.tag == QLatin1String("WordDetect")) {
-                hr.kind = HighlightRule::WordDetect;
-                hr.str  = rr.attrs.value(QStringLiteral("String"));
-            } else if (rr.tag == QLatin1String("RegExpr")) {
-                hr.kind = HighlightRule::RegExpr;
-                QRegularExpression::PatternOptions opts =
-                    QRegularExpression::UseUnicodePropertiesOption;
-                if (insensitive) opts |= QRegularExpression::CaseInsensitiveOption;
-                hr.regex = QRegularExpression(
-                    rr.attrs.value(QStringLiteral("String")), opts);
-            } else if (rr.tag == QLatin1String("keyword")) {
-                hr.kind = HighlightRule::Keyword;
-                hr.keywordListId = klIdByName.value(
-                    rr.attrs.value(QStringLiteral("String")), -1);
-            } else if (rr.tag == QLatin1String("DetectSpaces")) {
-                hr.kind = HighlightRule::DetectSpaces;
-            } else if (rr.tag == QLatin1String("DetectIdentifier")) {
-                hr.kind = HighlightRule::DetectIdentifier;
-            } else if (rr.tag == QLatin1String("Int")) {
-                hr.kind = HighlightRule::Int;
-            } else if (rr.tag == QLatin1String("Float")) {
-                hr.kind = HighlightRule::Float;
-            } else if (rr.tag == QLatin1String("HlCStringChar")) {
-                hr.kind = HighlightRule::HlCStringChar;
-            } else if (rr.tag == QLatin1String("LineContinue")) {
-                hr.kind = HighlightRule::LineContinue;
-            } else if (rr.tag == QLatin1String("RangeDetect")) {
-                hr.kind = HighlightRule::RangeDetect;
-                hr.ch  = charAttr(QStringLiteral("char"));
-                hr.ch1 = charAttr(QStringLiteral("char1"));
-            } else if (rr.tag == QLatin1String("IncludeRules")) {
-                const QString ctxRef = rr.attrs.value(QStringLiteral("context"));
-                if (ctxRef.startsWith(QStringLiteral("##"))) {
-                    // Cross-file include — ignored in v1.
-                    continue;
-                }
-                hr.kind = HighlightRule::IncludeRules;
-                hr.includedContextId = resolveCtx(ctxRef);
-                if (hr.includedContextId < 0) continue; // unresolved
-            } else {
-                // Unknown rule tag — skip.
-                continue;
+        // Step 1: attributes
+        for (const RawItemData& rid : data.itemDatas) {
+            TextAttribute ta;
+            const auto tIt = th.find(rid.defStyleNum);
+            if (tIt != th.end()) {
+                ta.foreground = tIt->fg;
+                ta.bold       = tIt->bold;
+                ta.italic     = tIt->italic;
             }
-            hc.rules.push_back(std::move(hr));
+            if (rid.italicSet)    ta.italic    = rid.italic;
+            if (rid.boldSet)      ta.bold      = rid.bold;
+            if (rid.underlineSet) ta.underline = rid.underline;
+            resolved.attrByName.insert(rid.name, m_hl->addAttribute(ta));
+        }
+
+        // Step 2: keyword lists
+        for (const RawList& rl : data.lists) {
+            resolved.klByName.insert(rl.name,
+                m_hl->addKeywordList({rl.name, rl.items, data.caseSensitive}));
+        }
+
+        // Step 3: register context stubs (so forward refs & cross-lang cycles work)
+        for (const RawContext& rc : data.contexts) {
+            HighlightContext hc;
+            hc.name = rc.name;
+            resolved.ctxByName.insert(rc.name, m_hl->addContext(std::move(hc)));
+        }
+
+        // Store before filling rules so recursive ensureLoaded can find us.
+        m_resolved.insert(langName, resolved);
+
+        auto resolveAttr = [&](const QString& n) -> int {
+            return n.isEmpty() ? -1 : resolved.attrByName.value(n, -1);
+        };
+        auto resolveCtxLocal = [&](const QString& n) -> int {
+            return n.isEmpty() ? -1 : resolved.ctxByName.value(n, -1);
+        };
+
+        // Step 4: fill context rules
+        for (const RawContext& rc : data.contexts) {
+            HighlightContext& hc =
+                m_hl->contextRef(resolved.ctxByName.value(rc.name));
+            hc.defaultAttribute   = resolveAttr(rc.attribute);
+            const ContextSwitch leSw = parseContextSwitch(rc.lineEndContext);
+            hc.lineEndPopCount    = leSw.popCount;
+            hc.lineEndNextContext = resolveCtxLocal(leSw.pushName);
+
+            for (const RawRule& rr : rc.rules) {
+                HighlightRule hr;
+                const int attr = resolveAttr(rr.attrs.value(QStringLiteral("attribute")));
+                const ContextSwitch sw =
+                    parseContextSwitch(rr.attrs.value(QStringLiteral("context")));
+                hr.attributeId   = attr;
+                hr.popCount      = sw.popCount;
+                hr.nextContextId = resolveCtxLocal(sw.pushName);
+                hr.lookAhead     = attrBool(rr.attrs, QStringLiteral("lookAhead"));
+                hr.firstNonSpace = attrBool(rr.attrs, QStringLiteral("firstNonSpace"));
+
+                const QString beginR = rr.attrs.value(QStringLiteral("beginRegion"));
+                const QString endR   = rr.attrs.value(QStringLiteral("endRegion"));
+                if (!beginR.isEmpty()) hr.beginRegionId = m_hl->regionIdForName(beginR);
+                if (!endR.isEmpty())   hr.endRegionId   = m_hl->regionIdForName(endR);
+
+                const bool insensitive = attrBool(rr.attrs, QStringLiteral("insensitive"));
+                hr.caseSensitive = !insensitive;
+
+                auto charAttr = [&](const QString& key) -> QChar {
+                    const QString v = rr.attrs.value(key);
+                    return v.isEmpty() ? QChar() : v.at(0);
+                };
+
+                if (rr.tag == QLatin1String("IncludeRules")) {
+                    const QString ctxRef = rr.attrs.value(QStringLiteral("context"));
+                    const int sep = ctxRef.indexOf(QStringLiteral("##"));
+                    if (sep >= 0) {
+                        // Cross-language: [CtxName]##LangName
+                        const QString foreignLang = ctxRef.mid(sep + 2);
+                        const QString foreignCtxName =
+                            sep > 0 ? ctxRef.left(sep) : QString();
+                        const ResolvedLang* foreign = ensureLoaded(foreignLang);
+                        if (!foreign) continue;
+                        const QString key = foreignCtxName.isEmpty()
+                                            ? foreign->initialCtxName
+                                            : foreignCtxName;
+                        const int fCtxId = foreign->ctxByName.value(key, -1);
+                        if (fCtxId < 0) {
+                            qWarning() << "KateXmlReader: context not found:"
+                                       << ctxRef;
+                            continue;
+                        }
+                        hr.kind = HighlightRule::IncludeRules;
+                        hr.includedContextId = fCtxId;
+                    } else {
+                        // Same-language include
+                        hr.kind = HighlightRule::IncludeRules;
+                        hr.includedContextId = resolveCtxLocal(ctxRef);
+                        if (hr.includedContextId < 0) continue;
+                    }
+                } else if (rr.tag == QLatin1String("DetectChar")) {
+                    hr.kind = HighlightRule::DetectChar;
+                    hr.ch   = charAttr(QStringLiteral("char"));
+                } else if (rr.tag == QLatin1String("Detect2Chars")) {
+                    hr.kind = HighlightRule::Detect2Chars;
+                    hr.ch   = charAttr(QStringLiteral("char"));
+                    hr.ch1  = charAttr(QStringLiteral("char1"));
+                } else if (rr.tag == QLatin1String("AnyChar")) {
+                    hr.kind = HighlightRule::AnyChar;
+                    hr.str  = rr.attrs.value(QStringLiteral("String"));
+                } else if (rr.tag == QLatin1String("StringDetect")) {
+                    hr.kind = HighlightRule::StringDetect;
+                    hr.str  = rr.attrs.value(QStringLiteral("String"));
+                } else if (rr.tag == QLatin1String("WordDetect")) {
+                    hr.kind = HighlightRule::WordDetect;
+                    hr.str  = rr.attrs.value(QStringLiteral("String"));
+                } else if (rr.tag == QLatin1String("RegExpr")) {
+                    hr.kind = HighlightRule::RegExpr;
+                    QRegularExpression::PatternOptions opts =
+                        QRegularExpression::UseUnicodePropertiesOption;
+                    if (insensitive)
+                        opts |= QRegularExpression::CaseInsensitiveOption;
+                    hr.regex = QRegularExpression(
+                        rr.attrs.value(QStringLiteral("String")), opts);
+                } else if (rr.tag == QLatin1String("keyword")) {
+                    hr.kind = HighlightRule::Keyword;
+                    hr.keywordListId = resolved.klByName.value(
+                        rr.attrs.value(QStringLiteral("String")), -1);
+                } else if (rr.tag == QLatin1String("DetectSpaces")) {
+                    hr.kind = HighlightRule::DetectSpaces;
+                } else if (rr.tag == QLatin1String("DetectIdentifier")) {
+                    hr.kind = HighlightRule::DetectIdentifier;
+                } else if (rr.tag == QLatin1String("Int")) {
+                    hr.kind = HighlightRule::Int;
+                } else if (rr.tag == QLatin1String("Float")) {
+                    hr.kind = HighlightRule::Float;
+                } else if (rr.tag == QLatin1String("HlCStringChar")) {
+                    hr.kind = HighlightRule::HlCStringChar;
+                } else if (rr.tag == QLatin1String("LineContinue")) {
+                    hr.kind = HighlightRule::LineContinue;
+                } else if (rr.tag == QLatin1String("RangeDetect")) {
+                    hr.kind = HighlightRule::RangeDetect;
+                    hr.ch   = charAttr(QStringLiteral("char"));
+                    hr.ch1  = charAttr(QStringLiteral("char1"));
+                } else {
+                    continue; // unknown rule tag
+                }
+
+                hc.rules.push_back(std::move(hr));
+            }
         }
     }
+};
 
-    hl->setInitialContextId(ctxIdByName.value(rawContexts.first().name, 0));
+} // namespace
+
+// -----------------------------------------------------------------------------
+// Public entry point
+// -----------------------------------------------------------------------------
+std::unique_ptr<RulesHighlighter> KateXmlReader::load(const QString& path) {
+    const QString dir = QFileInfo(path).absolutePath();
+    auto hl = std::make_unique<RulesHighlighter>();
+    Loader loader(dir, hl.get());
+    if (!loader.loadMain(path)) return nullptr;
     return hl;
 }

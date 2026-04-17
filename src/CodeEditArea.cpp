@@ -143,6 +143,20 @@ void CodeEditArea::setSelectionColor(const QColor& color) {
     }
 }
 
+void CodeEditArea::setInvertSelection(bool invert) {
+    m_invertSelection = invert;
+    if (hasSelection()) {
+        viewport()->update();
+    }
+}
+
+void CodeEditArea::setSelectionForeground(const QColor& color) {
+    m_selectionForeground = color;
+    if (hasSelection() && m_invertSelection) {
+        viewport()->update();
+    }
+}
+
 void CodeEditArea::setCaretBlinkInterval(int ms) {
     m_caretPainter->setBlinkInterval(ms);
 }
@@ -161,6 +175,13 @@ void CodeEditArea::paintEvent(QPaintEvent* e) {
     paintSelection(p);
     p.setPen(palette().text().color());
     m_renderer->paint(p, m_doc, m_viewportState);
+    if (m_invertSelection && hasSelection()) {
+        p.save();
+        p.setClipRegion(selectionRegion());
+        p.setPen(m_selectionForeground);
+        m_renderer->paint(p, m_doc, m_viewportState);
+        p.restore();
+    }
     m_caretPainter->paint(p, m_cursor, m_viewportState, font());
 }
 
@@ -413,18 +434,18 @@ TextCursor CodeEditArea::cursorFromPoint(const QPoint& pt) const {
     return m_cursorCtrl->clamp({line, col});
 }
 
-void CodeEditArea::paintSelection(QPainter& painter) {
+QRegion CodeEditArea::selectionRegion() const {
     if (!hasSelection() || !m_doc || !m_viewportState.isValid()) {
-        return;
+        return {};
     }
     const TextCursor s = selectionStart();
     const TextCursor e = selectionEnd();
     const ViewportState& vp = m_viewportState;
-    const QColor highlight = m_selectionColor;
 
     const int first = qMax(s.line, vp.firstVisibleLine);
     const int last  = qMin(e.line, vp.lastVisibleLine);
 
+    QRegion region;
     for (int i = first; i <= last; ++i) {
         const int topY = vp.contentOffsetY + (i - vp.firstVisibleLine) * vp.lineHeight;
 
@@ -433,7 +454,6 @@ void CodeEditArea::paintSelection(QPainter& painter) {
         if (i == e.line) {
             endCol = e.column;
         } else {
-            // Full line: extend highlight to viewport edge.
             const int lineLen = m_doc->lineAt(i).length();
             endCol = qMax(lineLen, vp.viewportWidth / vp.charWidth + 1);
         }
@@ -443,8 +463,19 @@ void CodeEditArea::paintSelection(QPainter& painter) {
                       - vp.contentOffsetX;
         const int w = (endCol - startCol) * vp.charWidth;
         if (w > 0) {
-            painter.fillRect(x, topY, w, vp.lineHeight, highlight);
+            region += QRect(x, topY, w, vp.lineHeight);
         }
+    }
+    return region;
+}
+
+void CodeEditArea::paintSelection(QPainter& painter) {
+    const QRegion region = selectionRegion();
+    if (region.isEmpty()) {
+        return;
+    }
+    for (const QRect& r : region) {
+        painter.fillRect(r, m_selectionColor);
     }
 }
 

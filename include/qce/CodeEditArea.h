@@ -5,6 +5,7 @@
 
 #include <QAbstractScrollArea>
 #include <QColor>
+#include <QRegion>
 
 #include <memory>
 
@@ -74,6 +75,15 @@ public:
     void setSelectionColor(const QColor& color);
     QColor selectionColor() const { return m_selectionColor; }
 
+    /// When true, selected text is redrawn in selectionForeground() color
+    /// (default white) on top of the selection background. Default false.
+    void setInvertSelection(bool invert);
+    bool invertSelection() const { return m_invertSelection; }
+
+    /// Foreground color used when invertSelection() is true. Default white.
+    void setSelectionForeground(const QColor& color);
+    QColor selectionForeground() const { return m_selectionForeground; }
+
     // --- Configuration ---
 
     /// Number of space characters a tab expands to. Default 4. Affects
@@ -122,6 +132,8 @@ private:
     TextCursor m_cursor;
     TextCursor m_anchor; // selection anchor; equals m_cursor when no selection
     QColor m_selectionColor{QStringLiteral("#94CAEF")};
+    QColor m_selectionForeground{Qt::white};
+    bool   m_invertSelection = false;
 
     // Owned helpers. unique_ptr so we can forward-declare in the header.
     std::unique_ptr<LineRenderer> m_renderer;
@@ -145,6 +157,10 @@ private:
 
     /// Paints the selection highlight behind the text.
     void paintSelection(QPainter& painter);
+
+    /// Returns the pixel region covered by the current selection.
+    /// Used both for painting the highlight and for clipping inverted text.
+    QRegion selectionRegion() const;
 
     void ensureCursorVisible(TextCursor pos);
     int pageLineCount() const;

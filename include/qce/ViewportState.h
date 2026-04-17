@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QColor>
 #include <QString>
 #include <QVector>
 
@@ -57,15 +58,22 @@ struct ViewportState {
     /// Per-visual-row descriptor. Populated only when wordWrap=true; empty
     /// otherwise. Element 0 corresponds to firstVisibleRow.
     struct RowInfo {
-        int  logicalLine; ///< which document line
-        int  startCol;    ///< first logical column of this visual row
-        int  endCol;      ///< one past last logical column
-        bool isFirstRow;  ///< first visual row of logicalLine?
+        int  logicalLine = -1; ///< document line; -1 when isFiller
+        int  startCol    = 0;  ///< first logical column of this visual row
+        int  endCol      = 0;  ///< one past last logical column
+        bool isFirstRow  = false; ///< first visual row of logicalLine?
         /// When non-empty, this row is the header of a collapsed fold region
         /// and the renderer should draw the placeholder text starting at
         /// column `foldStartColumn`, replacing everything past it.
         QString foldPlaceholder;
         int     foldStartColumn = -1;
+
+        /// Filler row: virtual line inserted between document lines, not
+        /// numbered and never holding the caret. Renderer fills with
+        /// fillerColor; margins skip it.
+        bool    isFiller    = false;
+        QColor  fillerColor;
+        QString fillerLabel;   ///< non-empty only on the first row of a block
     };
     QVector<RowInfo> rows;
 

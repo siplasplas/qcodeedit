@@ -63,6 +63,14 @@ void LineNumberGutter::paint(QPainter& painter,
     if (vp.wordWrap && !vp.rows.isEmpty()) {
         for (int ri = 0; ri < vp.rows.size(); ++ri) {
             const auto& row = vp.rows[ri];
+            if (row.isFiller) {
+                if (row.fillerColor.isValid()) {
+                    const int topY = marginRect.top() + vp.contentOffsetY + ri * vp.lineHeight;
+                    painter.fillRect(marginRect.left(), topY, marginRect.width(),
+                                     vp.lineHeight, row.fillerColor);
+                }
+                continue;
+            }
             if (!row.isFirstRow) continue; // draw number only on first visual row of line
             if (row.logicalLine >= lineCount) continue;
             const int topY = marginRect.top() + vp.contentOffsetY + ri * vp.lineHeight;

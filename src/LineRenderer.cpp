@@ -35,6 +35,23 @@ void LineRenderer::paint(QPainter& painter,
             const auto& row = vp.rows[ri];
             const int topY = vp.contentOffsetY + ri * lineHeight;
             const int baselineY = topY + ascent;
+            if (row.isFiller) {
+                if (row.fillerColor.isValid()) {
+                    painter.fillRect(0, topY, vp.viewportWidth, lineHeight,
+                                     row.fillerColor);
+                }
+                if (!row.fillerLabel.isEmpty()) {
+                    painter.save();
+                    QColor c = painter.pen().color();
+                    c.setAlphaF(0.55);
+                    painter.setPen(c);
+                    const int labX = (vp.viewportWidth
+                        - fm.horizontalAdvance(row.fillerLabel)) / 2;
+                    painter.drawText(labX, baselineY, row.fillerLabel);
+                    painter.restore();
+                }
+                continue;
+            }
             const QString& line = doc->lineAt(row.logicalLine);
             const QVector<StyleSpan>* spans = m_spansProvider
                 ? m_spansProvider(row.logicalLine) : nullptr;

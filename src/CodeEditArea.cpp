@@ -243,6 +243,18 @@ void CodeEditArea::unfoldAll() {
     viewport()->update();
 }
 
+void CodeEditArea::setFillerState(FillerState* s) {
+    m_fillerState = s;
+    refreshFillers();
+}
+
+void CodeEditArea::refreshFillers() {
+    rebuildWrapLayout();
+    updateScrollBarRanges();
+    refreshViewportState();
+    viewport()->update();
+}
+
 void CodeEditArea::setWordWrap(bool wrap) {
     if (m_wordWrap == wrap) return;
     m_wordWrap = wrap;
@@ -646,26 +658,47 @@ void CodeEditArea::refreshViewportState() {
             s.lastVisibleRow = qMin(s.firstVisibleRow + maxVisible - 1, totalRows - 1);
 
             int prevLogical = -1;
+            int prevFillerBlock = -1;
             for (int r = s.firstVisibleRow; r <= s.lastVisibleRow; ++r) {
                 const WrapLayout::Row& wr = m_wrapLayout->rowAt(r);
                 ViewportState::RowInfo ri;
                 ri.logicalLine = wr.logicalLine;
                 ri.startCol    = wr.startCol;
                 ri.endCol      = wr.endCol;
-                ri.isFirstRow  = (wr.logicalLine != prevLogical);
-                if (ri.isFirstRow) {
-                    const int regIdx = m_foldState.regionStartingAt(wr.logicalLine);
-                    if (regIdx >= 0 && m_foldState.isCollapsed(regIdx)) {
-                        const FoldRegion& fr = m_foldState.regions()[regIdx];
-                        ri.foldPlaceholder  = fr.placeholder;
-                        ri.foldStartColumn  = fr.startColumn;
+                if (wr.logicalLine < 0) {
+                    // Filler row.
+                    ri.isFiller   = true;
+                    ri.isFirstRow = (wr.fillerBlockIndex != prevFillerBlock);
+                    if (m_fillerState && wr.fillerBlockIndex >= 0
+                            && wr.fillerBlockIndex < m_fillerState->fillers().size()) {
+                        const FillerLine& fl = m_fillerState->fillers()[wr.fillerBlockIndex];
+                        ri.fillerColor = fl.fillColor;
+                        if (ri.isFirstRow) ri.fillerLabel = fl.label;
                     }
+                    prevFillerBlock = wr.fillerBlockIndex;
+                    prevLogical = -1;
+                } else {
+                    ri.isFirstRow = (wr.logicalLine != prevLogical);
+                    if (ri.isFirstRow) {
+                        const int regIdx = m_foldState.regionStartingAt(wr.logicalLine);
+                        if (regIdx >= 0 && m_foldState.isCollapsed(regIdx)) {
+                            const FoldRegion& fr = m_foldState.regions()[regIdx];
+                            ri.foldPlaceholder  = fr.placeholder;
+                            ri.foldStartColumn  = fr.startColumn;
+                        }
+                    }
+                    prevLogical = wr.logicalLine;
+                    prevFillerBlock = -1;
                 }
                 s.rows.push_back(ri);
-                prevLogical = wr.logicalLine;
             }
-            s.firstVisibleLine = s.rows.isEmpty() ? 0 : s.rows.first().logicalLine;
-            s.lastVisibleLine  = s.rows.isEmpty() ? -1 : s.rows.last().logicalLine;
+            s.firstVisibleLine = 0;
+            s.lastVisibleLine  = -1;
+            for (const auto& r : s.rows) {
+                if (r.isFiller) continue;
+                if (s.lastVisibleLine < 0) s.firstVisibleLine = r.logicalLine;
+                s.lastVisibleLine = r.logicalLine;
+            }
         } else {
             s.firstVisibleRow = 0;
             s.lastVisibleRow  = -1;
@@ -778,7 +811,23 @@ TextCursor CodeEditArea::cursorFromPoint(const QPoint& pt) const {
     const int tw = tabWidth();
 
     if (m_wordWrap && !vp.rows.isEmpty()) {
-        const int ri = qBound(0, pt.y() / vp.lineHeight, vp.rows.size() - 1);
+        int ri = qBound(0, pt.y() / vp.lineHeight, vp.rows.size() - 1);
+        // If the clicked row is filler, walk back to the nearest content row
+        // above (fallback: the nearest below). Caret can never rest on filler.
+        if (vp.rows[ri].isFiller) {
+            int j = ri - 1;
+            while (j >= 0 && vp.rows[j].isFiller) --j;
+            if (j >= 0) {
+                const auto& rb = vp.rows[j];
+                return m_cursorCtrl->clamp({rb.logicalLine, rb.endCol});
+            }
+            int k = ri + 1;
+            while (k < vp.rows.size() && vp.rows[k].isFiller) ++k;
+            if (k < vp.rows.size()) {
+                return m_cursorCtrl->clamp({vp.rows[k].logicalLine, 0});
+            }
+            return m_cursorCtrl->clamp({0, 0});
+        }
         const ViewportState::RowInfo& row = vp.rows[ri];
         const int targetX = pt.x() - LineRenderer::kLeftPaddingPx;
         const QString seg = m_doc->lineAt(row.logicalLine)
@@ -858,7 +907,9 @@ void CodeEditArea::rebuildWrapLayout() {
     if (cw <= 0) return;
     const int availCols = qMax(1, (viewport()->width() - LineRenderer::kLeftPaddingPx) / cw);
     const FoldState* fs = (m_foldState.regions().isEmpty()) ? nullptr : &m_foldState;
-    m_wrapLayout->rebuild(m_doc, availCols, tabWidth(), fs);
+    const FillerState* fl = (m_fillerState && !m_fillerState->fillers().isEmpty())
+                            ? m_fillerState : nullptr;
+    m_wrapLayout->rebuild(m_doc, availCols, tabWidth(), fs, fl);
 }
 
 int CodeEditArea::visualRowOf(TextCursor pos) const {
@@ -986,6 +1037,7 @@ QRegion CodeEditArea::selectionRegion() const {
     if (m_wordWrap && !vp.rows.isEmpty()) {
         for (int ri = 0; ri < vp.rows.size(); ++ri) {
             const ViewportState::RowInfo& row = vp.rows[ri];
+            if (row.isFiller) continue; // filler has no document content
             // Skip rows outside selection's logical line range.
             if (row.logicalLine < s.line || row.logicalLine > e.line) continue;
             if (row.logicalLine == s.line && row.endCol <= s.column)   continue;
@@ -1055,6 +1107,7 @@ void CodeEditArea::paintLineBackgrounds(QPainter& painter) {
     };
     if (!vp.rows.isEmpty()) {
         for (int i = 0; i < vp.rows.size(); ++i) {
+            if (vp.rows[i].isFiller) continue;  // filler has its own color
             fill(vp.rows[i].logicalLine,
                  vp.contentOffsetY + i * vp.lineHeight);
         }

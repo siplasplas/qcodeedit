@@ -1,5 +1,6 @@
 #pragma once
 
+#include "FillerState.h"
 #include "FoldState.h"
 #include "HighlightState.h"
 #include "StyleSpan.h"
@@ -114,6 +115,12 @@ public:
     void foldAll();
     void unfoldAll();
 
+    /// Attach a filler-line state (non-owning). Pass nullptr to disable.
+    /// Call refreshFillers() after mutating the state in place.
+    void setFillerState(FillerState* s);
+    FillerState* fillerState() const { return m_fillerState; }
+    void refreshFillers();
+
     void setCaretBlinkInterval(int ms);
     int  caretBlinkInterval() const;
 
@@ -160,6 +167,8 @@ private:
 
     IFoldingProvider*                  m_foldingProvider = nullptr;
     FoldState                          m_foldState;
+
+    FillerState*                       m_fillerState = nullptr;
     std::unique_ptr<CursorController>  m_cursorCtrl;
     std::unique_ptr<CaretPainter>      m_caretPainter;
     QUndoStack*                        m_undoStack = nullptr;

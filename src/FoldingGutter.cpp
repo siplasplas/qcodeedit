@@ -30,6 +30,14 @@ void FoldingGutter::paint(QPainter& painter,
 
     for (int i = 0; i < vp.rows.size(); ++i) {
         const auto& row = vp.rows[i];
+        if (row.isFiller) {
+            if (row.fillerColor.isValid()) {
+                const int topY = marginRect.top() + vp.contentOffsetY + i * vp.lineHeight;
+                painter.fillRect(marginRect.left(), topY, marginRect.width(),
+                                 vp.lineHeight, row.fillerColor);
+            }
+            continue;
+        }
         if (!row.isFirstRow) continue;
         const int regIdx = m_state->regionStartingAt(row.logicalLine);
         if (regIdx < 0) continue;
@@ -58,6 +66,7 @@ void FoldingGutter::mousePressed(const QPoint& local,
     if (rowIdx < 0 || rowIdx >= vp.rows.size()) return;
 
     const auto& row = vp.rows[rowIdx];
+    if (row.isFiller) return;
     if (!row.isFirstRow) return;
     if (m_state->regionStartingAt(row.logicalLine) < 0) return;
     m_toggle(row.logicalLine);

@@ -1,7 +1,13 @@
 #pragma once
 
+#include <qce/StyleSpan.h>
+#include <qce/TextAttribute.h>
+
 #include <QFont>
 #include <QString>
+#include <QVector>
+
+#include <functional>
 
 class QPainter;
 
@@ -42,6 +48,16 @@ public:
     void setShowWhitespace(bool show) { m_showWhitespace = show; }
     bool showWhitespace() const { return m_showWhitespace; }
 
+    using SpansForLineFn = std::function<const QVector<StyleSpan>*(int line)>;
+
+    /// Set the attribute palette (non-owning). Passing nullptr disables
+    /// span-based coloring and reverts to default foreground rendering.
+    void setAttributePalette(const QVector<TextAttribute>* palette) { m_palette = palette; }
+
+    /// Provider that returns spans for a given logical line, or nullptr if
+    /// none. Called once per rendered line/row. Callback may be null.
+    void setSpansProvider(SpansForLineFn fn) { m_spansProvider = std::move(fn); }
+
     /// Paints the visible region of the document.
     void paint(QPainter& painter,
                const ITextDocument* doc,
@@ -57,8 +73,26 @@ private:
     int  m_tabWidth        = 4;
     bool m_showWhitespace  = false;
 
-    /// Column-aware tab expansion: each '\t' advances to the next tab stop.
+    const QVector<TextAttribute>* m_palette = nullptr;
+    SpansForLineFn                m_spansProvider;
+
+    /// Column-aware tab expansion starting at visual column 0.
     QString expandTabs(const QString& line) const;
+
+    /// Column-aware tab expansion starting at `startVisual` column. Used when
+    /// rendering mid-line chunks (span segments).
+    QString expandTabsAt(const QString& chunk, int startVisual) const;
+
+    /// Draw a segment of a line with span-based syntax coloring. If no spans
+    /// / no palette are set, falls back to a single plain drawText.
+    /// `segStart`..`segEnd` = raw QChar range within `line`. Text is drawn at
+    /// pixel x = `drawX`, with visual column 0 corresponding to `segStart`.
+    void drawSegmentWithSpans(QPainter& painter,
+                              const QString& line,
+                              int segStart, int segEnd,
+                              int drawX, int baselineY,
+                              int charWidth,
+                              const QVector<StyleSpan>* spans) const;
 
     /// Second-pass: draw · for spaces and → for tabs in a muted color.
     /// seg is the raw (unexpanded) text for one visual row; visualStart is

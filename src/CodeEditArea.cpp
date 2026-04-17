@@ -1,5 +1,6 @@
 #include "qce/CodeEditArea.h"
 
+#include "qce/IHighlighter.h"
 #include "qce/ITextDocument.h"
 #include "CaretPainter.h"
 #include "CursorController.h"
@@ -63,6 +64,7 @@ void CodeEditArea::setDocument(ITextDocument* doc) {
     m_anchor = m_cursor;
     m_undoStack->clear();
 
+    rebuildHighlightCache();
     updateScrollBarRanges();
     refreshViewportState();
     viewport()->update();
@@ -194,6 +196,22 @@ void CodeEditArea::setShowWhitespace(bool show) {
 
 bool CodeEditArea::showWhitespace() const {
     return m_renderer->showWhitespace();
+}
+
+void CodeEditArea::setHighlighter(IHighlighter* hl) {
+    m_highlighter = hl;
+    if (hl) {
+        m_renderer->setAttributePalette(&hl->attributes());
+        m_renderer->setSpansProvider([this](int line) -> const QVector<StyleSpan>* {
+            if (line < 0 || line >= m_lineSpans.size()) return nullptr;
+            return &m_lineSpans[line];
+        });
+    } else {
+        m_renderer->setAttributePalette(nullptr);
+        m_renderer->setSpansProvider({});
+    }
+    rebuildHighlightCache();
+    viewport()->update();
 }
 
 void CodeEditArea::setWordWrap(bool wrap) {
@@ -490,6 +508,7 @@ void CodeEditArea::onDocumentReset() {
     m_cursor = m_cursorCtrl->clamp(TextCursor{});
     m_anchor = m_cursor;
     m_undoStack->clear();
+    rebuildHighlightCache();
     rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
@@ -498,25 +517,42 @@ void CodeEditArea::onDocumentReset() {
     emit selectionChanged();
 }
 
-void CodeEditArea::onLinesInserted(int, int) {
+void CodeEditArea::onLinesInserted(int startLine, int count) {
     m_cursor = m_cursorCtrl->clamp(m_cursor);
     m_anchor = m_cursorCtrl->clamp(m_anchor);
+    if (m_highlighter) {
+        for (int i = 0; i < count; ++i) {
+            m_lineEndStates.insert(startLine, HighlightState{});
+            m_lineSpans.insert(startLine, {});
+        }
+        rehighlightFrom(startLine);
+    }
     rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
     viewport()->update();
 }
 
-void CodeEditArea::onLinesRemoved(int, int) {
+void CodeEditArea::onLinesRemoved(int startLine, int count) {
     m_cursor = m_cursorCtrl->clamp(m_cursor);
     m_anchor = m_cursorCtrl->clamp(m_anchor);
+    if (m_highlighter) {
+        for (int i = 0; i < count && startLine < m_lineEndStates.size(); ++i) {
+            m_lineEndStates.removeAt(startLine);
+            m_lineSpans.removeAt(startLine);
+        }
+        rehighlightFrom(startLine);
+    }
     rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
     viewport()->update();
 }
 
-void CodeEditArea::onLinesChanged(int, int) {
+void CodeEditArea::onLinesChanged(int startLine, int) {
+    if (m_highlighter) {
+        rehighlightFrom(startLine);
+    }
     rebuildWrapLayout();
     refreshViewportState();
     viewport()->update();
@@ -760,6 +796,50 @@ void CodeEditArea::rebuildWrapLayout() {
 int CodeEditArea::visualRowOf(TextCursor pos) const {
     if (!m_wordWrap) return pos.line;
     return m_wrapLayout->rowForCursor(pos.line, pos.column);
+}
+
+// --- Highlighting helpers ------------------------------------------------
+
+void CodeEditArea::rebuildHighlightCache() {
+    m_lineEndStates.clear();
+    m_lineSpans.clear();
+    if (!m_highlighter || !m_doc) return;
+    const int n = m_doc->lineCount();
+    m_lineEndStates.resize(n);
+    m_lineSpans.resize(n);
+    // Default-constructed HighlightState has an empty stack; rehighlightFrom's
+    // stability check cannot stop early while the cached value is still empty.
+    rehighlightFrom(0);
+}
+
+void CodeEditArea::rehighlightFrom(int startLine) {
+    if (!m_highlighter || !m_doc) return;
+    const int n = m_doc->lineCount();
+    if (startLine >= n) return;
+    // Keep cache vectors in sync with line count.
+    if (m_lineEndStates.size() != n) {
+        m_lineEndStates.resize(n);
+        m_lineSpans.resize(n);
+    }
+
+    HighlightState stateIn = (startLine == 0)
+        ? m_highlighter->initialState()
+        : m_lineEndStates[startLine - 1];
+
+    for (int i = startLine; i < n; ++i) {
+        const HighlightState oldEndState = m_lineEndStates[i];
+        HighlightState stateOut;
+        m_highlighter->highlightLine(m_doc->lineAt(i), stateIn,
+                                      m_lineSpans[i], stateOut);
+        m_lineEndStates[i] = stateOut;
+        // After the first mandatory re-highlight (startLine), stop as soon as
+        // the end-of-line state matches what was cached — downstream lines
+        // are still correct.
+        if (i > startLine && stateOut == oldEndState) {
+            break;
+        }
+        stateIn = stateOut;
+    }
 }
 
 // ------------------------------------------------------------------------

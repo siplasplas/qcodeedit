@@ -36,12 +36,12 @@ void LineRenderer::paint(QPainter& painter,
             const int topY = vp.contentOffsetY + ri * lineHeight;
             const int baselineY = topY + ascent;
             const QString& line = doc->lineAt(row.logicalLine);
-            const QString seg = line.mid(row.startCol, row.endCol - row.startCol);
-            const QString text = expandTabs(seg);
-            if (!text.isEmpty()) {
-                painter.drawText(kLeftPaddingPx, baselineY, text);
-            }
+            const QVector<StyleSpan>* spans = m_spansProvider
+                ? m_spansProvider(row.logicalLine) : nullptr;
+            drawSegmentWithSpans(painter, line, row.startCol, row.endCol,
+                                 kLeftPaddingPx, baselineY, vp.charWidth, spans);
             if (m_showWhitespace) {
+                const QString seg = line.mid(row.startCol, row.endCol - row.startCol);
                 paintWhitespaceMarkers(painter, seg, kLeftPaddingPx, baselineY,
                                        vp.charWidth);
             }
@@ -55,10 +55,9 @@ void LineRenderer::paint(QPainter& painter,
         const int topY = vp.contentOffsetY + (i - first) * lineHeight;
         const int baselineY = topY + ascent;
         const QString& line = doc->lineAt(i);
-        const QString text = expandTabs(line);
-        if (!text.isEmpty()) {
-            painter.drawText(baseX, baselineY, text);
-        }
+        const QVector<StyleSpan>* spans = m_spansProvider ? m_spansProvider(i) : nullptr;
+        drawSegmentWithSpans(painter, line, 0, line.size(),
+                             baseX, baselineY, vp.charWidth, spans);
         if (m_showWhitespace) {
             paintWhitespaceMarkers(painter, line, baseX, baselineY, vp.charWidth);
         }
@@ -106,6 +105,98 @@ int LineRenderer::visualColumn(const QString& line, int charIndex, int tabWidth)
         }
     }
     return visual;
+}
+
+QString LineRenderer::expandTabsAt(const QString& chunk, int startVisual) const {
+    if (!chunk.contains(QLatin1Char('\t'))) {
+        return chunk;
+    }
+    QString out;
+    out.reserve(chunk.size() + 8);
+    int visual = startVisual;
+    for (QChar ch : chunk) {
+        if (ch == QLatin1Char('\t')) {
+            const int spaces = m_tabWidth - (visual % m_tabWidth);
+            out.append(QString(spaces, QLatin1Char(' ')));
+            visual += spaces;
+        } else {
+            out.append(ch);
+            ++visual;
+        }
+    }
+    return out;
+}
+
+void LineRenderer::drawSegmentWithSpans(QPainter& painter,
+                                         const QString& line,
+                                         int segStart, int segEnd,
+                                         int drawX, int baselineY,
+                                         int charWidth,
+                                         const QVector<StyleSpan>* spans) const {
+    if (segStart >= segEnd) return;
+
+    // Fast path: no highlighting → single drawText.
+    if (!spans || spans->isEmpty() || !m_palette || m_palette->isEmpty()) {
+        const QString seg = line.mid(segStart, segEnd - segStart);
+        const QString text = expandTabs(seg);
+        if (!text.isEmpty()) {
+            painter.drawText(drawX, baselineY, text);
+        }
+        return;
+    }
+
+    const QPen  defaultPen  = painter.pen();
+    const QFont defaultFont = painter.font();
+
+    int rawCol = segStart;
+    int visual = 0;                  // relative to segStart (=segment-local visual col)
+
+    while (rawCol < segEnd) {
+        // Find span that covers rawCol, or the next span after it.
+        int attrId   = -1;
+        int chunkEnd = segEnd;
+        for (const StyleSpan& s : *spans) {
+            const int sEnd = s.start + s.length;
+            if (sEnd <= rawCol) continue;        // span ends before rawCol
+            if (s.start > rawCol) {
+                chunkEnd = qMin(chunkEnd, s.start);
+                break;
+            }
+            attrId   = s.attributeId;
+            chunkEnd = qMin(chunkEnd, sEnd);
+            break;
+        }
+
+        // Apply attribute (foreground / bold / italic / underline).
+        QPen  pen = defaultPen;
+        QFont f   = defaultFont;
+        if (attrId >= 0 && attrId < m_palette->size()) {
+            const TextAttribute& a = (*m_palette)[attrId];
+            if (a.foreground.isValid()) pen.setColor(a.foreground);
+            if (a.bold)      f.setBold(true);
+            if (a.italic)    f.setItalic(true);
+            if (a.underline) f.setUnderline(true);
+        }
+        painter.setPen(pen);
+        painter.setFont(f);
+
+        const QString chunk    = line.mid(rawCol, chunkEnd - rawCol);
+        const QString expanded = expandTabsAt(chunk, visual);
+        painter.drawText(drawX + visual * charWidth, baselineY, expanded);
+
+        // Advance visual column past this chunk.
+        for (QChar ch : chunk) {
+            if (ch == QLatin1Char('\t')) {
+                visual = (visual / m_tabWidth + 1) * m_tabWidth;
+            } else {
+                ++visual;
+            }
+        }
+        rawCol = chunkEnd;
+    }
+
+    painter.setPen(defaultPen);
+    painter.setFont(defaultFont);
 }
 
 QString LineRenderer::expandTabs(const QString& line) const {

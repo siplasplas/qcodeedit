@@ -1,11 +1,14 @@
 #pragma once
 
+#include "HighlightState.h"
+#include "StyleSpan.h"
 #include "TextCursor.h"
 #include "ViewportState.h"
 
 #include <QAbstractScrollArea>
 #include <QColor>
 #include <QRegion>
+#include <QVector>
 
 #include <memory>
 
@@ -14,6 +17,7 @@ class QUndoStack;
 namespace qce {
 
 class ITextDocument;
+class IHighlighter;
 class LineRenderer;
 class CursorController;
 class CaretPainter;
@@ -82,6 +86,11 @@ public:
     void setShowWhitespace(bool show);
     bool showWhitespace() const;
 
+    /// Attach a syntax highlighter (non-owning). Pass nullptr to disable
+    /// highlighting. Triggers a full re-highlight of the document.
+    void setHighlighter(IHighlighter* hl);
+    IHighlighter* highlighter() const { return m_highlighter; }
+
     void setCaretBlinkInterval(int ms);
     int  caretBlinkInterval() const;
 
@@ -122,6 +131,10 @@ private:
 
     std::unique_ptr<LineRenderer>      m_renderer;
     std::unique_ptr<WrapLayout>        m_wrapLayout;
+
+    IHighlighter*                      m_highlighter = nullptr;
+    QVector<HighlightState>            m_lineEndStates;
+    QVector<QVector<StyleSpan>>        m_lineSpans;
     std::unique_ptr<CursorController>  m_cursorCtrl;
     std::unique_ptr<CaretPainter>      m_caretPainter;
     QUndoStack*                        m_undoStack = nullptr;
@@ -139,6 +152,10 @@ private:
     // --- Word-wrap helpers ---
     void rebuildWrapLayout();
     int  visualRowOf(TextCursor pos) const;
+
+    // --- Highlighting helpers ---
+    void rebuildHighlightCache();
+    void rehighlightFrom(int startLine);
 
     // --- Edit helpers ---
     /// Insert text at cursor (replacing selection if present).

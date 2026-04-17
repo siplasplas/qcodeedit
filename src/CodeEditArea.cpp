@@ -1041,10 +1041,16 @@ void CodeEditArea::paintLineBackgrounds(QPainter& painter) {
     if (!m_lineBgProvider || !m_doc || !m_viewportState.isValid()) return;
     const ViewportState& vp = m_viewportState;
     const int vpW = vp.viewportWidth;
+    // fm.height() describes the line-box (ascent + descent), not the
+    // visual glyph extent — Qt renders glyphs with a few pixels of
+    // leading above and a tail below. Match the band to the glyph
+    // bounds so breakpoint / diff highlights line up with the text.
+    const int topPad    = 3;
+    const int bandHeight = qMax(1, vp.lineHeight - 1);
     auto fill = [&](int line, int topY) {
         const QColor bg = m_lineBgProvider(line);
         if (bg.isValid()) {
-            painter.fillRect(0, topY, vpW, vp.lineHeight, bg);
+            painter.fillRect(0, topY + topPad, vpW, bandHeight, bg);
         }
     };
     if (!vp.rows.isEmpty()) {

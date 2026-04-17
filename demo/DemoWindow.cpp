@@ -61,7 +61,8 @@ void DemoWindow::loadFile(const QString& path) {
 void DemoWindow::onFileOpen() {
     const QString path = QFileDialog::getOpenFileName(
         this, tr("Open file"), QString(),
-        tr("Text files (*.txt *.md *.cpp *.h *.cmake);;All files (*)"));
+        tr("Text files (*.txt *.md *.cpp *.h *.cmake);;All files (*)"),
+        nullptr, QFileDialog::DontUseNativeDialog);
     if (!path.isEmpty()) {
         loadFile(path);
     }
@@ -78,7 +79,8 @@ void DemoWindow::onLoadSyntax() {
         QDir::homePath() + QStringLiteral("/.local/share/org.kde.syntax-highlighting/syntax");
     const QString path = QFileDialog::getOpenFileName(
         this, tr("Open Kate syntax XML"), initial,
-        tr("Kate syntax (*.xml);;All files (*)"));
+        tr("Kate syntax (*.xml);;All files (*)"),
+        nullptr, QFileDialog::DontUseNativeDialog);
     if (path.isEmpty()) return;
     auto hl = KateXmlReader::load(path);
     if (!hl) {

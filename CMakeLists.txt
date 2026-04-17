@@ -31,10 +31,12 @@ add_library(qcodeedit STATIC
     src/CodeEdit.cpp
     src/LineRenderer.cpp
     src/CursorController.cpp
+    src/CaretPainter.cpp
 
     # Internal headers (in src/) are listed so AUTOMOC / IDEs pick them up.
     src/LineRenderer.h
     src/CursorController.h
+    src/CaretPainter.h
 
     # Public headers.
     include/qce/ViewportState.h

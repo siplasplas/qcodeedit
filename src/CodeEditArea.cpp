@@ -1,9 +1,11 @@
 #include "qce/CodeEditArea.h"
 
 #include "qce/ITextDocument.h"
+#include "CaretPainter.h"
 #include "CursorController.h"
 #include "LineRenderer.h"
 
+#include <QFocusEvent>
 #include <QFontMetrics>
 #include <QKeyEvent>
 #include <QPaintEvent>
@@ -20,7 +22,8 @@ namespace qce {
 CodeEditArea::CodeEditArea(QWidget* parent)
     : QAbstractScrollArea(parent),
       m_renderer(std::make_unique<LineRenderer>()),
-      m_cursorCtrl(std::make_unique<CursorController>(nullptr)) {
+      m_cursorCtrl(std::make_unique<CursorController>(nullptr)),
+      m_caretPainter(std::make_unique<CaretPainter>(this)) {
     // Mono-font default.
     QFont f(QStringLiteral("Monospace"));
     f.setStyleHint(QFont::TypeWriter);
@@ -32,6 +35,9 @@ CodeEditArea::CodeEditArea(QWidget* parent)
 
     // Accept focus so we receive keyPressEvent.
     setFocusPolicy(Qt::StrongFocus);
+
+    connect(m_caretPainter.get(), &CaretPainter::blinkToggled,
+            viewport(), QOverload<>::of(&QWidget::update));
 
     refreshViewportState();
 }
@@ -69,6 +75,14 @@ int CodeEditArea::tabWidth() const {
     return m_renderer->tabWidth();
 }
 
+void CodeEditArea::setCaretBlinkInterval(int ms) {
+    m_caretPainter->setBlinkInterval(ms);
+}
+
+int CodeEditArea::caretBlinkInterval() const {
+    return m_caretPainter->blinkInterval();
+}
+
 // ------------------------------------------------------------------------
 // QWidget / QAbstractScrollArea overrides
 // ------------------------------------------------------------------------
@@ -78,6 +92,7 @@ void CodeEditArea::paintEvent(QPaintEvent* e) {
     p.fillRect(e->rect(), palette().base());
     p.setPen(palette().text().color());
     m_renderer->paint(p, m_doc, m_viewportState);
+    m_caretPainter->paint(p, m_cursor, m_viewportState, font());
 }
 
 void CodeEditArea::resizeEvent(QResizeEvent* e) {
@@ -134,6 +149,16 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
         return;
     }
     e->accept();
+}
+
+void CodeEditArea::focusInEvent(QFocusEvent* e) {
+    QAbstractScrollArea::focusInEvent(e);
+    m_caretPainter->setFocused(true);
+}
+
+void CodeEditArea::focusOutEvent(QFocusEvent* e) {
+    QAbstractScrollArea::focusOutEvent(e);
+    m_caretPainter->setFocused(false);
 }
 
 // ------------------------------------------------------------------------
@@ -251,6 +276,7 @@ void CodeEditArea::applyCursorMove(TextCursor newPos) {
         return;
     }
     m_cursor = clamped;
+    m_caretPainter->resetBlink();
     ensureCursorVisible(m_cursor);
     viewport()->update();
     emit cursorPositionChanged(m_cursor);

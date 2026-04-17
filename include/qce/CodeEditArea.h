@@ -12,6 +12,7 @@ namespace qce {
 class ITextDocument;
 class LineRenderer;
 class CursorController;
+class CaretPainter;
 
 /// The actual text-rendering widget.
 ///
@@ -19,12 +20,6 @@ class CursorController;
 /// viewport. Publishes ViewportState via viewportChanged() so that margins
 /// (gutters, side bars) can paint themselves in sync without needing direct
 /// access to this class's internals.
-///
-/// v0.2: read-only with text rendering, keyboard navigation, and a logical
-/// cursor (no visible caret yet — that comes in v0.3 alongside margins).
-/// The cursor is fully plumbed: its position moves with arrows / PgUp /
-/// PgDn / Home / End / Ctrl+Home / Ctrl+End, and the view auto-scrolls to
-/// keep it visible. cursorPositionChanged() is emitted on every change.
 class CodeEditArea : public QAbstractScrollArea {
     Q_OBJECT
 public:
@@ -62,6 +57,11 @@ public:
     void setTabWidth(int spaces);
     int tabWidth() const;
 
+    /// Caret blink interval in milliseconds. Default 500. Values <= 0 are
+    /// silently treated as 500.
+    void setCaretBlinkInterval(int ms);
+    int caretBlinkInterval() const;
+
 signals:
     /// Emitted whenever the viewport state changes (scroll, resize, document
     /// modification). Margins connect to this to schedule their own repaint.
@@ -76,6 +76,8 @@ protected:
     void resizeEvent(QResizeEvent* e) override;
     void scrollContentsBy(int dx, int dy) override;
     void keyPressEvent(QKeyEvent* e) override;
+    void focusInEvent(QFocusEvent* e) override;
+    void focusOutEvent(QFocusEvent* e) override;
 
 private slots:
     void onDocumentReset();
@@ -91,6 +93,7 @@ private:
     // Owned helpers. unique_ptr so we can forward-declare in the header.
     std::unique_ptr<LineRenderer> m_renderer;
     std::unique_ptr<CursorController> m_cursorCtrl;
+    std::unique_ptr<CaretPainter> m_caretPainter;
 
     // --- Private helpers ---
 

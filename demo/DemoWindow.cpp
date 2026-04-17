@@ -2,6 +2,7 @@
 
 #include <qce/CodeEdit.h>
 #include <qce/CodeEditArea.h>
+#include <qce/RulesHighlighter.h>
 #include <qce/SimpleTextDocument.h>
 #include <qce/margins/LineNumberGutter.h>
 
@@ -27,8 +28,12 @@ DemoWindow::DemoWindow(QWidget* parent)
     m_lineNumbers->setFont(m_editor->area()->font());
     m_editor->addLeftMargin(m_lineNumbers.get());
 
+    buildDemoHighlighter();
+    m_editor->area()->setHighlighter(m_highlighter.get());
+
     setCentralWidget(m_editor);
     buildMenus();
+    loadDemoText();
     updateTitle();
     resize(900, 600);
 }
@@ -166,6 +171,118 @@ void DemoWindow::buildMenus() {
     wsAct->setChecked(false);
     connect(wsAct, &QAction::toggled, m_editor->area(),
             &qce::CodeEditArea::setShowWhitespace);
+}
+
+void DemoWindow::buildDemoHighlighter() {
+    using namespace qce;
+    m_highlighter = std::make_unique<RulesHighlighter>();
+
+    // --- Palette (muted "classic" colors that show on both light/dark) ---
+    const int attrKw      = m_highlighter->addAttribute(
+        {QColor(0x00, 0x00, 0xAA), {}, /*bold*/true});
+    const int attrType    = m_highlighter->addAttribute(
+        {QColor(0x00, 0x80, 0x80), {}, /*bold*/true});
+    const int attrString  = m_highlighter->addAttribute(
+        {QColor(0xC0, 0x10, 0x10)});
+    const int attrComment = m_highlighter->addAttribute(
+        {QColor(0x80, 0x80, 0x80), {}, false, /*italic*/true});
+    const int attrNumber  = m_highlighter->addAttribute(
+        {QColor(0x80, 0x40, 0x00)});
+
+    // --- Keyword lists ---
+    const int klKeywords = m_highlighter->addKeywordList({"keywords", {
+        QStringLiteral("if"),    QStringLiteral("else"), QStringLiteral("return"),
+        QStringLiteral("for"),   QStringLiteral("while"), QStringLiteral("do"),
+        QStringLiteral("break"), QStringLiteral("continue"), QStringLiteral("switch"),
+        QStringLiteral("case"),  QStringLiteral("default"),
+    }, true});
+    const int klTypes = m_highlighter->addKeywordList({"types", {
+        QStringLiteral("int"),  QStringLiteral("void"), QStringLiteral("char"),
+        QStringLiteral("bool"), QStringLiteral("const"), QStringLiteral("float"),
+        QStringLiteral("double"),
+    }, true});
+
+    // --- Contexts (created empty, rules appended after all ids are known) ---
+    HighlightContext ctxN{"Normal",       -1,         -1, 0, false, -1, {}};
+    HighlightContext ctxS{"String",       attrString, -1, 0, false, -1, {}};
+    HighlightContext ctxB{"BlockComment", attrComment, -1, 0, false, -1, {}};
+    HighlightContext ctxL{"LineComment",  attrComment,  0, 1, false, -1, {}};
+    // LineComment: at end of line, #pop back to Normal.
+
+    const int ctxNormal       = m_highlighter->addContext(ctxN);
+    const int ctxString       = m_highlighter->addContext(ctxS);
+    const int ctxBlockComment = m_highlighter->addContext(ctxB);
+    const int ctxLineComment  = m_highlighter->addContext(ctxL);
+
+    auto& normal = m_highlighter->contextRef(ctxNormal);
+    // Line comment //...
+    normal.rules.push_back(
+        {HighlightRule::Detect2Chars, '/', '/', {}, true, {}, -1, -1,
+         attrComment, ctxLineComment, 0, false, false});
+    // Block comment /* ... */
+    normal.rules.push_back(
+        {HighlightRule::Detect2Chars, '/', '*', {}, true, {}, -1, -1,
+         attrComment, ctxBlockComment, 0, false, false});
+    // String "..."
+    normal.rules.push_back(
+        {HighlightRule::DetectChar, '"', {}, {}, true, {}, -1, -1,
+         attrString, ctxString, 0, false, false});
+    // Types (tried before keywords because both match identifiers)
+    normal.rules.push_back(
+        {HighlightRule::Keyword, {}, {}, {}, true, {}, klTypes, -1,
+         attrType, -1, 0, false, false});
+    // Keywords
+    normal.rules.push_back(
+        {HighlightRule::Keyword, {}, {}, {}, true, {}, klKeywords, -1,
+         attrKw, -1, 0, false, false});
+    // Numbers
+    {
+        HighlightRule r;
+        r.kind = HighlightRule::Int;
+        r.attributeId = attrNumber;
+        normal.rules.push_back(r);
+    }
+
+    auto& strCtx = m_highlighter->contextRef(ctxString);
+    // Escape sequences inside strings (\n, \t, \", \\, \xNN, ...)
+    strCtx.rules.push_back(
+        {HighlightRule::HlCStringChar, {}, {}, {}, true, {}, -1, -1,
+         -1, -1, 0, false, false});
+    // Closing quote
+    strCtx.rules.push_back(
+        {HighlightRule::DetectChar, '"', {}, {}, true, {}, -1, -1,
+         attrString, -1, 1, false, false});
+
+    auto& blockCtx = m_highlighter->contextRef(ctxBlockComment);
+    // Closing */
+    blockCtx.rules.push_back(
+        {HighlightRule::Detect2Chars, '*', '/', {}, true, {}, -1, -1,
+         attrComment, -1, 1, false, false});
+    // LineComment has no rules beyond the default attribute and lineEnd #pop.
+
+    m_highlighter->setInitialContextId(ctxNormal);
+}
+
+void DemoWindow::loadDemoText() {
+    m_doc->setText(QStringLiteral(
+        "/* Multi-line block comment.\n"
+        " * A \"fake string\" inside a comment is NOT highlighted.\n"
+        " * Continues across several lines until the closing token.\n"
+        " */\n"
+        "\n"
+        "// Single-line comment with a /* fake block start */ inside.\n"
+        "\n"
+        "int main(int argc, char** argv) {\n"
+        "    const char* greeting = \"Hello, world!\\n\";\n"
+        "    int count = 42;\n"
+        "    if (argc > 1) {\n"
+        "        return 0;\n"
+        "    }\n"
+        "    while (count > 0) {\n"
+        "        count = count - 1;\n"
+        "    }\n"
+        "    return 1;\n"
+        "}\n"));
 }
 
 void DemoWindow::updateTitle() {

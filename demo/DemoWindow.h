@@ -8,6 +8,7 @@ namespace qce {
 class CodeEdit;
 class SimpleTextDocument;
 class LineNumberGutter;
+class RulesHighlighter;
 }
 
 class QAction;
@@ -31,6 +32,7 @@ private:
     qce::CodeEdit*           m_editor      = nullptr;
     qce::SimpleTextDocument* m_doc         = nullptr;
     std::unique_ptr<qce::LineNumberGutter> m_lineNumbers;
+    std::unique_ptr<qce::RulesHighlighter> m_highlighter;
     QString m_currentPath;
 
     // Settings state
@@ -42,5 +44,7 @@ private:
     QAction* m_actInvertSel     = nullptr;
 
     void buildMenus();
+    void buildDemoHighlighter();
+    void loadDemoText();
     void updateTitle();
 };

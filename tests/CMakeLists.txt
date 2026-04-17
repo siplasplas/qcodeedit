@@ -30,19 +30,13 @@ qce_add_test(test_fold_state)
 qce_add_test(test_rule_based_folding)
 qce_add_test(test_filler_state)
 
-# test_kate_xml_reader pulls in KateXmlReader from demo/ — it links the core
-# library plus the reader source directly (the reader deliberately lives in
-# demo/, not libqcodeedit).
-add_executable(test_kate_xml_reader
-    test_kate_xml_reader.cpp
-    ${CMAKE_SOURCE_DIR}/demo/KateXmlReader.cpp
-)
+# test_kate_xml_reader links against the kate companion library rather than
+# building its source inline.
+add_executable(test_kate_xml_reader test_kate_xml_reader.cpp)
 target_link_libraries(test_kate_xml_reader PRIVATE
     qcodeedit::qcodeedit
+    qcodeedit::kate
     Qt6::Test
-)
-target_include_directories(test_kate_xml_reader PRIVATE
-    ${CMAKE_SOURCE_DIR}/demo
 )
 add_test(NAME test_kate_xml_reader COMMAND test_kate_xml_reader)
 qce_add_test(test_line_number_gutter)

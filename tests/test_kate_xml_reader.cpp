@@ -1,4 +1,4 @@
-#include "../demo/KateXmlReader.h"
+#include <qce/kate/KateXmlReader.h>
 
 #include <qce/IHighlighter.h>
 #include <qce/RulesHighlighter.h>

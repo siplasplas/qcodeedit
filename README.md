@@ -1,14 +1,10 @@
-# qcodeedit — v0.2.0
+# qcodeedit — v1.1.0
 
 Custom Qt6 code-editor widget. Designed as a reusable component across
 projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
 `protected` API and fixed-right scroll bar are limiting.
 
 **License:** LGPL-3.0-or-later (see `COPYING` and `COPYING.LESSER`).
-
-**Status:** v0.2.0 — text rendering works. Read-only viewer with keyboard
-navigation and a logical cursor (no visible caret yet). Margins and
-scroll-bar side switch come in v0.3.
 
 ## Features (v0.2)
 
@@ -63,12 +59,51 @@ Options:
 
 - `QCE_BUILD_DEMO=ON` (default) — builds the demo viewer
 - `QCE_BUILD_TESTS=ON` (default) — builds the Qt Test suite
+- `QCE_BUILD_KATE=ON` (default) — builds the `qcodeedit-kate` companion
+  library (Kate Syntax XML reader). Depends on the core library.
+
+## Install
+
+Installs the static library plus public headers plus CMake config files
+so downstream projects can use `find_package(qcodeedit)`.
+
+```bash
+cmake --build build -j
+sudo cmake --install build              # defaults to /usr/local
+# or, for a local prefix:
+cmake --install build --prefix "$HOME/.local"
+```
+
+Installed layout under `${prefix}`:
+
+```
+include/qce/*.h                            — core public headers
+include/qce/margins/*.h                    — margin headers
+include/qce/kate/KateXmlReader.h           — companion (optional)
+lib/libqcodeedit.a                         — core static library
+lib/libqcodeedit-kate.a                    — companion static library
+lib/cmake/qcodeedit/                       — find_package(qcodeedit)
+lib/cmake/qcodeedit-kate/                  — find_package(qcodeedit-kate)
+```
 
 ## Consuming
+
+As a submodule / add_subdirectory sibling:
 
 ```cmake
 add_subdirectory(qcodeedit)
 target_link_libraries(my_app PRIVATE qcodeedit::qcodeedit)
+```
+
+As an installed package (after `cmake --install`):
+
+```cmake
+find_package(qcodeedit 1.1 REQUIRED)
+target_link_libraries(my_app PRIVATE qcodeedit::qcodeedit)
+
+# Optional: Kate Syntax XML reader (installs itself as a separate package).
+find_package(qcodeedit-kate REQUIRED)
+target_link_libraries(my_app PRIVATE qcodeedit::kate)
 ```
 
 ```cpp
@@ -93,24 +128,14 @@ connect(editor->area(), &qce::CodeEditArea::cursorPositionChanged,
 
 ## Testing
 
-Three test suites, 36 test cases total:
+13 Qt Test suites covering cursor logic, wrap layout, rules highlighter,
+fold state / rule-based folding provider, filler state, Kate XML reader
+(incl. smoke tests on the user's installed Kate syntax files), and a
+widget-level key-event suite.
 
-- `test_viewport_state` — 5 (POD invariants)
-- `test_simple_document` — 12 (line operations, CRLF handling, caching)
-- `test_cursor_controller` — 19 (movement semantics, edge cases)
-
-All pure logic, no `QApplication` required. Widget-level tests (painting,
-key events) will come alongside v0.3 once the UI surface stabilises.
-
-## Roadmap
-
-- **v0.1** — skeleton (done)
-- **v0.2** — text rendering, keyboard nav, logical cursor (this version)
-- **v0.3** — visible caret, margins: `IMargin` interface, `LineNumberGutter`,
-  `LeftRail` / `RightRail`, scroll-bar side switch
-- **v0.4** — selection (still read-only document), mouse interaction
-- **v0.5** — edit operations, undo/redo
-- **v0.6+** — syntax highlighting, word-wrap, IME, search
+```bash
+ctest --test-dir build --output-on-failure
+```
 
 ## License
 

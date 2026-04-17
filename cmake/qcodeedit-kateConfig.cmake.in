@@ -1,0 +1,8 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(qcodeedit @PROJECT_VERSION@ REQUIRED)
+
+include("${CMAKE_CURRENT_LIST_DIR}/qcodeedit-kateTargets.cmake")
+
+check_required_components(qcodeedit-kate)

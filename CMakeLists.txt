@@ -1,10 +1,13 @@
 cmake_minimum_required(VERSION 3.21)
-project(qcodeedit LANGUAGES CXX VERSION 0.2.0)
+project(qcodeedit LANGUAGES CXX VERSION 1.1.0)
 
 # --- Global options -----------------------------------------------------
 
-option(QCE_BUILD_DEMO  "Build the qcodeedit demo application" ON)
-option(QCE_BUILD_TESTS "Build the qcodeedit test suite"       ON)
+option(QCE_BUILD_DEMO  "Build the qcodeedit demo application"  ON)
+option(QCE_BUILD_TESTS "Build the qcodeedit test suite"        ON)
+option(QCE_BUILD_KATE  "Build the qcodeedit-kate companion library" ON)
+
+include(GNUInstallDirs)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -83,6 +86,7 @@ target_include_directories(qcodeedit
 
 target_include_directories(qcodeedit PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 target_link_libraries(qcodeedit
@@ -93,7 +97,74 @@ target_link_libraries(qcodeedit
 # consistent with DiffMerge's diffcore::diffcore convention.
 add_library(qcodeedit::qcodeedit ALIAS qcodeedit)
 
+# --- Install ------------------------------------------------------------
+
+install(TARGETS qcodeedit
+    EXPORT qcodeeditTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+# Public headers go under include/qce/. Preserve the two-level layout used
+# internally (margins/ has its own subdirectory).
+install(FILES
+    include/qce/ViewportState.h
+    include/qce/ITextDocument.h
+    include/qce/IMargin.h
+    include/qce/SimpleTextDocument.h
+    include/qce/CodeEditArea.h
+    include/qce/CodeEdit.h
+    include/qce/TextCursor.h
+    include/qce/TextAttribute.h
+    include/qce/StyleSpan.h
+    include/qce/HighlightState.h
+    include/qce/IHighlighter.h
+    include/qce/RulesHighlighter.h
+    include/qce/FoldRegion.h
+    include/qce/IFoldingProvider.h
+    include/qce/FoldState.h
+    include/qce/RuleBasedFoldingProvider.h
+    include/qce/FillerLine.h
+    include/qce/FillerState.h
+    include/qce/Rail.h
+    include/qce/LeftRail.h
+    include/qce/RightRail.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/qce
+)
+install(FILES
+    include/qce/margins/LineNumberGutter.h
+    include/qce/margins/FoldingGutter.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/qce/margins
+)
+
+install(EXPORT qcodeeditTargets
+    FILE qcodeeditTargets.cmake
+    NAMESPACE qcodeedit::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/qcodeedit
+)
+
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/qcodeeditConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/qcodeeditConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/qcodeedit
+)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/qcodeeditConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/qcodeeditConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/qcodeeditConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/qcodeedit
+)
+
 # --- Subdirectories -----------------------------------------------------
+
+if(QCE_BUILD_KATE)
+    add_subdirectory(kate)
+endif()
 
 if(QCE_BUILD_DEMO)
     add_subdirectory(demo)

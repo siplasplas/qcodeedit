@@ -1,4 +1,4 @@
-#include "KateXmlReader.h"
+#include <qce/kate/KateXmlReader.h>
 
 #include <QColor>
 #include <QDebug>

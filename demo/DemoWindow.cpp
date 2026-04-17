@@ -1,6 +1,6 @@
 #include "DemoWindow.h"
 
-#include "KateXmlReader.h"
+#include <qce/kate/KateXmlReader.h>
 
 #include <qce/CodeEdit.h>
 #include <qce/CodeEditArea.h>

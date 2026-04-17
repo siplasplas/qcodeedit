@@ -25,6 +25,12 @@ void LineRenderer::paint(QPainter& painter,
     const int ascent = fm.ascent();
     const int lineHeight = vp.lineHeight;
 
+    // fm.ascent() includes room for accents above capitals (Á, É, ...); most
+    // code is plain ASCII and renders ~(ascent - capHeight) pixels below the
+    // cell top, while caret and selection span the full cell. Shift the
+    // baseline up by that gap so glyphs sit at the cell top like the caret.
+    const int topShift = qMax(0, ascent - fm.capHeight());
+
     // X position of the first character after padding, then shifted left by
     // the horizontal scroll offset. Lines that are shorter than the offset
     // will draw off-screen and simply be clipped by the painter.
@@ -34,7 +40,7 @@ void LineRenderer::paint(QPainter& painter,
         for (int ri = 0; ri < vp.rows.size(); ++ri) {
             const auto& row = vp.rows[ri];
             const int topY = vp.contentOffsetY + ri * lineHeight;
-            const int baselineY = topY + ascent;
+            const int baselineY = topY + ascent - topShift;
             if (row.isFiller) {
                 if (row.fillerColor.isValid()) {
                     painter.fillRect(0, topY, vp.viewportWidth, lineHeight,
@@ -87,7 +93,7 @@ void LineRenderer::paint(QPainter& painter,
     const int last  = vp.lastVisibleLine;
     for (int i = first; i <= last && i < lineCount; ++i) {
         const int topY = vp.contentOffsetY + (i - first) * lineHeight;
-        const int baselineY = topY + ascent;
+        const int baselineY = topY + ascent - topShift;
         const QString& line = doc->lineAt(i);
         const QVector<StyleSpan>* spans = m_spansProvider ? m_spansProvider(i) : nullptr;
         drawSegmentWithSpans(painter, line, 0, line.size(),

@@ -648,7 +648,9 @@ void CodeEditArea::refreshViewportState() {
                 if (ri.isFirstRow) {
                     const int regIdx = m_foldState.regionStartingAt(wr.logicalLine);
                     if (regIdx >= 0 && m_foldState.isCollapsed(regIdx)) {
-                        ri.foldPlaceholder = m_foldState.regions()[regIdx].placeholder;
+                        const FoldRegion& fr = m_foldState.regions()[regIdx];
+                        ri.foldPlaceholder  = fr.placeholder;
+                        ri.foldStartColumn  = fr.startColumn;
                     }
                 }
                 s.rows.push_back(ri);

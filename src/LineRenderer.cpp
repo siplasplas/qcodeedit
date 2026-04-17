@@ -38,19 +38,27 @@ void LineRenderer::paint(QPainter& painter,
             const QString& line = doc->lineAt(row.logicalLine);
             const QVector<StyleSpan>* spans = m_spansProvider
                 ? m_spansProvider(row.logicalLine) : nullptr;
-            drawSegmentWithSpans(painter, line, row.startCol, row.endCol,
+
+            // If this row is the header of a collapsed fold, cut off the
+            // visible text at the fold's start column — the placeholder then
+            // stands in for everything from that column onward (including
+            // the opening '{' / '/*' which belongs to the hidden region).
+            int drawEnd = row.endCol;
+            if (!row.foldPlaceholder.isEmpty() && row.foldStartColumn >= 0) {
+                drawEnd = qMin(drawEnd, row.foldStartColumn);
+            }
+
+            drawSegmentWithSpans(painter, line, row.startCol, drawEnd,
                                  kLeftPaddingPx, baselineY, vp.charWidth, spans);
             if (m_showWhitespace) {
-                const QString seg = line.mid(row.startCol, row.endCol - row.startCol);
+                const QString seg = line.mid(row.startCol, drawEnd - row.startCol);
                 paintWhitespaceMarkers(painter, seg, kLeftPaddingPx, baselineY,
                                        vp.charWidth);
             }
             if (!row.foldPlaceholder.isEmpty()) {
-                // Compute visual end of the already-drawn segment.
-                const QString seg = line.mid(row.startCol, row.endCol - row.startCol);
-                const int segVisualLen = expandTabsAt(seg, 0).size();
-                const int segEndX = kLeftPaddingPx + segVisualLen * vp.charWidth
-                                    + vp.charWidth; // one-char gap
+                const QString drawnSeg = line.mid(row.startCol, drawEnd - row.startCol);
+                const int segVisualLen = expandTabsAt(drawnSeg, 0).size();
+                const int segEndX = kLeftPaddingPx + segVisualLen * vp.charWidth;
                 drawFoldPlaceholder(painter, row.foldPlaceholder,
                                     segEndX, topY, lineHeight);
             }

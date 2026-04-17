@@ -62,9 +62,10 @@ struct ViewportState {
         int  endCol;      ///< one past last logical column
         bool isFirstRow;  ///< first visual row of logicalLine?
         /// When non-empty, this row is the header of a collapsed fold region
-        /// and the renderer should draw the placeholder text after the line
-        /// content. Empty otherwise.
+        /// and the renderer should draw the placeholder text starting at
+        /// column `foldStartColumn`, replacing everything past it.
         QString foldPlaceholder;
+        int     foldStartColumn = -1;
     };
     QVector<RowInfo> rows;
 

@@ -2,6 +2,8 @@
 
 #include <QWidget>
 
+class QScrollBar;
+
 namespace qce {
 
 class CodeEditArea;
@@ -43,16 +45,21 @@ public:
     /// Adds a margin to the right rail. Non-owning; caller manages lifetime.
     void addRightMargin(IMargin* margin);
 
-    /// Switches the vertical scroll bar to the left or right side.
-    /// Default is Right. Full implementation comes in section 6.5.
+    /// Moves the vertical scroll bar to the left or right side of the editor.
+    /// Default is Right. On Left, the area's built-in scroll bar is hidden
+    /// and a standalone QScrollBar is placed at the far left of the layout,
+    /// kept in sync with the area's scroll position.
     void setScrollBarSide(ScrollBarSide side);
     ScrollBarSide scrollBarSide() const { return m_scrollBarSide; }
 
 private:
-    CodeEditArea* m_area      = nullptr;
-    LeftRail*     m_leftRail  = nullptr;
-    RightRail*    m_rightRail = nullptr;
+    CodeEditArea* m_area        = nullptr;
+    LeftRail*     m_leftRail    = nullptr;
+    RightRail*    m_rightRail   = nullptr;
+    QScrollBar*   m_leftVScroll = nullptr; // non-null only in Left mode
     ScrollBarSide m_scrollBarSide = ScrollBarSide::Right;
+
+    void applyScrollBarSide(ScrollBarSide side);
 };
 
 } // namespace qce

@@ -364,7 +364,7 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
 
     case Qt::Key_Insert:
         m_overwrite = !m_overwrite;
-        viewport()->update();
+        m_caretPainter->setOverwrite(m_overwrite);
         break;
 
     case Qt::Key_Z:

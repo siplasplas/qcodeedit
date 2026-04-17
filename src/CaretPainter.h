@@ -31,6 +31,9 @@ public:
     /// cursor move. No-op if not focused.
     void resetBlink();
 
+    void setOverwrite(bool overwrite);
+    bool overwrite() const { return m_overwrite; }
+
     /// Paints the caret. No-op when hidden, out of focus, or off-screen.
     void paint(QPainter& painter,
                const TextCursor& cursor,
@@ -46,8 +49,9 @@ private slots:
 
 private:
     QTimer* m_timer;
-    bool m_shown   = true;
-    bool m_focused = false;
+    bool m_shown     = true;
+    bool m_focused   = false;
+    bool m_overwrite = false;
     int  m_blinkInterval = 500;
 };
 

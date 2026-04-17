@@ -42,6 +42,11 @@ void CaretPainter::resetBlink() {
     emit blinkToggled();
 }
 
+void CaretPainter::setOverwrite(bool overwrite) {
+    m_overwrite = overwrite;
+    emit blinkToggled();
+}
+
 void CaretPainter::onTimerTick() {
     m_shown = !m_shown;
     emit blinkToggled();
@@ -68,8 +73,13 @@ void CaretPainter::paint(QPainter& painter,
     const int caretHeight = fm.ascent() + fm.descent();
 
     painter.save();
-    painter.setPen(painter.pen().color());
-    painter.drawLine(x, topY, x, topY + caretHeight - 1);
+    if (m_overwrite) {
+        painter.setCompositionMode(QPainter::RasterOp_SourceXorDestination);
+        painter.fillRect(x, topY, vp.charWidth, caretHeight, Qt::white);
+    } else {
+        painter.setPen(painter.pen().color());
+        painter.drawLine(x, topY, x, topY + caretHeight - 1);
+    }
     painter.restore();
 }
 

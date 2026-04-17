@@ -40,6 +40,7 @@ add_library(qcodeedit STATIC
     src/FoldState.cpp
     src/RuleBasedFoldingProvider.cpp
     src/FoldingGutter.cpp
+    src/FillerState.cpp
 
     # Internal headers (in src/) are listed so AUTOMOC / IDEs pick them up.
     src/LineRenderer.h
@@ -67,6 +68,8 @@ add_library(qcodeedit STATIC
     include/qce/RuleBasedFoldingProvider.h
     include/qce/margins/LineNumberGutter.h
     include/qce/margins/FoldingGutter.h
+    include/qce/FillerLine.h
+    include/qce/FillerState.h
     include/qce/Rail.h
     include/qce/LeftRail.h
     include/qce/RightRail.h

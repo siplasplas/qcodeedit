@@ -154,6 +154,27 @@ void DemoWindow::buildMenus() {
     quitAct->setShortcut(QKeySequence::Quit);
     connect(quitAct, &QAction::triggered, this, &QWidget::close);
 
+    // Edit menu (folding)
+    auto* editMenu = menuBar()->addMenu(tr("&Edit"));
+
+    auto* toggleFoldAct = editMenu->addAction(tr("&Toggle fold at cursor"));
+    toggleFoldAct->setShortcut(QKeySequence(tr("F9")));
+    connect(toggleFoldAct, &QAction::triggered, this, [this]{
+        m_editor->area()->toggleFoldAt(m_editor->area()->cursorPosition().line);
+    });
+
+    auto* foldAllAct = editMenu->addAction(tr("&Fold all"));
+    foldAllAct->setShortcut(QKeySequence(tr("Ctrl+Shift+-")));
+    connect(foldAllAct, &QAction::triggered, this, [this]{
+        m_editor->area()->foldAll();
+    });
+
+    auto* unfoldAllAct = editMenu->addAction(tr("&Unfold all"));
+    unfoldAllAct->setShortcut(QKeySequence(tr("Ctrl+Shift+=")));
+    connect(unfoldAllAct, &QAction::triggered, this, [this]{
+        m_editor->area()->unfoldAll();
+    });
+
     // Settings menu
     auto* settingsMenu = menuBar()->addMenu(tr("&Settings"));
 

@@ -236,6 +236,22 @@ void CodeEditArea::toggleFoldAt(int line) {
     viewport()->update();
 }
 
+void CodeEditArea::foldAll() {
+    m_foldState.foldAll();
+    rebuildWrapLayout();
+    updateScrollBarRanges();
+    refreshViewportState();
+    viewport()->update();
+}
+
+void CodeEditArea::unfoldAll() {
+    m_foldState.unfoldAll();
+    rebuildWrapLayout();
+    updateScrollBarRanges();
+    refreshViewportState();
+    viewport()->update();
+}
+
 void CodeEditArea::setWordWrap(bool wrap) {
     if (m_wordWrap == wrap) return;
     m_wordWrap = wrap;

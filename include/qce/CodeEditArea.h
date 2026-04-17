@@ -107,6 +107,10 @@ public:
     /// layout and repaints.
     void toggleFoldAt(int line);
 
+    /// Collapse / expand every region.
+    void foldAll();
+    void unfoldAll();
+
     void setCaretBlinkInterval(int ms);
     int  caretBlinkInterval() const;
 

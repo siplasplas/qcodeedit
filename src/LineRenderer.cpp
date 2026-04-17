@@ -79,9 +79,12 @@ void LineRenderer::drawFoldPlaceholder(QPainter& painter, const QString& text,
     const int pad = 3;
     const int textW = fm.horizontalAdvance(text);
     const int w = textW + 2 * pad;
-    // Full line height — ascent+descent of the glyphs must fit (descenders on
-    // '{', 'y' etc. otherwise clip the rounded border's bottom edge).
-    const QRect r(x, topY, w, lineHeight);
+    // Some glyphs ('{', 'y', 'g') extend a couple of pixels below what
+    // fm.height() reports; pad the box a bit so the border doesn't clip
+    // them. A small overshoot into the next line's space is acceptable
+    // (placeholders are rare and transient).
+    const int extraBot = 2;
+    const QRect r(x, topY, w, lineHeight + extraBot);
 
     painter.save();
     QColor bg = painter.pen().color();

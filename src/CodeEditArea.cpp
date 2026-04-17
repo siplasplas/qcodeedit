@@ -135,6 +135,11 @@ void CodeEditArea::setSelectionColor(const QColor& color) {
     }
 }
 
+void CodeEditArea::setLineBackgroundProvider(LineBackgroundFn fn) {
+    m_lineBgProvider = std::move(fn);
+    viewport()->update();
+}
+
 // --- Undo / redo --------------------------------------------------------
 
 void CodeEditArea::undo() {
@@ -263,6 +268,7 @@ int CodeEditArea::caretBlinkInterval() const {
 void CodeEditArea::paintEvent(QPaintEvent* e) {
     QPainter p(viewport());
     p.fillRect(e->rect(), palette().base());
+    paintLineBackgrounds(p);
     paintSelection(p);
     p.setPen(palette().text().color());
     m_renderer->paint(p, m_doc, m_viewportState);
@@ -1029,6 +1035,28 @@ QRegion CodeEditArea::selectionRegion() const {
         if (w > 0) region += QRect(x, topY, w, vp.lineHeight);
     }
     return region;
+}
+
+void CodeEditArea::paintLineBackgrounds(QPainter& painter) {
+    if (!m_lineBgProvider || !m_doc || !m_viewportState.isValid()) return;
+    const ViewportState& vp = m_viewportState;
+    const int vpW = vp.viewportWidth;
+    auto fill = [&](int line, int topY) {
+        const QColor bg = m_lineBgProvider(line);
+        if (bg.isValid()) {
+            painter.fillRect(0, topY, vpW, vp.lineHeight, bg);
+        }
+    };
+    if (!vp.rows.isEmpty()) {
+        for (int i = 0; i < vp.rows.size(); ++i) {
+            fill(vp.rows[i].logicalLine,
+                 vp.contentOffsetY + i * vp.lineHeight);
+        }
+    } else {
+        for (int i = vp.firstVisibleLine; i <= vp.lastVisibleLine; ++i) {
+            fill(i, vp.contentOffsetY + (i - vp.firstVisibleLine) * vp.lineHeight);
+        }
+    }
 }
 
 void CodeEditArea::paintSelection(QPainter& painter) {

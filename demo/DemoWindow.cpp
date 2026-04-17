@@ -47,6 +47,17 @@ DemoWindow::DemoWindow(QWidget* parent)
     m_editor->area()->setFoldingProvider(m_foldProvider.get());
     m_editor->area()->setWordWrap(true);  // MVP: fold needs wrap mode for rendering
 
+    // Demo line-background decorations: simulate a breakpoint, a "removed"
+    // line and a "changed" line so the per-line background API is visible.
+    m_editor->area()->setLineBackgroundProvider([](int line) -> QColor {
+        switch (line) {
+        case 9:  return QColor("#FFE0E0"); // breakpoint (soft red)
+        case 10: return QColor("#D4F4DD"); // diff: added   (soft green)
+        case 13: return QColor("#C2D8F2"); // diff: changed (soft blue)
+        default: return {};
+        }
+    });
+
     setCentralWidget(m_editor);
     buildMenus();
     loadDemoText();

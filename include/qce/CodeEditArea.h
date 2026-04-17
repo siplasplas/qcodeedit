@@ -11,6 +11,7 @@
 #include <QRegion>
 #include <QVector>
 
+#include <functional>
 #include <memory>
 
 class QUndoStack;
@@ -51,6 +52,14 @@ public:
 
     void setSelectionColor(const QColor& color);
     QColor selectionColor() const { return m_selectionColor; }
+
+    /// Per-line background provider. Returns the fill colour for a logical
+    /// line, or an invalid QColor to leave the default. Intended for
+    /// breakpoints, diff highlights, inline warnings, etc. The provider is
+    /// queried during paint() only — callers drive repaints with viewport()->update()
+    /// after changing the underlying state.
+    using LineBackgroundFn = std::function<QColor(int line)>;
+    void setLineBackgroundProvider(LineBackgroundFn fn);
 
     // --- Undo / redo ---
     void undo();
@@ -136,6 +145,7 @@ private:
     TextCursor     m_cursor;
     TextCursor     m_anchor;
     QColor m_selectionColor{QStringLiteral("#A6D2FF")};
+    LineBackgroundFn m_lineBgProvider;
     bool   m_tabCaptured     = true;
     bool   m_readOnly        = false;
     bool   m_overwrite       = false;
@@ -186,6 +196,7 @@ private:
     void updateAfterEdit();
 
     // --- Painting helpers ---
+    void paintLineBackgrounds(QPainter& painter);
     void paintSelection(QPainter& painter);
     QRegion selectionRegion() const;
 };

@@ -72,7 +72,8 @@ void LineRenderer::paint(QPainter& painter,
             }
 
             drawSegmentWithSpans(painter, line, row.startCol, drawEnd,
-                                 kLeftPaddingPx, baselineY, vp.charWidth, spans);
+                                 kLeftPaddingPx, baselineY, vp.charWidth, spans,
+                                 topY, lineHeight);
             if (m_showWhitespace) {
                 const QString seg = line.mid(row.startCol, drawEnd - row.startCol);
                 paintWhitespaceMarkers(painter, seg, kLeftPaddingPx, baselineY,
@@ -97,7 +98,8 @@ void LineRenderer::paint(QPainter& painter,
         const QString& line = doc->lineAt(i);
         const QVector<StyleSpan>* spans = m_spansProvider ? m_spansProvider(i) : nullptr;
         drawSegmentWithSpans(painter, line, 0, line.size(),
-                             baseX, baselineY, vp.charWidth, spans);
+                             baseX, baselineY, vp.charWidth, spans,
+                             topY, lineHeight);
         if (m_showWhitespace) {
             paintWhitespaceMarkers(painter, line, baseX, baselineY, vp.charWidth);
         }
@@ -201,7 +203,8 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
                                          int segStart, int segEnd,
                                          int drawX, int baselineY,
                                          int charWidth,
-                                         const QVector<StyleSpan>* spans) const {
+                                         const QVector<StyleSpan>* spans,
+                                         int topY, int lineHeight) const {
     if (segStart >= segEnd) return;
 
     // Fast path: no highlighting → single drawText.
@@ -236,11 +239,18 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
             break;
         }
 
-        // Apply attribute (foreground / bold / italic / underline).
+        // Apply attribute (foreground / bold / italic / underline / background).
         QPen  pen = defaultPen;
         QFont f   = defaultFont;
+        const QString chunk    = line.mid(rawCol, chunkEnd - rawCol);
+        const QString expanded = expandTabsAt(chunk, visual);
         if (attrId >= 0 && attrId < m_palette->size()) {
             const TextAttribute& a = (*m_palette)[attrId];
+            if (a.background.isValid() && lineHeight > 0) {
+                painter.fillRect(drawX + visual * charWidth, topY,
+                                 expanded.length() * charWidth, lineHeight,
+                                 a.background);
+            }
             if (a.foreground.isValid()) pen.setColor(a.foreground);
             if (a.bold)      f.setBold(true);
             if (a.italic)    f.setItalic(true);
@@ -249,8 +259,6 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
         painter.setPen(pen);
         painter.setFont(f);
 
-        const QString chunk    = line.mid(rawCol, chunkEnd - rawCol);
-        const QString expanded = expandTabsAt(chunk, visual);
         painter.drawText(drawX + visual * charWidth, baselineY, expanded);
 
         // Advance visual column past this chunk.

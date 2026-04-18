@@ -92,7 +92,8 @@ private:
                               int segStart, int segEnd,
                               int drawX, int baselineY,
                               int charWidth,
-                              const QVector<StyleSpan>* spans) const;
+                              const QVector<StyleSpan>* spans,
+                              int topY = 0, int lineHeight = 0) const;
 
     /// Draw the fold placeholder text in a faint rounded rectangle; used on
     /// lines that are the header of a collapsed region.

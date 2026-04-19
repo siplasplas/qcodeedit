@@ -79,7 +79,9 @@ void CaretPainter::paint(QPainter& painter,
         painter.setCompositionMode(QPainter::RasterOp_SourceXorDestination);
         painter.fillRect(x, topY, vp.charWidth, caretHeight, Qt::white);
     } else {
-        painter.setPen(painter.pen().color());
+        QPen pen(painter.pen().color());
+        pen.setWidth(2);
+        painter.setPen(pen);
         painter.drawLine(x, topY, x, topY + caretHeight - 1);
     }
     painter.restore();

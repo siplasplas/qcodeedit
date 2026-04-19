@@ -19,6 +19,7 @@
 #include <QPainter>
 #include <QResizeEvent>
 #include <QScrollBar>
+#include <QToolTip>
 #include <QUndoStack>
 
 namespace qce {
@@ -143,6 +144,7 @@ void CodeEditArea::setLineBackgroundProvider(LineBackgroundFn fn) {
 // --- Undo / redo --------------------------------------------------------
 
 void CodeEditArea::undo() {
+    if (m_readOnly) { showReadOnlyHint(); return; }
     if (!m_undoStack->canUndo()) {
         return;
     }
@@ -151,6 +153,7 @@ void CodeEditArea::undo() {
 }
 
 void CodeEditArea::redo() {
+    if (m_readOnly) { showReadOnlyHint(); return; }
     if (!m_undoStack->canRedo()) {
         return;
     }
@@ -975,8 +978,30 @@ void CodeEditArea::rebuildFolds() {
 // Private — edit helpers
 // ------------------------------------------------------------------------
 
+void CodeEditArea::showReadOnlyHint() {
+    int vRow = visualRowOf(m_cursor);
+    int vCol = m_cursor.column;
+    if (m_doc && m_viewportState.isValid()) {
+        const int rowStart = m_wordWrap ? m_wrapLayout->rowAt(vRow).startCol : 0;
+        vCol = LineRenderer::visualColumn(
+            m_doc->lineAt(m_cursor.line).mid(rowStart),
+            m_cursor.column - rowStart, tabWidth());
+    }
+    const int px = m_viewportState.isValid()
+        ? LineRenderer::kLeftPaddingPx + vCol * m_viewportState.charWidth
+              - m_viewportState.contentOffsetX
+        : width() / 2;
+    const int py = m_viewportState.isValid()
+        ? m_viewportState.contentOffsetY
+              + (vRow - m_viewportState.firstVisibleRow) * m_viewportState.lineHeight
+        : height() / 3;
+    QToolTip::showText(viewport()->mapToGlobal(QPoint(px, py)),
+                       tr("This view is read-only"), viewport());
+}
+
 void CodeEditArea::executeInsert(const QString& text) {
     if (!m_doc || m_readOnly) {
+        if (m_readOnly) showReadOnlyHint();
         return;
     }
     if (hasSelection()) {
@@ -994,6 +1019,7 @@ void CodeEditArea::executeInsert(const QString& text) {
 
 void CodeEditArea::executeRemove(TextCursor start, TextCursor end) {
     if (!m_doc || m_readOnly || start == end) {
+        if (m_readOnly) showReadOnlyHint();
         return;
     }
     m_undoStack->push(new RemoveCommand(
@@ -1003,6 +1029,7 @@ void CodeEditArea::executeRemove(TextCursor start, TextCursor end) {
 
 void CodeEditArea::executeRemoveSelection() {
     if (!m_doc || m_readOnly || !hasSelection()) {
+        if (m_readOnly) showReadOnlyHint();
         return;
     }
     m_undoStack->push(new RemoveCommand(

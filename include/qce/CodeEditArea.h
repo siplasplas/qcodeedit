@@ -208,6 +208,8 @@ private:
     void paintLineBackgrounds(QPainter& painter);
     void paintSelection(QPainter& painter);
     QRegion selectionRegion() const;
+
+    void showReadOnlyHint();
 };
 
 } // namespace qce

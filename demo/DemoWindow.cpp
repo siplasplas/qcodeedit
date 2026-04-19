@@ -1,5 +1,6 @@
 #include "DemoWindow.h"
 
+#include <qce/kate/KateTheme.h>
 #include <qce/kate/KateXmlReader.h>
 
 #include <qce/CodeEdit.h>
@@ -21,6 +22,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPalette>
 #include <QTextStream>
 
 DemoWindow::DemoWindow(QWidget* parent)
@@ -107,21 +109,31 @@ void DemoWindow::onLoadSyntax() {
         tr("Kate syntax (*.xml);;All files (*)"),
         nullptr, QFileDialog::DontUseNativeDialog);
     if (path.isEmpty()) return;
-    auto hl = KateXmlReader::load(path);
-    if (!hl) {
-        QMessageBox::warning(this, tr("Load failed"),
-                             tr("Could not parse %1").arg(path));
-        return;
+    m_currentSyntaxPath = path;
+    reloadSyntaxWithTheme();
+}
+
+void DemoWindow::onSelectTheme(const QString& themePath) {
+    if (themePath.isEmpty()) {
+        m_currentTheme = KateTheme{};
+    } else {
+        KateTheme t = KateTheme::load(themePath);
+        if (!t.isValid()) return;
+        m_currentTheme = std::move(t);
     }
-    m_highlighter = std::move(hl);
-    m_editor->area()->setHighlighter(m_highlighter.get());
-    m_foldProvider = std::make_unique<qce::RuleBasedFoldingProvider>(m_highlighter.get());
-    m_foldProvider->setPlaceholderFor(QStringLiteral("Brace1"),  QStringLiteral("{…}"));
-    m_foldProvider->setPlaceholderFor(QStringLiteral("curly"),   QStringLiteral("{…}"));
-    m_foldProvider->setPlaceholderFor(QStringLiteral("square"),  QStringLiteral("[…]"));
-    m_foldProvider->setPlaceholderFor(QStringLiteral("paren"),   QStringLiteral("(…)"));
-    m_foldProvider->setPlaceholderFor(QStringLiteral("Comment"), QStringLiteral("/*…*/"));
-    m_editor->area()->setFoldingProvider(m_foldProvider.get());
+    applyThemeToEditor();
+    if (!m_currentSyntaxPath.isEmpty()) {
+        reloadSyntaxWithTheme();
+    } else {
+        // No Kate XML loaded — rebuild the built-in demo highlighter with
+        // the new theme's colors and keep it active.
+        buildDemoHighlighter();
+        m_editor->area()->setHighlighter(m_highlighter.get());
+        m_foldProvider = std::make_unique<qce::RuleBasedFoldingProvider>(m_highlighter.get());
+        m_foldProvider->setPlaceholderFor(QStringLiteral("curly"),   QStringLiteral("{…}"));
+        m_foldProvider->setPlaceholderFor(QStringLiteral("Comment"), QStringLiteral("/*…*/"));
+        m_editor->area()->setFoldingProvider(m_foldProvider.get());
+    }
 }
 
 void DemoWindow::onScrollBarSideToggled(bool left) {
@@ -241,23 +253,81 @@ void DemoWindow::buildMenus() {
     wsAct->setChecked(false);
     connect(wsAct, &QAction::toggled, m_editor->area(),
             &qce::CodeEditArea::setShowWhitespace);
+
+    auto* roAct = settingsMenu->addAction(tr("Read only"));
+    roAct->setCheckable(true);
+    roAct->setChecked(false);
+    connect(roAct, &QAction::toggled, m_editor->area(),
+            &qce::CodeEditArea::setReadOnly);
+
+    // Theme menu
+    const QString themesDir =
+        QDir::homePath() +
+        QStringLiteral("/.local/share/org.kde.syntax-highlighting/themes");
+    const auto themes = KateTheme::listThemes(themesDir);
+    if (!themes.isEmpty()) {
+        auto* themeMenu = menuBar()->addMenu(tr("&Theme"));
+        auto* themeGroup = new QActionGroup(this);
+        themeGroup->setExclusive(true);
+
+        auto* builtinAct = themeMenu->addAction(tr("(built-in)"));
+        builtinAct->setCheckable(true);
+        builtinAct->setChecked(true);
+        themeGroup->addAction(builtinAct);
+        connect(builtinAct, &QAction::triggered, this,
+                [this] { onSelectTheme(QString{}); });
+
+        themeMenu->addSeparator();
+
+        for (const auto& [name, path] : themes) {
+            auto* act = themeMenu->addAction(name);
+            act->setCheckable(true);
+            themeGroup->addAction(act);
+            const QString p = path;
+            connect(act, &QAction::triggered, this,
+                    [this, p] { onSelectTheme(p); });
+        }
+    }
+}
+
+static qce::TextAttribute demoAttr(const KateTheme& theme,
+                                    const QString& styleKey,
+                                    QColor fallbackFg,
+                                    bool fallbackBold = false,
+                                    bool fallbackItalic = false) {
+    if (theme.isValid()) {
+        const auto it = theme.styles.constFind(styleKey);
+        if (it != theme.styles.constEnd()) {
+            qce::TextAttribute a;
+            a.foreground = it->fg.isValid() ? it->fg : fallbackFg;
+            a.bold       = it->bold;
+            a.italic     = it->italic;
+            return a;
+        }
+    }
+    return {fallbackFg, {}, fallbackBold, fallbackItalic};
 }
 
 void DemoWindow::buildDemoHighlighter() {
     using namespace qce;
     m_highlighter = std::make_unique<RulesHighlighter>();
 
-    // --- Palette (muted "classic" colors that show on both light/dark) ---
+    // --- Palette: use theme colors when a theme is active ---
     const int attrKw      = m_highlighter->addAttribute(
-        {QColor(0x00, 0x00, 0xAA), {}, /*bold*/true});
+        demoAttr(m_currentTheme, QStringLiteral("Keyword"),
+                 QColor(0x00, 0x00, 0xAA), true));
     const int attrType    = m_highlighter->addAttribute(
-        {QColor(0x00, 0x80, 0x80), {}, /*bold*/true});
+        demoAttr(m_currentTheme, QStringLiteral("DataType"),
+                 QColor(0x00, 0x80, 0x80), true));
     const int attrString  = m_highlighter->addAttribute(
-        {QColor(0xC0, 0x10, 0x10)});
+        demoAttr(m_currentTheme, QStringLiteral("String"),
+                 QColor(0xC0, 0x10, 0x10)));
     const int attrComment = m_highlighter->addAttribute(
-        {QColor(0x80, 0x80, 0x80), {}, false, /*italic*/true});
+        demoAttr(m_currentTheme, QStringLiteral("Comment"),
+                 QColor(0x80, 0x80, 0x80), false, true));
     const int attrNumber  = m_highlighter->addAttribute(
-        {QColor(0x80, 0x40, 0x00)});
+        demoAttr(m_currentTheme, QStringLiteral("DecVal"),
+                 QColor(0x80, 0x40, 0x00)));
 
     // --- Keyword lists ---
     const int klKeywords = m_highlighter->addKeywordList({"keywords", {
@@ -375,6 +445,56 @@ void DemoWindow::loadDemoText() {
         "    }\n"
         "    return 1;\n"
         "}\n"));
+}
+
+void DemoWindow::applyThemeToEditor() {
+    QPalette pal = m_editor->palette();
+
+    const QColor bg = m_currentTheme.isValid() && m_currentTheme.editorBackground.isValid()
+                      ? m_currentTheme.editorBackground
+                      : QColor(Qt::white);
+    pal.setColor(QPalette::Base,   bg);
+    pal.setColor(QPalette::Window, bg);
+
+    // Set default text color from theme's Normal style so that text rendered
+    // without an explicit syntax span (attributeId == -1 or invalid fg)
+    // uses the correct foreground — critical for dark themes.
+    QColor fg(Qt::black);
+    if (m_currentTheme.isValid()) {
+        const auto it = m_currentTheme.styles.constFind(QStringLiteral("Normal"));
+        if (it != m_currentTheme.styles.constEnd() && it->fg.isValid())
+            fg = it->fg;
+    }
+    pal.setColor(QPalette::Text,       fg);
+    pal.setColor(QPalette::WindowText, fg);
+
+    m_editor->setPalette(pal);
+    m_editor->area()->viewport()->setPalette(pal);
+}
+
+void DemoWindow::reloadSyntaxWithTheme() {
+    if (m_currentSyntaxPath.isEmpty()) return;
+
+    std::unique_ptr<qce::RulesHighlighter> hl;
+    if (m_currentTheme.isValid())
+        hl = KateXmlReader::load(m_currentSyntaxPath, m_currentTheme);
+    else
+        hl = KateXmlReader::load(m_currentSyntaxPath);
+
+    if (!hl) {
+        QMessageBox::warning(this, tr("Load failed"),
+                             tr("Could not parse %1").arg(m_currentSyntaxPath));
+        return;
+    }
+    m_highlighter = std::move(hl);
+    m_editor->area()->setHighlighter(m_highlighter.get());
+    m_foldProvider = std::make_unique<qce::RuleBasedFoldingProvider>(m_highlighter.get());
+    m_foldProvider->setPlaceholderFor(QStringLiteral("Brace1"),  QStringLiteral("{…}"));
+    m_foldProvider->setPlaceholderFor(QStringLiteral("curly"),   QStringLiteral("{…}"));
+    m_foldProvider->setPlaceholderFor(QStringLiteral("square"),  QStringLiteral("[…]"));
+    m_foldProvider->setPlaceholderFor(QStringLiteral("paren"),   QStringLiteral("(…)"));
+    m_foldProvider->setPlaceholderFor(QStringLiteral("Comment"), QStringLiteral("/*…*/"));
+    m_editor->area()->setFoldingProvider(m_foldProvider.get());
 }
 
 void DemoWindow::updateTitle() {

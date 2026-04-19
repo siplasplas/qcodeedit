@@ -28,7 +28,10 @@ struct HighlightRule {
         Int,              ///< decimal integer literal
         Float,            ///< floating-point literal
         HlCStringChar,    ///< C escape: \n, \t, \x41, \u0041, ...
-        LineContinue,     ///< backslash at end-of-line
+        HlCChar,          ///< C character literal: 'x' or '\n'
+        HlCOct,           ///< C octal integer literal: 0777
+        HlCHex,           ///< C hexadecimal integer literal: 0xFF
+        LineContinue,     ///< backslash (or custom char) at end-of-line
         RangeDetect,      ///< from `ch` to `ch1` on the same line
         IncludeRules      ///< try rules of another context
     };
@@ -54,6 +57,9 @@ struct HighlightRule {
     // open AND close a region in one step (e.g. C preprocessor 'elif').
     int  beginRegionId = -1;
     int  endRegionId   = -1;
+
+    /// Only match when `pos == column` (Kate's `column` attribute). -1 = any.
+    int  column = -1;
 };
 
 /// A named state in the highlighter's automaton. Rules are tried in order
@@ -64,8 +70,9 @@ struct HighlightContext {
     int     defaultAttribute    = -1;  ///< attribute for unmatched characters
     int     lineEndNextContext  = -1;  ///< -1 = #stay at end of line
     int     lineEndPopCount     = 0;   ///< #pop count before line-end push
-    bool    fallthrough         = false;
-    int     fallthroughContext  = -1;
+    bool    fallthrough             = false;
+    int     fallthroughContext      = -1;
+    int     fallthroughPopCount     = 0;
     QVector<HighlightRule> rules;
 };
 

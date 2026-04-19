@@ -1,4 +1,5 @@
 #include <qce/kate/KateXmlReader.h>
+#include <qce/kate/KateTheme.h>
 
 #include <QColor>
 #include <QDebug>
@@ -139,6 +140,8 @@ struct RawContext {
     QString name;
     QString attribute;
     QString lineEndContext;
+    QString fallthroughContext;
+    bool    fallthrough = false;
     QVector<RawRule> rules;
 };
 struct RawList {
@@ -148,8 +151,9 @@ struct RawList {
 struct RawItemData {
     QString name;
     QString defStyleNum;
-    bool italic = false, bold = false, underline = false;
-    bool italicSet = false, boldSet = false, underlineSet = false;
+    QString color;  // explicit foreground color (overrides theme if set)
+    bool italic = false, bold = false, underline = false, strikeOut = false;
+    bool italicSet = false, boldSet = false, underlineSet = false, strikeOutSet = false;
 };
 struct LangData {
     QString              name;
@@ -220,9 +224,14 @@ static LangData parseKateFile(const QString& path) {
         } else if (name == QLatin1String("context")) {
             RawContext rc;
             const auto a = xml.attributes();
-            rc.name           = a.value(QStringLiteral("name")).toString();
-            rc.attribute      = a.value(QStringLiteral("attribute")).toString();
-            rc.lineEndContext = a.value(QStringLiteral("lineEndContext")).toString();
+            rc.name                = a.value(QStringLiteral("name")).toString();
+            rc.attribute           = a.value(QStringLiteral("attribute")).toString();
+            rc.lineEndContext      = a.value(QStringLiteral("lineEndContext")).toString();
+            rc.fallthroughContext  = a.value(QStringLiteral("fallthroughContext")).toString();
+            {
+                const QString v = a.value(QStringLiteral("fallthrough")).toString().trimmed().toLower();
+                rc.fallthrough = (v == QLatin1String("1") || v == QLatin1String("true"));
+            }
             while (!(xml.isEndElement() && xml.name() == QLatin1String("context"))
                    && !xml.atEnd()) {
                 xml.readNext();
@@ -240,6 +249,7 @@ static LangData parseKateFile(const QString& path) {
             const auto a = xml.attributes();
             rid.name        = a.value(QStringLiteral("name")).toString();
             rid.defStyleNum = a.value(QStringLiteral("defStyleNum")).toString();
+            rid.color       = a.value(QStringLiteral("color")).toString().trimmed();
             auto readBool = [&](const QString& key, bool& dst, bool& set) {
                 if (!a.hasAttribute(key)) return;
                 const QString v = a.value(key).toString().trimmed().toLower();
@@ -249,6 +259,7 @@ static LangData parseKateFile(const QString& path) {
             readBool(QStringLiteral("italic"),    rid.italic,    rid.italicSet);
             readBool(QStringLiteral("bold"),      rid.bold,      rid.boldSet);
             readBool(QStringLiteral("underline"), rid.underline, rid.underlineSet);
+            readBool(QStringLiteral("strikeOut"), rid.strikeOut, rid.strikeOutSet);
             data.itemDatas.push_back(std::move(rid));
         } else if (name == QLatin1String("keywords")) {
             const auto a = xml.attributes();
@@ -264,6 +275,27 @@ static LangData parseKateFile(const QString& path) {
         qWarning() << "KateXmlReader:" << path << ":" << xml.errorString();
 
     return data;
+}
+
+// Resolve defStyleNum (e.g. "dsDecVal") against an optional external theme,
+// falling back to the built-in one.
+static ThemeEntry resolveStyle(const QString& defStyleNum,
+                                const KateTheme* extTheme) {
+    if (extTheme) {
+        // defStyleNum starts with "ds": "dsKeyword" → "Keyword"
+        const QString key = defStyleNum.startsWith(QLatin1String("ds"))
+                            ? defStyleNum.mid(2) : defStyleNum;
+        const auto it = extTheme->styles.find(key);
+        if (it != extTheme->styles.end()) {
+            ThemeEntry e;
+            e.fg     = it->fg;
+            e.bold   = it->bold;
+            e.italic = it->italic;
+            return e;
+        }
+    }
+    const auto it = theme().find(defStyleNum);
+    return it != theme().end() ? it.value() : ThemeEntry{};
 }
 
 // -----------------------------------------------------------------------------
@@ -302,8 +334,9 @@ struct ResolvedLang {
 // -----------------------------------------------------------------------------
 class Loader {
 public:
-    Loader(const QString& syntaxDir, RulesHighlighter* hl)
-        : m_dir(syntaxDir), m_hl(hl) {}
+    Loader(const QString& syntaxDir, RulesHighlighter* hl,
+           const KateTheme* theme = nullptr)
+        : m_dir(syntaxDir), m_hl(hl), m_theme(theme) {}
 
     // Load the main (top-level) language file and set the initial context.
     // Returns false on failure.
@@ -323,8 +356,9 @@ public:
     }
 
 private:
-    QString          m_dir;
+    QString           m_dir;
     RulesHighlighter* m_hl;
+    const KateTheme*  m_theme;
 
     QHash<QString, QString>      m_index;       // langName → file path (lazy)
     bool                         m_indexBuilt = false;
@@ -366,16 +400,19 @@ private:
         resolved.initialCtxName = data.contexts.isEmpty()
                                   ? QString()
                                   : data.contexts.first().name;
-        const auto& th = theme();
 
         // Step 1: attributes
         for (const RawItemData& rid : data.itemDatas) {
             TextAttribute ta;
-            const auto tIt = th.find(rid.defStyleNum);
-            if (tIt != th.end()) {
-                ta.foreground = tIt->fg;
-                ta.bold       = tIt->bold;
-                ta.italic     = tIt->italic;
+            {
+                const ThemeEntry te = resolveStyle(rid.defStyleNum, m_theme);
+                ta.foreground = te.fg;
+                ta.bold       = te.bold;
+                ta.italic     = te.italic;
+            }
+            if (!rid.color.isEmpty()) {
+                const QColor c(rid.color);
+                if (c.isValid()) ta.foreground = c;
             }
             if (rid.italicSet)    ta.italic    = rid.italic;
             if (rid.boldSet)      ta.bold      = rid.bold;
@@ -417,6 +454,9 @@ private:
             int                     defaultAttribute;
             int                     lineEndPopCount;
             int                     lineEndNextContext;
+            bool                    fallthrough;
+            int                     fallthroughPopCount;
+            int                     fallthroughContext;
             QVector<HighlightRule>  rules;
         };
         QVector<PendingCtx> pending;
@@ -425,11 +465,20 @@ private:
         for (const RawContext& rc : data.contexts) {
             const int ctxId = resolved.ctxByName.value(rc.name);
             const ContextSwitch leSw = parseContextSwitch(rc.lineEndContext);
+            const ContextSwitch ftSw = parseContextSwitch(rc.fallthroughContext);
             PendingCtx pc;
-            pc.ctxId             = ctxId;
-            pc.defaultAttribute  = resolveAttr(rc.attribute);
-            pc.lineEndPopCount   = leSw.popCount;
-            pc.lineEndNextContext = resolveCtxLocal(leSw.pushName);
+            pc.ctxId                = ctxId;
+            pc.defaultAttribute     = resolveAttr(rc.attribute);
+            pc.lineEndPopCount      = leSw.popCount;
+            pc.lineEndNextContext    = resolveCtxLocal(leSw.pushName);
+            // In Kate's format, having a non-trivial fallthroughContext (any pop
+            // or a named push) implicitly enables fallthrough even without an
+            // explicit fallthrough="1" attribute.
+            pc.fallthrough          = rc.fallthrough
+                                      || ftSw.popCount > 0
+                                      || !ftSw.pushName.isEmpty();
+            pc.fallthroughPopCount  = ftSw.popCount;
+            pc.fallthroughContext   = resolveCtxLocal(ftSw.pushName);
 
             for (const RawRule& rr : rc.rules) {
                 HighlightRule hr;
@@ -441,6 +490,14 @@ private:
                 hr.nextContextId = resolveCtxLocal(sw.pushName);
                 hr.lookAhead     = attrBool(rr.attrs, QStringLiteral("lookAhead"));
                 hr.firstNonSpace = attrBool(rr.attrs, QStringLiteral("firstNonSpace"));
+                {
+                    const QString col = rr.attrs.value(QStringLiteral("column"));
+                    if (!col.isEmpty()) {
+                        bool ok = false;
+                        const int c = col.toInt(&ok);
+                        if (ok) hr.column = c;
+                    }
+                }
 
                 const QString beginR = rr.attrs.value(QStringLiteral("beginRegion"));
                 const QString endR   = rr.attrs.value(QStringLiteral("endRegion"));
@@ -522,8 +579,15 @@ private:
                     hr.kind = HighlightRule::Float;
                 } else if (rr.tag == QLatin1String("HlCStringChar")) {
                     hr.kind = HighlightRule::HlCStringChar;
+                } else if (rr.tag == QLatin1String("HlCChar")) {
+                    hr.kind = HighlightRule::HlCChar;
+                } else if (rr.tag == QLatin1String("HlCOct")) {
+                    hr.kind = HighlightRule::HlCOct;
+                } else if (rr.tag == QLatin1String("HlCHex")) {
+                    hr.kind = HighlightRule::HlCHex;
                 } else if (rr.tag == QLatin1String("LineContinue")) {
                     hr.kind = HighlightRule::LineContinue;
+                    hr.ch   = charAttr(QStringLiteral("char"));
                 } else if (rr.tag == QLatin1String("RangeDetect")) {
                     hr.kind = HighlightRule::RangeDetect;
                     hr.ch   = charAttr(QStringLiteral("char"));
@@ -540,10 +604,13 @@ private:
         // Write back: all ensureLoaded calls are done, no more reallocs expected.
         for (PendingCtx& pc : pending) {
             HighlightContext& hc = m_hl->contextRef(pc.ctxId);
-            hc.defaultAttribute   = pc.defaultAttribute;
-            hc.lineEndPopCount    = pc.lineEndPopCount;
-            hc.lineEndNextContext = pc.lineEndNextContext;
-            hc.rules              = std::move(pc.rules);
+            hc.defaultAttribute      = pc.defaultAttribute;
+            hc.lineEndPopCount       = pc.lineEndPopCount;
+            hc.lineEndNextContext    = pc.lineEndNextContext;
+            hc.fallthrough           = pc.fallthrough;
+            hc.fallthroughPopCount   = pc.fallthroughPopCount;
+            hc.fallthroughContext    = pc.fallthroughContext;
+            hc.rules                 = std::move(pc.rules);
         }
     }
 };
@@ -551,12 +618,21 @@ private:
 } // namespace
 
 // -----------------------------------------------------------------------------
-// Public entry point
+// Public entry points
 // -----------------------------------------------------------------------------
 std::unique_ptr<RulesHighlighter> KateXmlReader::load(const QString& path) {
     const QString dir = QFileInfo(path).absolutePath();
     auto hl = std::make_unique<RulesHighlighter>();
-    Loader loader(dir, hl.get());
+    Loader loader(dir, hl.get(), nullptr);
+    if (!loader.loadMain(path)) return nullptr;
+    return hl;
+}
+
+std::unique_ptr<RulesHighlighter> KateXmlReader::load(const QString& path,
+                                                       const KateTheme& theme) {
+    const QString dir = QFileInfo(path).absolutePath();
+    auto hl = std::make_unique<RulesHighlighter>();
+    Loader loader(dir, hl.get(), &theme);
     if (!loader.loadMain(path)) return nullptr;
     return hl;
 }

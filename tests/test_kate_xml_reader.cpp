@@ -62,6 +62,14 @@ private slots:
     void handlesDtdEntities();
     void realDotXml_loadsOrSkips();
     void realCXml_loadsOrSkips();
+
+    void fallthrough_switchesContextOnNoMatch();
+    void hlCHex_matchesHexLiteral();
+    void hlCOct_matchesOctalLiteral();
+    void hlCChar_matchesCharLiteral();
+    void column_ruleFiresOnlyAtGivenColumn();
+    void itemData_explicitColorOverridesTheme();
+    void lineContinue_customChar();
 };
 
 // Helper: write src to a file in a temp dir and return the path.
@@ -191,6 +199,253 @@ void TestKateXmlReader::realCXml_loadsOrSkips() {
     QVector<qce::StyleSpan> spans;
     hl->highlightLine(QStringLiteral("int main() { return 0; }"), s, spans, sOut);
     QVERIFY(!spans.isEmpty());
+}
+
+// ---------------------------------------------------------------------------
+// fallthrough
+// ---------------------------------------------------------------------------
+void TestKateXmlReader::fallthrough_switchesContextOnNoMatch() {
+    // Normal context has no rules but fallthrough → Fallback.
+    // Fallback context has a DetectChar rule that highlights '#' red.
+    // For text "ab#cd": 'a','b','d' should get default attr; '#' should get Red.
+    static const char* xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<language name="ft" version="1" extensions="*.ft" section="Other">
+<highlighting>
+  <contexts>
+    <context name="Normal" attribute="Normal" lineEndContext="#stay"
+             fallthrough="true" fallthroughContext="Fallback"/>
+    <context name="Fallback" attribute="Normal" lineEndContext="#stay">
+      <DetectChar attribute="Red" context="#stay" char="#"/>
+    </context>
+  </contexts>
+  <itemDatas>
+    <itemData name="Normal" defStyleNum="dsNormal"/>
+    <itemData name="Red"    defStyleNum="dsAlert"/>
+  </itemDatas>
+</highlighting>
+</language>
+)";
+    QTemporaryDir dir;
+    auto hl = KateXmlReader::load(dumpToTemp(dir, QStringLiteral("ft.xml"), xml));
+    QVERIFY(hl);
+
+    qce::HighlightState s = hl->initialState(), sOut;
+    QVector<qce::StyleSpan> spans;
+    hl->highlightLine(QStringLiteral("ab#cd"), s, spans, sOut);
+
+    // attribute index 1 = "Red" (dsAlert)
+    auto attrAt = [&](int col) {
+        for (const auto& sp : spans)
+            if (sp.start <= col && col < sp.start + sp.length) return sp.attributeId;
+        return -1;
+    };
+    QCOMPARE(attrAt(2), 1); // '#' → Red
+    QVERIFY(attrAt(0) != 1); // 'a' → not Red
+    QVERIFY(attrAt(3) != 1); // 'c' → not Red
+}
+
+// ---------------------------------------------------------------------------
+// HlCHex / HlCOct / HlCChar
+// ---------------------------------------------------------------------------
+void TestKateXmlReader::hlCHex_matchesHexLiteral() {
+    static const char* xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<language name="hex" version="1" extensions="*.hex" section="Other">
+<highlighting>
+  <contexts>
+    <context name="Normal" attribute="Normal" lineEndContext="#stay">
+      <HlCHex attribute="Hex" context="#stay"/>
+    </context>
+  </contexts>
+  <itemDatas>
+    <itemData name="Normal" defStyleNum="dsNormal"/>
+    <itemData name="Hex"    defStyleNum="dsBaseN"/>
+  </itemDatas>
+</highlighting>
+</language>
+)";
+    QTemporaryDir dir;
+    auto hl = KateXmlReader::load(dumpToTemp(dir, QStringLiteral("hex.xml"), xml));
+    QVERIFY(hl);
+
+    qce::HighlightState s = hl->initialState(), sOut;
+    QVector<qce::StyleSpan> spans;
+    hl->highlightLine(QStringLiteral("x 0xFF y"), s, spans, sOut);
+
+    // "0xFF" starts at col 2, length 4; attributeId 1 = Hex
+    bool found = false;
+    for (const auto& sp : spans)
+        if (sp.attributeId == 1 && sp.start == 2 && sp.length == 4) found = true;
+    QVERIFY(found);
+}
+
+void TestKateXmlReader::hlCOct_matchesOctalLiteral() {
+    static const char* xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<language name="oct" version="1" extensions="*.oct" section="Other">
+<highlighting>
+  <contexts>
+    <context name="Normal" attribute="Normal" lineEndContext="#stay">
+      <HlCOct attribute="Oct" context="#stay"/>
+    </context>
+  </contexts>
+  <itemDatas>
+    <itemData name="Normal" defStyleNum="dsNormal"/>
+    <itemData name="Oct"    defStyleNum="dsBaseN"/>
+  </itemDatas>
+</highlighting>
+</language>
+)";
+    QTemporaryDir dir;
+    auto hl = KateXmlReader::load(dumpToTemp(dir, QStringLiteral("oct.xml"), xml));
+    QVERIFY(hl);
+
+    qce::HighlightState s = hl->initialState(), sOut;
+    QVector<qce::StyleSpan> spans;
+    hl->highlightLine(QStringLiteral("a 0755 b"), s, spans, sOut);
+
+    // "0755" starts at col 2, length 4; attributeId 1 = Oct
+    bool found = false;
+    for (const auto& sp : spans)
+        if (sp.attributeId == 1 && sp.start == 2 && sp.length == 4) found = true;
+    QVERIFY(found);
+}
+
+void TestKateXmlReader::hlCChar_matchesCharLiteral() {
+    static const char* xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<language name="chr" version="1" extensions="*.chr" section="Other">
+<highlighting>
+  <contexts>
+    <context name="Normal" attribute="Normal" lineEndContext="#stay">
+      <HlCChar attribute="Chr" context="#stay"/>
+    </context>
+  </contexts>
+  <itemDatas>
+    <itemData name="Normal" defStyleNum="dsNormal"/>
+    <itemData name="Chr"    defStyleNum="dsChar"/>
+  </itemDatas>
+</highlighting>
+</language>
+)";
+    QTemporaryDir dir;
+    auto hl = KateXmlReader::load(dumpToTemp(dir, QStringLiteral("chr.xml"), xml));
+    QVERIFY(hl);
+
+    qce::HighlightState s = hl->initialState(), sOut;
+    QVector<qce::StyleSpan> spans;
+    // 'a' starts at col 0, length 3
+    hl->highlightLine(QStringLiteral("'a' x"), s, spans, sOut);
+
+    bool found = false;
+    for (const auto& sp : spans)
+        if (sp.attributeId == 1 && sp.start == 0 && sp.length == 3) found = true;
+    QVERIFY(found);
+}
+
+// ---------------------------------------------------------------------------
+// column constraint
+// ---------------------------------------------------------------------------
+void TestKateXmlReader::column_ruleFiresOnlyAtGivenColumn() {
+    // DetectChar for '#' with column="3" — should only match at position 3.
+    static const char* xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<language name="col" version="1" extensions="*.col" section="Other">
+<highlighting>
+  <contexts>
+    <context name="Normal" attribute="Normal" lineEndContext="#stay">
+      <DetectChar attribute="Hash" context="#stay" char="#" column="3"/>
+    </context>
+  </contexts>
+  <itemDatas>
+    <itemData name="Normal" defStyleNum="dsNormal"/>
+    <itemData name="Hash"   defStyleNum="dsAlert"/>
+  </itemDatas>
+</highlighting>
+</language>
+)";
+    QTemporaryDir dir;
+    auto hl = KateXmlReader::load(dumpToTemp(dir, QStringLiteral("col.xml"), xml));
+    QVERIFY(hl);
+
+    qce::HighlightState s = hl->initialState(), sOut;
+    QVector<qce::StyleSpan> spans;
+    // '#' at col 0 must NOT match; '#' at col 3 must match.
+    hl->highlightLine(QStringLiteral("#ab#"), s, spans, sOut);
+
+    auto attrAt = [&](int col) {
+        for (const auto& sp : spans)
+            if (sp.start <= col && col < sp.start + sp.length) return sp.attributeId;
+        return -1;
+    };
+    QVERIFY(attrAt(0) != 1); // '#' at col 0 — no match (column constraint)
+    QCOMPARE(attrAt(3), 1);  // '#' at col 3 — matches
+}
+
+// ---------------------------------------------------------------------------
+// itemData explicit color
+// ---------------------------------------------------------------------------
+void TestKateXmlReader::itemData_explicitColorOverridesTheme() {
+    // itemData with color="#FF0000" — should override the dsNormal black.
+    static const char* xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<language name="clr" version="1" extensions="*.clr" section="Other">
+<highlighting>
+  <contexts>
+    <context name="Normal" attribute="Red" lineEndContext="#stay"/>
+  </contexts>
+  <itemDatas>
+    <itemData name="Red" defStyleNum="dsNormal" color="#FF0000"/>
+  </itemDatas>
+</highlighting>
+</language>
+)";
+    QTemporaryDir dir;
+    auto hl = KateXmlReader::load(dumpToTemp(dir, QStringLiteral("clr.xml"), xml));
+    QVERIFY(hl);
+
+    QVERIFY(!hl->attributes().isEmpty());
+    const QColor fg = hl->attributes().first().foreground;
+    QCOMPARE(fg.red(),   255);
+    QCOMPARE(fg.green(),   0);
+    QCOMPARE(fg.blue(),    0);
+}
+
+// ---------------------------------------------------------------------------
+// LineContinue custom char
+// ---------------------------------------------------------------------------
+void TestKateXmlReader::lineContinue_customChar() {
+    // LineContinue with char="&amp;" (i.e. '&') instead of default '\'.
+    static const char* xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<language name="lc" version="1" extensions="*.lc" section="Other">
+<highlighting>
+  <contexts>
+    <context name="Normal" attribute="Normal" lineEndContext="#stay">
+      <LineContinue attribute="Cont" context="#stay" char="&amp;"/>
+    </context>
+  </contexts>
+  <itemDatas>
+    <itemData name="Normal" defStyleNum="dsNormal"/>
+    <itemData name="Cont"   defStyleNum="dsSpecialChar"/>
+  </itemDatas>
+</highlighting>
+</language>
+)";
+    QTemporaryDir dir;
+    auto hl = KateXmlReader::load(dumpToTemp(dir, QStringLiteral("lc.xml"), xml));
+    QVERIFY(hl);
+
+    qce::HighlightState s = hl->initialState(), sOut;
+    QVector<qce::StyleSpan> spans;
+
+    // Line ending with '&' → should match; ending with '\' → should not.
+    hl->highlightLine(QStringLiteral("abc&"), s, spans, sOut);
+    bool contFound = false;
+    for (const auto& sp : spans)
+        if (sp.attributeId == 1) contFound = true;
+    QVERIFY(contFound);
+
+    spans.clear();
+    hl->highlightLine(QStringLiteral("abc\\"), s, spans, sOut);
+    bool backslashMatched = false;
+    for (const auto& sp : spans)
+        if (sp.attributeId == 1) backslashMatched = true;
+    QVERIFY(!backslashMatched);
 }
 
 QTEST_APPLESS_MAIN(TestKateXmlReader)

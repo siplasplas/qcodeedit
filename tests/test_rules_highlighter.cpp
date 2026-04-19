@@ -22,6 +22,7 @@ private slots:
     void detectSpaces_consumesWhitespaceRun();
     void anyChar_singleCharInSet();
     void regExpr_numberLiteral();
+    void commaAndInt_highlightedRed();
 
     void context_stringSpansAreMerged();
     void context_multiLineComment_statePreservesAcrossLines();
@@ -267,6 +268,33 @@ void TestRulesHighlighter::nothingMatches_emitsDefaultAttrPerChar() {
     QCOMPARE(spans.size(), 1);
     QCOMPARE(spans[0].length, 3);
     QCOMPARE(spans[0].attributeId, attrDefault);
+}
+
+void TestRulesHighlighter::commaAndInt_highlightedRed() {
+    // For: resize(1024, 768)
+    //       0123456789...
+    // 1024 starts at col 7 (len 4), ',' at 11, 768 at 13 (len 3).
+    RulesHighlighter hl;
+    const int attrRed = hl.addAttribute({QColor("red")});
+    int ctxId = hl.addContext({"Normal", -1, -1, 0, false, -1, {}});
+    hl.contextRef(ctxId).rules.push_back(
+        {HighlightRule::DetectChar, ',', {}, {}, true, {}, -1, -1,
+         attrRed, -1, 0, false, false});
+    hl.contextRef(ctxId).rules.push_back(
+        {HighlightRule::Int, {}, {}, {}, true, {}, -1, -1,
+         attrRed, -1, 0, false, false});
+
+    QVector<StyleSpan> spans;
+    runLine(hl, QStringLiteral("resize(1024, 768)"), spans);
+
+    auto attrAt = [&](int col) {
+        for (const auto& s : spans)
+            if (s.start <= col && col < s.start + s.length) return s.attributeId;
+        return -1;
+    };
+    QCOMPARE(attrAt(7),  attrRed); // '1' of 1024
+    QCOMPARE(attrAt(11), attrRed); // ','
+    QCOMPARE(attrAt(13), attrRed); // '7' of 768
 }
 
 void TestRulesHighlighter::initialState_hasOneContextId() {

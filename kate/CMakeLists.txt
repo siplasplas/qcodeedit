@@ -5,7 +5,9 @@
 
 add_library(qcodeedit-kate STATIC
     src/KateXmlReader.cpp
+    src/KateTheme.cpp
     include/qce/kate/KateXmlReader.h
+    include/qce/kate/KateTheme.h
 )
 
 target_include_directories(qcodeedit-kate
@@ -16,6 +18,7 @@ target_include_directories(qcodeedit-kate
 
 target_link_libraries(qcodeedit-kate
     PUBLIC  qcodeedit::qcodeedit
+    PRIVATE Qt6::Core
 )
 
 add_library(qcodeedit::kate ALIAS qcodeedit-kate)
@@ -30,7 +33,9 @@ install(TARGETS qcodeedit-kate
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
-install(FILES include/qce/kate/KateXmlReader.h
+install(FILES
+    include/qce/kate/KateXmlReader.h
+    include/qce/kate/KateTheme.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/qce/kate
 )
 install(EXPORT qcodeedit-kateTargets

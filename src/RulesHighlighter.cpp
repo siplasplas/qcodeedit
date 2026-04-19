@@ -205,6 +205,68 @@ int RulesHighlighter::matchAt(const HighlightRule& rule,
         return end - pos;
     }
 
+    case HighlightRule::HlCChar: {
+        // 'x' or '\n', '\xHH', '\NNN' (octal) — returns full length with quotes
+        if (line.at(pos) != QLatin1Char('\'')) return 0;
+        if (remaining < 3) return 0;
+        int end = pos + 1;
+        if (line.at(end) == QLatin1Char('\\')) {
+            if (end + 1 >= line.size()) return 0;
+            const QChar esc = line.at(end + 1);
+            static const QString simpleEsc =
+                QStringLiteral("ntr0\\'\"\abfv?");
+            if (simpleEsc.contains(esc)) {
+                end += 2;
+            } else if (esc == QLatin1Char('x')) {
+                end += 2;
+                while (end < line.size()
+                       && (line.at(end).isDigit()
+                           || (line.at(end) >= QLatin1Char('a') && line.at(end) <= QLatin1Char('f'))
+                           || (line.at(end) >= QLatin1Char('A') && line.at(end) <= QLatin1Char('F'))))
+                    ++end;
+                if (end == pos + 3) return 0; // no hex digits
+            } else if (line.at(end) >= QLatin1Char('0') && line.at(end) <= QLatin1Char('7')) {
+                end += 1;
+                for (int i = 0; i < 2 && end < line.size()
+                     && line.at(end) >= QLatin1Char('0')
+                     && line.at(end) <= QLatin1Char('7'); ++i)
+                    ++end;
+            } else {
+                return 0;
+            }
+        } else {
+            ++end; // single printable char
+        }
+        if (end >= line.size() || line.at(end) != QLatin1Char('\'')) return 0;
+        return end - pos + 1;
+    }
+
+    case HighlightRule::HlCOct: {
+        // Octal: 0[0-7]+ (not followed by digit to avoid overlapping with Int)
+        if (line.at(pos) != QLatin1Char('0')) return 0;
+        int end = pos + 1;
+        while (end < line.size()
+               && line.at(end) >= QLatin1Char('0')
+               && line.at(end) <= QLatin1Char('7'))
+            ++end;
+        return (end > pos + 1) ? (end - pos) : 0;
+    }
+
+    case HighlightRule::HlCHex: {
+        // Hex: 0[xX][0-9a-fA-F]+
+        if (remaining < 3) return 0;
+        if (line.at(pos) != QLatin1Char('0')) return 0;
+        const QChar x = line.at(pos + 1);
+        if (x != QLatin1Char('x') && x != QLatin1Char('X')) return 0;
+        int end = pos + 2;
+        while (end < line.size()
+               && (line.at(end).isDigit()
+                   || (line.at(end) >= QLatin1Char('a') && line.at(end) <= QLatin1Char('f'))
+                   || (line.at(end) >= QLatin1Char('A') && line.at(end) <= QLatin1Char('F'))))
+            ++end;
+        return (end > pos + 2) ? (end - pos) : 0;
+    }
+
     case HighlightRule::HlCStringChar: {
         // \n, \t, \r, \\, \', \", \0, \xHH, \uHHHH, \NNN (octal)
         if (line.at(pos) != QLatin1Char('\\')) return 0;
@@ -229,8 +291,10 @@ int RulesHighlighter::matchAt(const HighlightRule& rule,
         return 0;
     }
 
-    case HighlightRule::LineContinue:
-        return (line.at(pos) == QLatin1Char('\\') && pos == line.size() - 1) ? 1 : 0;
+    case HighlightRule::LineContinue: {
+        const QChar lc = rule.ch.isNull() ? QLatin1Char('\\') : rule.ch;
+        return (line.at(pos) == lc && pos == line.size() - 1) ? 1 : 0;
+    }
 
     case HighlightRule::RangeDetect: {
         if (line.at(pos) != rule.ch) return 0;
@@ -277,6 +341,7 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
     const int firstNonWs = firstNonSpacePos(line);
 
     int pos = 0;
+    int fallthroughDepth = 0;  // guard against infinite fallthrough chains
     while (pos < line.size()) {
         const int ctxId = stateOut.contextStack.last();
         if (ctxId < 0 || ctxId >= m_contexts.size()) break;
@@ -301,6 +366,7 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
                     continue;
                 }
                 if (rule.firstNonSpace && pos != firstNonWs) continue;
+                if (rule.column >= 0 && pos != rule.column) continue;
                 const int len = matchAt(rule, line, pos, QString());
                 if (len > 0) {
                     matched = &rule;
@@ -313,6 +379,7 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
         tryContext(ctx, tryContext);
 
         if (matched) {
+            fallthroughDepth = 0;
             const int attr = (matched->attributeId >= 0)
                 ? matched->attributeId : ctx.defaultAttribute;
             // End event before begin — matches Kate's 'elif' semantics.
@@ -333,9 +400,21 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
             if (matched->nextContextId >= 0) {
                 stateOut.contextStack.push_back(matched->nextContextId);
             }
+        } else if (ctx.fallthrough
+                   && (ctx.fallthroughContext >= 0 || ctx.fallthroughPopCount > 0)
+                   && fallthroughDepth < 16) {
+            // No rule matched — try the fallthrough context without consuming
+            // the character. Guard against infinite chains via depth counter.
+            ++fallthroughDepth;
+            for (int i = 0; i < ctx.fallthroughPopCount
+                 && stateOut.contextStack.size() > 1; ++i)
+                stateOut.contextStack.pop_back();
+            if (ctx.fallthroughContext >= 0)
+                stateOut.contextStack.push_back(ctx.fallthroughContext);
         } else {
             // No rule matched — emit one character with default attribute
             // and advance. This prevents infinite loops.
+            fallthroughDepth = 0;
             emitSpan(spans, pos, 1, ctx.defaultAttribute);
             ++pos;
         }

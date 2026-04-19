@@ -1,5 +1,7 @@
 #pragma once
 
+#include <qce/kate/KateTheme.h>
+
 #include <QMainWindow>
 
 #include <memory>
@@ -27,6 +29,7 @@ private slots:
     void onFileOpen();
     void onFileClose();
     void onLoadSyntax();
+    void onSelectTheme(const QString& themePath);
     void onScrollBarSideToggled(bool left);
     void onLineNumberSideToggled(bool left);
 
@@ -37,7 +40,9 @@ private:
     std::unique_ptr<qce::FoldingGutter>    m_foldGutter;
     std::unique_ptr<qce::RulesHighlighter> m_highlighter;
     std::unique_ptr<qce::RuleBasedFoldingProvider> m_foldProvider;
-    QString m_currentPath;
+    QString    m_currentPath;
+    QString    m_currentSyntaxPath;
+    KateTheme  m_currentTheme;         ///< invalid = use built-in theme
 
     // Settings state
     bool m_lineNumbersOnLeft = true;
@@ -50,4 +55,6 @@ private:
     void buildDemoHighlighter();
     void loadDemoText();
     void updateTitle();
+    void applyThemeToEditor();
+    void reloadSyntaxWithTheme();
 };

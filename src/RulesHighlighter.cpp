@@ -112,6 +112,43 @@ void RulesHighlighter::emitSpan(QVector<StyleSpan>& spans,
 /// %0 = whole match (captures[0]); %1..%9 = capture groups (captures[n]).
 /// Out-of-range references expand to empty. `%%` is not special in Kate;
 /// a bare `%` followed by a non-digit is passed through verbatim.
+/// True if `pattern` contains no PCRE metacharacter — i.e. a raw literal.
+/// Backslash is included because it would introduce an escape sequence.
+static bool isLiteralPattern(const QString& pattern) {
+    if (pattern.isEmpty()) return false;
+    static const QLatin1String meta("\\.+*?|()[]{}^$");
+    for (QChar c : pattern) {
+        if (meta.contains(c)) return false;
+    }
+    return true;
+}
+
+RegexShape classifyRegexShape(const QString& pattern) {
+    // Whitespace shortcuts
+    if (pattern == QLatin1String("\\s"))  return RegexShape::SingleWhitespace;
+    if (pattern == QLatin1String("\\s+")) return RegexShape::WhitespacePlus;
+    if (pattern == QLatin1String("\\S"))  return RegexShape::SingleNonWhitespace;
+    if (pattern == QLatin1String("\\S+")) return RegexShape::NonWhitespacePlus;
+
+    // Digits / hex
+    if (pattern == QLatin1String("[0-9]+")) return RegexShape::Digits;
+    if (pattern == QLatin1String("[0-9a-fA-F]+")
+        || pattern == QLatin1String("[0-9A-Fa-f]+")) {
+        return RegexShape::HexDigits;
+    }
+
+    // Identifier (two spellings common in Kate XML)
+    if (pattern == QLatin1String("[a-zA-Z_][a-zA-Z0-9_]*")
+        || pattern == QLatin1String("[a-zA-Z_]\\w*")) {
+        return RegexShape::Identifier;
+    }
+
+    // Pure literal — no metachars at all
+    if (isLiteralPattern(pattern)) return RegexShape::Literal;
+
+    return RegexShape::Any;
+}
+
 static QString expandDynamic(const QString& pattern, const QStringList& captures) {
     QString out;
     out.reserve(pattern.size());
@@ -176,21 +213,93 @@ int RulesHighlighter::matchAt(const HighlightRule& rule,
     }
 
     case HighlightRule::RegExpr: {
-        // Dynamic RegExpr rebuilds the regex from the expanded template
-        // (rule.str keeps the raw pattern even when rule.regex is
-        // pre-compiled for the static case).
-        const QRegularExpression* re = &rule.regex;
-        QRegularExpression dynRe;
+        // Dynamic case: rebuild the regex from the expanded template —
+        // must take the pcre path because the pattern only exists now.
         if (rule.dynamic) {
             const QString expanded = expandDynamic(rule.str, activeCaptures);
             QRegularExpression::PatternOptions opts =
                 QRegularExpression::UseUnicodePropertiesOption;
             if (!rule.caseSensitive) opts |= QRegularExpression::CaseInsensitiveOption;
-            dynRe = QRegularExpression(expanded, opts);
-            re = &dynRe;
+            const QRegularExpression dynRe(expanded, opts);
+            if (!dynRe.isValid()) return 0;
+            const QRegularExpressionMatch m = dynRe.match(
+                line, pos, QRegularExpression::NormalMatch,
+                QRegularExpression::AnchorAtOffsetMatchOption);
+            if (!m.hasMatch() || m.capturedStart() != pos) return 0;
+            if (outCaptures) {
+                const int n = m.lastCapturedIndex();
+                outCaptures->reserve(n + 1);
+                for (int i = 0; i <= n; ++i) outCaptures->append(m.captured(i));
+            }
+            return m.capturedLength();
         }
-        if (!re->isValid()) return 0;
-        QRegularExpressionMatch m = re->match(
+
+        // Static case — dispatch on the rule's precomputed shape. The
+        // common trivial patterns (xml.xml's `\S` in particular) match
+        // ~10× faster than the pcre path and skip the per-call
+        // QRegularExpressionMatch allocation.
+        auto emitWhole = [&](int len) -> int {
+            if (outCaptures && len > 0) {
+                outCaptures->append(line.mid(pos, len));
+            }
+            return len;
+        };
+        auto scanWhile = [&](auto pred) -> int {
+            int end = pos;
+            while (end < line.size() && pred(line.at(end))) ++end;
+            return end - pos;
+        };
+        auto isHexDigit = [](QChar c) -> bool {
+            return c.isDigit()
+                || (c >= QLatin1Char('a') && c <= QLatin1Char('f'))
+                || (c >= QLatin1Char('A') && c <= QLatin1Char('F'));
+        };
+
+        switch (rule.regexShape) {
+        case RegexShape::SingleNonWhitespace:
+            if (pos >= line.size() || line.at(pos).isSpace()) return 0;
+            return emitWhole(1);
+        case RegexShape::NonWhitespacePlus: {
+            const int n = scanWhile([](QChar c) { return !c.isSpace(); });
+            return (n > 0) ? emitWhole(n) : 0;
+        }
+        case RegexShape::SingleWhitespace:
+            if (pos >= line.size() || !line.at(pos).isSpace()) return 0;
+            return emitWhole(1);
+        case RegexShape::WhitespacePlus: {
+            const int n = scanWhile([](QChar c) { return c.isSpace(); });
+            return (n > 0) ? emitWhole(n) : 0;
+        }
+        case RegexShape::Identifier: {
+            if (pos >= line.size() || !isIdentifierStart(line.at(pos))) return 0;
+            int end = pos + 1;
+            while (end < line.size() && isIdentifierCont(line.at(end))) ++end;
+            return emitWhole(end - pos);
+        }
+        case RegexShape::Digits: {
+            if (pos >= line.size() || !line.at(pos).isDigit()) return 0;
+            const int n = scanWhile([](QChar c) { return c.isDigit(); });
+            return emitWhole(n);
+        }
+        case RegexShape::HexDigits: {
+            if (pos >= line.size() || !isHexDigit(line.at(pos))) return 0;
+            const int n = scanWhile(isHexDigit);
+            return emitWhole(n);
+        }
+        case RegexShape::Literal: {
+            const int n = rule.str.size();
+            if (n == 0 || remaining < n) return 0;
+            const auto cs = rule.caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
+            if (QStringView(line).mid(pos, n).compare(rule.str, cs) != 0) return 0;
+            return emitWhole(n);
+        }
+        case RegexShape::Any:
+            break;  // fall through to pcre
+        }
+
+        // Pcre fallback — anything the classifier didn't recognise.
+        if (!rule.regex.isValid()) return 0;
+        const QRegularExpressionMatch m = rule.regex.match(
             line, pos, QRegularExpression::NormalMatch,
             QRegularExpression::AnchorAtOffsetMatchOption);
         if (!m.hasMatch() || m.capturedStart() != pos) return 0;

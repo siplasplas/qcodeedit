@@ -569,6 +569,17 @@ private:
                     if (insensitive)
                         opts |= QRegularExpression::CaseInsensitiveOption;
                     hr.regex = QRegularExpression(pattern, opts);
+                    // Trigger pcre2 JIT compile once at load time — keeps
+                    // the hot match path in the JIT-ed fast loop. Dynamic
+                    // rules build their regex per-match and can't use this.
+                    hr.regex.optimize();
+                    // Classify the pattern so matchAt can skip pcre2 for
+                    // the handful of trivial shapes (\s, \S, [0-9]+, …)
+                    // that dominate Kate files in practice. Dynamic rules
+                    // always take the pcre path regardless of shape.
+                    if (!hr.dynamic) {
+                        hr.regexShape = qce::classifyRegexShape(pattern);
+                    }
                 } else if (rr.tag == QLatin1String("keyword")) {
                     hr.kind = HighlightRule::Keyword;
                     hr.keywordListId = resolved.klByName.value(

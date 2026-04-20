@@ -13,6 +13,33 @@
 
 namespace qce {
 
+/// Shape classification for RegExpr rules. Most Kate syntax files lean on
+/// a handful of trivial patterns (`\s`, `\S`, `[0-9]+`, identifiers, pure
+/// literals); matching them directly is an order of magnitude faster than
+/// going through pcre2. Rules whose pattern doesn't fit any bucket stay
+/// on the pcre path with `Any`.
+///
+/// Populated once at rule-construction time by classifyRegexShape();
+/// matchAt()'s RegExpr arm dispatches on it. Dynamic rules (where the
+/// pattern is rebuilt per-match from %n expansion) always take the pcre
+/// path — their Shape field is ignored.
+enum class RegexShape : int {
+    Any = 0,               ///< no fast path — run pcre2
+    SingleWhitespace,      ///< `\s`
+    WhitespacePlus,        ///< `\s+`
+    SingleNonWhitespace,   ///< `\S`
+    NonWhitespacePlus,     ///< `\S+`
+    Identifier,            ///< `[a-zA-Z_][a-zA-Z0-9_]*` or `[a-zA-Z_]\w*`
+    Digits,                ///< `[0-9]+`
+    HexDigits,             ///< `[0-9a-fA-F]+` (and case-equivalents)
+    Literal,               ///< no meta characters — StringDetect semantics
+};
+
+/// Classify a regex source string into a Shape bucket. Purely
+/// string-based: exact equality to known patterns (plus a meta-char
+/// scan for Literal). Unknown patterns return Any.
+RegexShape classifyRegexShape(const QString& pattern);
+
 /// One match rule inside a HighlightContext. Multiple kinds of matches are
 /// unified under one struct; fields unused by a given Kind are ignored.
 /// Design follows Kate's rule taxonomy closely.
@@ -68,6 +95,11 @@ struct HighlightRule {
     /// context (HighlightState::captureStack.last()) before matching.
     /// %0 = whole match of the triggering regex; %1..%9 = capture groups.
     bool dynamic = false;
+
+    /// For RegExpr rules: shape of the regex pattern. Readers set this
+    /// after building `regex`; matchAt() dispatches to a fast path when
+    /// the shape is non-Any. Default Any routes through pcre2 as before.
+    RegexShape regexShape = RegexShape::Any;
 };
 
 /// A named state in the highlighter's automaton. Rules are tried in order

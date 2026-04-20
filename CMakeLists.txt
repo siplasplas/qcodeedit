@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(qcodeedit LANGUAGES CXX VERSION 1.1.0)
+project(qcodeedit LANGUAGES CXX VERSION 1.2.0)
 
 # --- Global options -----------------------------------------------------
 
@@ -40,6 +40,8 @@ add_library(qcodeedit STATIC
     src/EditCommands.cpp
     src/WrapLayout.cpp
     src/RulesHighlighter.cpp
+    src/IHighlighter.cpp
+    src/Utf8Map.cpp
     src/FoldState.cpp
     src/RuleBasedFoldingProvider.cpp
     src/FoldingGutter.cpp
@@ -65,6 +67,7 @@ add_library(qcodeedit STATIC
     include/qce/HighlightState.h
     include/qce/IHighlighter.h
     include/qce/RulesHighlighter.h
+    include/qce/Utf8Map.h
     include/qce/FoldRegion.h
     include/qce/IFoldingProvider.h
     include/qce/FoldState.h
@@ -120,6 +123,7 @@ install(FILES
     include/qce/HighlightState.h
     include/qce/IHighlighter.h
     include/qce/RulesHighlighter.h
+    include/qce/Utf8Map.h
     include/qce/FoldRegion.h
     include/qce/IFoldingProvider.h
     include/qce/FoldState.h

@@ -42,6 +42,15 @@ target_link_libraries(test_kate_xml_reader PRIVATE
 )
 add_test(NAME test_kate_xml_reader COMMAND test_kate_xml_reader)
 
+# Dynamic rule support (Kate's dynamic="true" %n expansion).
+add_executable(test_dynamic_rules test_dynamic_rules.cpp)
+target_link_libraries(test_dynamic_rules PRIVATE
+    qcodeedit::qcodeedit
+    qcodeedit::kate
+    Qt6::Test
+)
+add_test(NAME test_dynamic_rules COMMAND test_dynamic_rules)
+
 # Kate XML × tokenizeBytes regression (HANDOFF §3.4).
 # Skips if xml.xml is not installed locally (see kateSyntaxPath).
 add_executable(test_kate_xml_tokenize_regression test_kate_xml_tokenize_regression.cpp)

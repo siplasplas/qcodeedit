@@ -490,6 +490,7 @@ private:
                 hr.nextContextId = resolveCtxLocal(sw.pushName);
                 hr.lookAhead     = attrBool(rr.attrs, QStringLiteral("lookAhead"));
                 hr.firstNonSpace = attrBool(rr.attrs, QStringLiteral("firstNonSpace"));
+                hr.dynamic       = attrBool(rr.attrs, QStringLiteral("dynamic"));
                 {
                     const QString col = rr.attrs.value(QStringLiteral("column"));
                     if (!col.isEmpty()) {
@@ -559,12 +560,15 @@ private:
                     hr.str  = rr.attrs.value(QStringLiteral("String"));
                 } else if (rr.tag == QLatin1String("RegExpr")) {
                     hr.kind = HighlightRule::RegExpr;
+                    const QString pattern = rr.attrs.value(QStringLiteral("String"));
+                    // Keep the raw pattern in hr.str — dynamic RegExpr needs
+                    // it to rebuild the regex per match after %n expansion.
+                    hr.str = pattern;
                     QRegularExpression::PatternOptions opts =
                         QRegularExpression::UseUnicodePropertiesOption;
                     if (insensitive)
                         opts |= QRegularExpression::CaseInsensitiveOption;
-                    hr.regex = QRegularExpression(
-                        rr.attrs.value(QStringLiteral("String")), opts);
+                    hr.regex = QRegularExpression(pattern, opts);
                 } else if (rr.tag == QLatin1String("keyword")) {
                     hr.kind = HighlightRule::Keyword;
                     hr.keywordListId = resolved.klByName.value(

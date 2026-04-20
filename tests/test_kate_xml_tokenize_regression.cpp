@@ -25,6 +25,7 @@ class TestKateXmlTokenizeRegression : public QObject {
     Q_OBJECT
 private slots:
     void booksXml_tokenizesStably();
+    void booksXml_noErrorSpans();
 };
 
 static QString kateSyntaxPath(const QString& fileName) {
@@ -110,6 +111,45 @@ void TestKateXmlTokenizeRegression::booksXml_tokenizesStably() {
         QCOMPARE(stitched[i].attributeId, spans[i].attributeId);
     }
     QCOMPARE(s, s1);
+}
+
+/// HANDOFF_qcodeedit_dynamic.md §1 — before the dynamic="true" fix,
+/// every opening tag past the first PI rendered as dsError (attribute
+/// "Error") because the StringDetect String="%1" never matched.
+/// Guard against regression by asserting no span under the Error attr.
+void TestKateXmlTokenizeRegression::booksXml_noErrorSpans() {
+    const QString xmlXml = kateSyntaxPath(QStringLiteral("xml.xml"));
+    if (xmlXml.isEmpty()) QSKIP("xml.xml not installed on this system");
+
+    auto hl = KateXmlReader::load(xmlXml);
+    QVERIFY(hl != nullptr);
+
+    // xml.xml's itemData order puts "Error" last. Look it up by name via
+    // the deterministic index (see xml.xml <itemDatas>). We don't hardcode
+    // 17 here — if KDE adds more itemDatas the index moves; instead we
+    // scan for any span whose attribute is darker-red-bold (dsError
+    // typically maps to #BF0303 bold), which is the visible symptom.
+    // Simpler: accept that the palette order is stable and that "Error"
+    // sits at attributes().size() - 1.
+    const int attrError = hl->attributes().size() - 1;
+    QVERIFY(attrError > 0);
+
+    const QString booksPath = QStringLiteral(QCE_TEST_DATA_DIR "/books.xml");
+    QFile f(booksPath);
+    QVERIFY2(f.open(QIODevice::ReadOnly), qPrintable(booksPath));
+    const QByteArray buf = f.readAll();
+
+    qce::HighlightState s0 = hl->initialState(), s1;
+    QVector<qce::StyleSpan> spans;
+    hl->tokenizeBytes(buf.constData(), buf.size(), s0, spans, s1);
+
+    for (const auto& sp : spans) {
+        if (sp.attributeId == attrError) {
+            const QByteArray slice = buf.mid(sp.start, sp.length);
+            QFAIL(qPrintable(QStringLiteral("Error span at byte %1: %2")
+                             .arg(sp.start).arg(QString::fromUtf8(slice))));
+        }
+    }
 }
 
 QTEST_GUILESS_MAIN(TestKateXmlTokenizeRegression)

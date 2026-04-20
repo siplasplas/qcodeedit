@@ -66,6 +66,7 @@ int RulesHighlighter::keywordListIdByName(const QString& name) const {
 HighlightState RulesHighlighter::initialState() const {
     HighlightState s;
     s.contextStack.push_back(m_initialContextId);
+    s.captureStack.push_back({});   // invariant: parallel to contextStack
     return s;
 }
 
@@ -107,9 +108,34 @@ void RulesHighlighter::emitSpan(QVector<StyleSpan>& spans,
 // Rule matching
 // ---------------------------------------------------------------------------
 
+/// Expand Kate's %0..%9 placeholders in `pattern` against `captures`.
+/// %0 = whole match (captures[0]); %1..%9 = capture groups (captures[n]).
+/// Out-of-range references expand to empty. `%%` is not special in Kate;
+/// a bare `%` followed by a non-digit is passed through verbatim.
+static QString expandDynamic(const QString& pattern, const QStringList& captures) {
+    QString out;
+    out.reserve(pattern.size());
+    for (int i = 0; i < pattern.size(); ++i) {
+        const QChar c = pattern.at(i);
+        if (c == QLatin1Char('%') && i + 1 < pattern.size()
+            && pattern.at(i + 1).isDigit()) {
+            const int n = pattern.at(i + 1).digitValue();
+            if (n >= 0 && n < captures.size()) out += captures.at(n);
+            // out of range → empty
+            ++i;
+        } else {
+            out += c;
+        }
+    }
+    return out;
+}
+
 int RulesHighlighter::matchAt(const HighlightRule& rule,
                                const QString& line, int pos,
-                               const QString& /*identifierChars*/) const {
+                               const QStringList& activeCaptures,
+                               QStringList* outCaptures) const {
+    if (outCaptures) outCaptures->clear();
+
     const int remaining = line.size() - pos;
     if (remaining <= 0) return 0;
 
@@ -125,10 +151,16 @@ int RulesHighlighter::matchAt(const HighlightRule& rule,
         return rule.str.contains(line.at(pos)) ? 1 : 0;
 
     case HighlightRule::StringDetect: {
-        const int n = rule.str.size();
+        // Dynamic StringDetect expands %n before comparison; non-dynamic
+        // matches the literal pattern (the hot path — no allocation).
+        const QString  expanded = rule.dynamic
+            ? expandDynamic(rule.str, activeCaptures) : QString();
+        const QString& needle   = rule.dynamic ? expanded : rule.str;
+        const int n = needle.size();
+        if (n == 0) return 0;
         if (remaining < n) return 0;
         const auto cs = rule.caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
-        return (QStringView(line).mid(pos, n).compare(rule.str, cs) == 0) ? n : 0;
+        return (QStringView(line).mid(pos, n).compare(needle, cs) == 0) ? n : 0;
     }
 
     case HighlightRule::WordDetect: {
@@ -144,11 +176,29 @@ int RulesHighlighter::matchAt(const HighlightRule& rule,
     }
 
     case HighlightRule::RegExpr: {
-        if (!rule.regex.isValid()) return 0;
-        QRegularExpressionMatch m = rule.regex.match(
+        // Dynamic RegExpr rebuilds the regex from the expanded template
+        // (rule.str keeps the raw pattern even when rule.regex is
+        // pre-compiled for the static case).
+        const QRegularExpression* re = &rule.regex;
+        QRegularExpression dynRe;
+        if (rule.dynamic) {
+            const QString expanded = expandDynamic(rule.str, activeCaptures);
+            QRegularExpression::PatternOptions opts =
+                QRegularExpression::UseUnicodePropertiesOption;
+            if (!rule.caseSensitive) opts |= QRegularExpression::CaseInsensitiveOption;
+            dynRe = QRegularExpression(expanded, opts);
+            re = &dynRe;
+        }
+        if (!re->isValid()) return 0;
+        QRegularExpressionMatch m = re->match(
             line, pos, QRegularExpression::NormalMatch,
             QRegularExpression::AnchorAtOffsetMatchOption);
         if (!m.hasMatch() || m.capturedStart() != pos) return 0;
+        if (outCaptures) {
+            const int n = m.lastCapturedIndex();
+            outCaptures->reserve(n + 1);
+            for (int i = 0; i <= n; ++i) outCaptures->append(m.captured(i));
+        }
         return m.capturedLength();
     }
 
@@ -337,8 +387,31 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
     if (stateOut.contextStack.isEmpty()) {
         stateOut.contextStack.push_back(m_initialContextId);
     }
+    // Maintain the captureStack invariant: size matches contextStack. Older
+    // callers that constructed HighlightState{} by hand won't have populated
+    // captureStack, so fill with empty capture lists as needed.
+    while (stateOut.captureStack.size() < stateOut.contextStack.size()) {
+        stateOut.captureStack.push_back({});
+    }
+    while (stateOut.captureStack.size() > stateOut.contextStack.size()) {
+        stateOut.captureStack.pop_back();
+    }
+
+    // Helpers that keep the two stacks in lock-step.
+    auto popCtx = [&](int count) {
+        for (int i = 0; i < count && stateOut.contextStack.size() > 1; ++i) {
+            stateOut.contextStack.pop_back();
+            stateOut.captureStack.pop_back();
+        }
+    };
+    auto pushCtx = [&](int ctxId, const QStringList& caps) {
+        stateOut.contextStack.push_back(ctxId);
+        stateOut.captureStack.push_back(caps);
+    };
 
     const int firstNonWs = firstNonSpacePos(line);
+
+    QStringList regexCaps;   // scratch — refilled by matchAt for RegExpr matches
 
     int pos = 0;
     int fallthroughDepth = 0;  // guard against infinite fallthrough chains
@@ -346,6 +419,7 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
         const int ctxId = stateOut.contextStack.last();
         if (ctxId < 0 || ctxId >= m_contexts.size()) break;
         const HighlightContext& ctx = m_contexts[ctxId];
+        const QStringList& activeCaps = stateOut.captureStack.last();
 
         // Find first matching rule. IncludeRules flattened by iterating
         // included context's rules inline.
@@ -367,7 +441,7 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
                 }
                 if (rule.firstNonSpace && pos != firstNonWs) continue;
                 if (rule.column >= 0 && pos != rule.column) continue;
-                const int len = matchAt(rule, line, pos, QString());
+                const int len = matchAt(rule, line, pos, activeCaps, &regexCaps);
                 if (len > 0) {
                     matched = &rule;
                     matchedLen = len;
@@ -393,12 +467,13 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
                 emitSpan(spans, pos, matchedLen, attr);
                 pos += matchedLen;
             }
-            // Context switch: pop then push.
-            for (int i = 0; i < matched->popCount && stateOut.contextStack.size() > 1; ++i) {
-                stateOut.contextStack.pop_back();
-            }
+            // Context switch: pop then push. Push carries the captures from
+            // the triggering regex (empty for non-regex rules — matchAt
+            // clears regexCaps for those).
+            popCtx(matched->popCount);
             if (matched->nextContextId >= 0) {
-                stateOut.contextStack.push_back(matched->nextContextId);
+                pushCtx(matched->nextContextId,
+                        (matched->kind == HighlightRule::RegExpr) ? regexCaps : QStringList());
             }
         } else if (ctx.fallthrough
                    && (ctx.fallthroughContext >= 0 || ctx.fallthroughPopCount > 0)
@@ -406,11 +481,9 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
             // No rule matched — try the fallthrough context without consuming
             // the character. Guard against infinite chains via depth counter.
             ++fallthroughDepth;
-            for (int i = 0; i < ctx.fallthroughPopCount
-                 && stateOut.contextStack.size() > 1; ++i)
-                stateOut.contextStack.pop_back();
+            popCtx(ctx.fallthroughPopCount);
             if (ctx.fallthroughContext >= 0)
-                stateOut.contextStack.push_back(ctx.fallthroughContext);
+                pushCtx(ctx.fallthroughContext, QStringList());
         } else {
             // No rule matched — emit one character with default attribute
             // and advance. This prevents infinite loops.
@@ -426,11 +499,9 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
         const int ctxId = stateOut.contextStack.last();
         if (ctxId >= 0 && ctxId < m_contexts.size()) {
             const HighlightContext& ctx = m_contexts[ctxId];
-            for (int i = 0; i < ctx.lineEndPopCount && stateOut.contextStack.size() > 1; ++i) {
-                stateOut.contextStack.pop_back();
-            }
+            popCtx(ctx.lineEndPopCount);
             if (ctx.lineEndNextContext >= 0) {
-                stateOut.contextStack.push_back(ctx.lineEndNextContext);
+                pushCtx(ctx.lineEndNextContext, QStringList());
             }
         }
     }

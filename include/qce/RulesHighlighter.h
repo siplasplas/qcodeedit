@@ -7,6 +7,7 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 namespace qce {
@@ -60,6 +61,12 @@ struct HighlightRule {
 
     /// Only match when `pos == column` (Kate's `column` attribute). -1 = any.
     int  column = -1;
+
+    /// Kate's dynamic="true" on StringDetect / RegExpr: expand %0..%9
+    /// placeholders in `str` against the captures that pushed the current
+    /// context (HighlightState::captureStack.last()) before matching.
+    /// %0 = whole match of the triggering regex; %1..%9 = capture groups.
+    bool dynamic = false;
 };
 
 /// A named state in the highlighter's automaton. Rules are tried in order
@@ -149,8 +156,18 @@ private:
     /// Try to match `rule` starting at `pos` in `line`. Returns the number of
     /// QChars matched (0 means no match). lookAhead does NOT affect the
     /// returned length — it is handled by the caller.
+    ///
+    /// activeCaptures carries the captures of the rule that pushed the
+    /// current context (HighlightState::captureStack.last()); used to
+    /// expand %n in dynamic StringDetect / RegExpr patterns.
+    ///
+    /// outCaptures (if non-null) receives regex capture groups on RegExpr
+    /// matches (index 0 = whole match, 1..N = capture groups). For
+    /// non-regex rules the list is cleared. Callers use this to push the
+    /// captures alongside the new context onto HighlightState::captureStack.
     int matchAt(const HighlightRule& rule, const QString& line, int pos,
-                const QString& identifierChars) const;
+                const QStringList& activeCaptures,
+                QStringList* outCaptures) const;
 
     /// Emit a span, merging with the previous one if the attribute is the
     /// same and the ranges are adjacent.

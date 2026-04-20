@@ -41,6 +41,8 @@ add_library(qcodeedit STATIC
     src/WrapLayout.cpp
     src/RulesHighlighter.cpp
     src/IHighlighter.cpp
+    src/IFoldingProvider.cpp
+    src/FoldPairing.cpp
     src/Utf8Map.cpp
     src/FoldState.cpp
     src/RuleBasedFoldingProvider.cpp
@@ -68,8 +70,10 @@ add_library(qcodeedit STATIC
     include/qce/IHighlighter.h
     include/qce/RulesHighlighter.h
     include/qce/Utf8Map.h
+    include/qce/FoldMarker.h
     include/qce/FoldRegion.h
     include/qce/IFoldingProvider.h
+    include/qce/FoldPairing.h
     include/qce/FoldState.h
     include/qce/RuleBasedFoldingProvider.h
     include/qce/margins/LineNumberGutter.h
@@ -124,8 +128,10 @@ install(FILES
     include/qce/IHighlighter.h
     include/qce/RulesHighlighter.h
     include/qce/Utf8Map.h
+    include/qce/FoldMarker.h
     include/qce/FoldRegion.h
     include/qce/IFoldingProvider.h
+    include/qce/FoldPairing.h
     include/qce/FoldState.h
     include/qce/RuleBasedFoldingProvider.h
     include/qce/FillerLine.h

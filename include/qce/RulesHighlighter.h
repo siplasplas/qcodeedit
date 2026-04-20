@@ -1,5 +1,6 @@
 #pragma once
 
+#include "FoldMarker.h"
 #include "IHighlighter.h"
 
 #include <QChar>
@@ -88,16 +89,6 @@ struct KeywordList {
     QString      name;
     QSet<QString> words;
     bool         caseSensitive = true;
-};
-
-/// Fold-marker event produced by highlightLineEx(). One per rule match that
-/// carries a beginRegion or endRegion attribute. A single rule may produce
-/// two events in one step (end then begin, in XML order).
-struct FoldMarker {
-    int  column;    ///< QChar column in the line where the token starts
-    int  length;    ///< length of the matched token (for end-column math)
-    int  regionId;  ///< region id from RulesHighlighter::regionIdForName()
-    bool isBegin;   ///< true = opens region; false = closes
 };
 
 /// Rule-based implementation of IHighlighter. Configured by the caller

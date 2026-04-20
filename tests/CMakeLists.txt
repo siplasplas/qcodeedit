@@ -27,6 +27,7 @@ qce_add_test(test_line_renderer     INTERNAL)
 qce_add_test(test_wrap_layout       INTERNAL)
 qce_add_test(test_rules_highlighter)
 qce_add_test(test_tokenize_bytes)
+qce_add_test(test_folders_in_bytes)
 qce_add_test(test_highlighter_integration)
 qce_add_test(test_fold_state)
 qce_add_test(test_rule_based_folding)
@@ -63,5 +64,17 @@ target_compile_definitions(test_kate_xml_tokenize_regression PRIVATE
     QCE_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
 )
 add_test(NAME test_kate_xml_tokenize_regression COMMAND test_kate_xml_tokenize_regression)
+
+# Fold pairing helper (HANDOFF_folding §4.2–§4.3).
+add_executable(test_fold_pairing test_fold_pairing.cpp)
+target_link_libraries(test_fold_pairing PRIVATE
+    qcodeedit::qcodeedit
+    qcodeedit::kate
+    Qt6::Test
+)
+target_compile_definitions(test_fold_pairing PRIVATE
+    QCE_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+)
+add_test(NAME test_fold_pairing COMMAND test_fold_pairing)
 qce_add_test(test_line_number_gutter)
 qce_add_test(test_code_edit_area_keys)

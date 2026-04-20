@@ -1,0 +1,16 @@
+#include "qce/IFoldingProvider.h"
+
+namespace qce {
+
+void IFoldingProvider::foldersInBytes(const char*           /*data*/,
+                                       qsizetype             /*len*/,
+                                       const HighlightState& stateIn,
+                                       QVector<FoldMarker>&  markers,
+                                       HighlightState&       stateOut) const {
+    // Default: no byte-range path. Providers that know how to tokenise
+    // raw bytes override this.
+    markers.clear();
+    stateOut = stateIn;
+}
+
+} // namespace qce

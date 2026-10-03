@@ -140,7 +140,7 @@ connect(editor->area(), &qce::CodeEditArea::cursorPositionChanged,
 ## Testing
 
 Qt Test suites covering cursor logic, wrap layout, rules highlighter,
-fold state / rule-based folding provider, filler state, Kate XML reader,
+fold state / rule-based folding provider, Kate XML reader,
 Kate data paths / index / downloader (offline, via file:// URLs), and a
 widget-level key-event suite. Smoke tests on real Kate definitions run when
 a data set is present (`qce-kate-fetch`) and are skipped otherwise.

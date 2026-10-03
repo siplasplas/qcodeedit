@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QScrollBar>
 
 #include <qce/CodeEditArea.h>
 #include <qce/SimpleTextDocument.h>
@@ -25,6 +26,57 @@ private:
     }
 
 private slots:
+    void wrappedRows_foldScrollAndClickMapToDocument() {
+        SimpleTextDocument doc;
+        doc.setText(QStringLiteral("header\nhidden\nhidden\n")
+                    + QString(80, QLatin1Char('x'))
+                    + QStringLiteral("\ntail").repeated(30));
+        CodeEditArea area;
+        area.resize(240, 180);
+        area.setDocument(&doc);
+        area.setWordWrap(true);
+        activate(&area);
+
+        FoldRegion fold;
+        fold.startLine = 0;
+        fold.endLine = 2;
+        fold.placeholder = QStringLiteral("...");
+        area.foldState().setRegions({fold});
+        area.toggleFoldAt(0);
+
+        const auto vp = area.viewportState();
+        QVERIFY(vp.rows.size() >= 3);
+        QCOMPARE(vp.firstVisibleLine, 0);
+        QCOMPARE(vp.rows[0].foldPlaceholder, fold.placeholder);
+        QCOMPARE(vp.rows[1].logicalLine, 3);
+        QCOMPARE(vp.rows[2].logicalLine, 3);
+        QVERIFY(vp.rows[2].startCol > 0);
+        QCOMPARE(vp.lastVisibleLine, vp.rows.last().logicalLine);
+
+        QTest::mouseClick(area.viewport(), Qt::LeftButton, Qt::NoModifier,
+                          QPoint(0, 2 * vp.lineHeight + vp.lineHeight / 2));
+        QCOMPARE(area.cursorPosition(), (TextCursor{3, vp.rows[2].startCol}));
+
+        const int foldedMaximum = area.verticalScrollBar()->maximum();
+        QVERIFY(foldedMaximum > 0);
+        area.verticalScrollBar()->setValue(foldedMaximum);
+        const auto scrolled = area.viewportState();
+        QCOMPARE(scrolled.firstVisibleRow, foldedMaximum);
+        QCOMPARE(scrolled.firstVisibleLine, scrolled.rows.first().logicalLine);
+        QCOMPARE(scrolled.lastVisibleLine, doc.lineCount() - 1);
+        QTest::mouseClick(area.viewport(), Qt::LeftButton, Qt::NoModifier,
+                          QPoint(0, scrolled.lineHeight / 2));
+        QCOMPARE(area.cursorPosition(),
+                 (TextCursor{scrolled.rows.first().logicalLine,
+                             scrolled.rows.first().startCol}));
+
+        area.unfoldAll();
+        QCOMPARE(area.verticalScrollBar()->maximum(), foldedMaximum + 2);
+        area.verticalScrollBar()->setValue(0);
+        QCOMPARE(area.viewportState().rows[1].logicalLine, 1);
+        QCOMPARE(area.viewportState().rows[2].logicalLine, 2);
+    }
+
     void rightArrow_movesColumnRight() {
         SimpleTextDocument doc;
         doc.setText(QStringLiteral("Hello"));

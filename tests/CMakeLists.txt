@@ -32,7 +32,6 @@ qce_add_test(test_regex_shapes)
 qce_add_test(test_highlighter_integration)
 qce_add_test(test_fold_state)
 qce_add_test(test_rule_based_folding)
-qce_add_test(test_filler_state)
 
 # test_kate_xml_reader links against the kate companion library rather than
 # building its source inline.

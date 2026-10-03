@@ -7,7 +7,6 @@ namespace qce {
 
 class ITextDocument;
 class FoldState;
-class FillerState;
 
 /// Maps visual rows to logical document positions for word-wrap mode.
 /// Rebuilt whenever the document or viewport changes.
@@ -16,10 +15,9 @@ class FillerState;
 class WrapLayout {
 public:
     struct Row {
-        int logicalLine = -1;   ///< -1 for filler rows; else 0-based doc line.
-        int startCol    = 0;    ///< First logical column of this visual row.
-        int endCol      = 0;    ///< One past last logical column (= line.size() on last row).
-        int fillerBlockIndex = -1; ///< Valid only when logicalLine == -1.
+        int logicalLine = -1; ///< 0-based document line.
+        int startCol    = 0; ///< First logical column of this visual row.
+        int endCol      = 0; ///< One past last logical column (= line.size() on last row).
     };
 
     /// Rebuild from document. availableVisualCols is the number of character
@@ -29,8 +27,7 @@ public:
     /// a hidden line returns the row of the visible header of the collapsed
     /// region that contains it).
     void rebuild(const ITextDocument* doc, int availableVisualCols, int tabWidth,
-                 const FoldState* foldState = nullptr,
-                 const FillerState* fillerState = nullptr);
+                 const FoldState* foldState = nullptr);
 
     int totalRows() const { return m_rows.size(); }
     const Row& rowAt(int visualRow) const { return m_rows[visualRow]; }

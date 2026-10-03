@@ -29,8 +29,6 @@ target_link_libraries(my_app PRIVATE qcodeedit::kate)
 #include <qce/IFoldingProvider.h>
 #include <qce/FoldState.h>
 #include <qce/RuleBasedFoldingProvider.h>
-#include <qce/FillerLine.h>
-#include <qce/FillerState.h>
 #include <qce/ViewportState.h>
 #include <qce/IMargin.h>
 #include <qce/margins/LineNumberGutter.h>
@@ -431,59 +429,7 @@ DiffMerge, derive the color from a `DiffResult` data structure.
 
 ---
 
-## 8. Filler lines (DiffMerge / side-by-side diff)
-
-Filler lines are virtual rows inserted between document lines to keep two
-panes vertically aligned.  They are not editable, not numbered, and cannot
-hold the caret.
-
-```cpp
-struct FillerLine {
-    int     beforeLine;   // insert before this 0-based document line
-    int     rowCount;     // number of virtual rows
-    QColor  fillColor;    // background color
-    QString label;        // optional centred text on the first row
-};
-```
-
-```cpp
-auto* fs = new qce::FillerState();
-fs->setFillers({
-    {3, 4, QColor("#D4F4DD"), "added in other file"},
-    {9, 2, QColor("#FBDADA"), "removed here"},
-});
-area->setFillerState(fs);         // non-owning
-
-// After mutating in place:
-fs->setFillers(updatedList);
-area->refreshFillers();
-```
-
-To disable fillers: `area->setFillerState(nullptr)`.
-
-**Typical DiffMerge setup for one pane:**
-
-```cpp
-// Left pane
-auto* left  = new qce::CodeEdit(splitter);
-left->setScrollBarSide(qce::CodeEdit::ScrollBarSide::Left);
-left->area()->setReadOnly(true);
-left->area()->setLineBackgroundProvider(leftDiffColors);
-left->area()->setFillerState(leftFillers);
-
-// Right pane
-auto* right = new qce::CodeEdit(splitter);
-right->area()->setReadOnly(true);
-right->area()->setLineBackgroundProvider(rightDiffColors);
-right->area()->setFillerState(rightFillers);
-```
-
-Scroll synchronization: connect `viewportChanged` from one pane and call
-`area()->verticalScrollBar()->setValue(...)` on the other.
-
----
-
-## 9. `ViewportState` — for custom margins and scroll sync
+## 8. `ViewportState` — for custom margins and scroll sync
 
 Published by `CodeEditArea::viewportChanged(const ViewportState&)`.
 
@@ -507,12 +453,9 @@ struct ViewportState {
 };
 
 struct RowInfo {
-    int  logicalLine;         // -1 when isFiller
+    int  logicalLine;         // 0-based document line
     int  startCol, endCol;    // logical column range
     bool isFirstRow;          // first visual row of this logical line?
-    bool isFiller;
-    QColor  fillerColor;
-    QString fillerLabel;
     QString foldPlaceholder;  // non-empty → collapsed fold header row
     int     foldStartColumn;
 };
@@ -537,7 +480,7 @@ and `contentOffsetY`/`lineHeight` are sufficient.
 
 ---
 
-## 10. Minimal text editor — quick start
+## 9. Minimal text editor — quick start
 
 ```cpp
 // main window setup
@@ -577,15 +520,14 @@ m_doc->setText(file.readAll());
 
 ---
 
-## 11. Minimal DiffMerge pane — quick start
+## 10. Minimal DiffMerge pane — quick start
 
 ```cpp
 // Create two symmetric panes
-for (auto* [doc, edit, colors, fillers] : {leftPane, rightPane}) {
+for (auto* [doc, edit, colors] : {leftPane, rightPane}) {
     edit->area()->setReadOnly(true);
     edit->area()->setHighlighter(sharedHighlighter.get()); // same hl, both panes
     edit->area()->setLineBackgroundProvider(colors);
-    edit->area()->setFillerState(fillers);
     edit->addLeftMargin(new qce::LineNumberGutter(doc));
 }
 leftPane.edit->setScrollBarSide(qce::CodeEdit::ScrollBarSide::Left);
@@ -610,7 +552,6 @@ connect(right->area(), &qce::CodeEditArea::viewportChanged,
 | `ITextDocument` | caller | Must outlive all editors using it |
 | `IHighlighter` | caller | Non-owning pointer stored in `CodeEditArea` |
 | `IFoldingProvider` | caller | Non-owning pointer stored in `CodeEditArea` |
-| `FillerState` | caller | Non-owning pointer stored in `CodeEditArea` |
 | `IMargin` | caller | Non-owning pointer stored in `Rail` |
 | `FoldState` | `CodeEditArea` | Accessed via `area()->foldState()` |
 | `QUndoStack` | `CodeEditArea` | Accessed via `area()->undoStack()` |

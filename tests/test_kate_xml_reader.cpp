@@ -1,4 +1,6 @@
 #include <qce/kate/KateXmlReader.h>
+#include <qce/kate/KateSyntaxIndex.h>
+#include <qce/kate/KateTheme.h>
 
 #include <qce/IHighlighter.h>
 #include <qce/RulesHighlighter.h>
@@ -70,6 +72,7 @@ private slots:
     void column_ruleFiresOnlyAtGivenColumn();
     void itemData_explicitColorOverridesTheme();
     void lineContinue_customChar();
+    void crossLanguageInclude_resolvedViaSyntaxIndex();
 };
 
 // Helper: write src to a file in a temp dir and return the path.
@@ -446,6 +449,72 @@ void TestKateXmlReader::lineContinue_customChar() {
     for (const auto& sp : spans)
         if (sp.attributeId == 1) backslashMatched = true;
     QVERIFY(!backslashMatched);
+}
+
+// ---------------------------------------------------------------------------
+// ##Lang includes resolved through a KateSyntaxIndex rather than a scan of the
+// main file's directory. host.xml lives outside the indexed syntax dir, so
+// the plain load() cannot find Guest; the index-aware overload can.
+// ---------------------------------------------------------------------------
+void TestKateXmlReader::crossLanguageInclude_resolvedViaSyntaxIndex() {
+    static const char* kHost = R"(<?xml version="1.0" encoding="UTF-8"?>
+<language name="Host" version="1" kateversion="5.0" extensions="*.host" section="Other">
+<highlighting>
+  <contexts>
+    <context attribute="Normal" lineEndContext="#stay" name="Normal">
+      <IncludeRules context="##Guest"/>
+    </context>
+  </contexts>
+  <itemDatas>
+    <itemData name="Normal" defStyleNum="dsNormal"/>
+  </itemDatas>
+</highlighting>
+</language>
+)";
+    static const char* kGuest = R"(<?xml version="1.0" encoding="UTF-8"?>
+<language name="Guest" version="1" kateversion="5.0" extensions="*.guest" section="Other">
+<highlighting>
+  <list name="kws"><item>zap</item></list>
+  <contexts>
+    <context attribute="Normal" lineEndContext="#stay" name="Normal">
+      <keyword attribute="Keyword" context="#stay" String="kws"/>
+    </context>
+  </contexts>
+  <itemDatas>
+    <itemData name="Normal"  defStyleNum="dsNormal"/>
+    <itemData name="Keyword" defStyleNum="dsKeyword"/>
+  </itemDatas>
+</highlighting>
+</language>
+)";
+    QTemporaryDir dir;
+    QVERIFY(QDir(dir.path()).mkpath(QStringLiteral("data/syntax")));
+    const QString hostPath = dumpToTemp(dir, QStringLiteral("host.xml"), kHost);
+    dumpToTemp(dir, QStringLiteral("data/syntax/guest.xml"), kGuest);
+
+    auto keywordSpans = [](const qce::RulesHighlighter& hl) {
+        qce::HighlightState s = hl.initialState(), sOut;
+        QVector<qce::StyleSpan> spans;
+        hl.highlightLine(QStringLiteral("a zap b"), s, spans, sOut);
+        int n = 0;
+        for (const auto& sp : spans)
+            if (sp.start == 2 && sp.length == 3 && sp.attributeId > 0) ++n;
+        return n;
+    };
+
+    // Without the index: Guest is not next to host.xml → include unresolved.
+    QTest::ignoreMessage(QtWarningMsg,
+        QRegularExpression(QStringLiteral("language not found in syntax directory")));
+    auto plain = KateXmlReader::load(hostPath);
+    QVERIFY(plain);
+    QCOMPARE(keywordSpans(*plain), 0);
+
+    // With the index over data/: Guest found, "zap" highlighted.
+    const auto index = qce::kate::KateSyntaxIndex::load(dir.filePath(QStringLiteral("data")));
+    QVERIFY(index.byName(QStringLiteral("Guest")));
+    auto viaIndex = KateXmlReader::load(hostPath, KateTheme{}, index);
+    QVERIFY(viaIndex);
+    QCOMPARE(keywordSpans(*viaIndex), 1);
 }
 
 QTEST_APPLESS_MAIN(TestKateXmlReader)

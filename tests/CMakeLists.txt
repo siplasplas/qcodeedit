@@ -60,6 +60,14 @@ target_link_libraries(test_kate_paths PRIVATE
 )
 add_test(NAME test_kate_paths COMMAND test_kate_paths)
 
+# Persistent Kate syntax index (index.json) + wildcard matcher.
+add_executable(test_kate_syntax_index test_kate_syntax_index.cpp)
+target_link_libraries(test_kate_syntax_index PRIVATE
+    qcodeedit::kate
+    Qt6::Test
+)
+add_test(NAME test_kate_syntax_index COMMAND test_kate_syntax_index)
+
 # Dynamic rule support (Kate's dynamic="true" %n expansion).
 add_executable(test_dynamic_rules test_dynamic_rules.cpp)
 target_link_libraries(test_dynamic_rules PRIVATE

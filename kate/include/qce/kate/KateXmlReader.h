@@ -6,6 +6,7 @@
 
 class QString;
 struct KateTheme;
+namespace qce::kate { class KateSyntaxIndex; }
 
 class KateXmlReader {
 public:
@@ -16,4 +17,11 @@ public:
     /// any style not present in `theme`.
     static std::unique_ptr<qce::RulesHighlighter> load(const QString& path,
                                                         const KateTheme& theme);
+
+    /// As above, but resolve cross-language ##Name includes through `index`
+    /// instead of scanning the directory of `path`. `index` must outlive the
+    /// call only (not the returned highlighter).
+    static std::unique_ptr<qce::RulesHighlighter> load(const QString& path,
+                                                        const KateTheme& theme,
+                                                        const qce::kate::KateSyntaxIndex& index);
 };

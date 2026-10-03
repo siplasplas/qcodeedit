@@ -1,5 +1,6 @@
 #include <qce/kate/KateXmlReader.h>
 #include <qce/kate/KateTheme.h>
+#include <qce/kate/KateSyntaxIndex.h>
 
 #include <QColor>
 #include <QDebug>
@@ -335,8 +336,9 @@ struct ResolvedLang {
 class Loader {
 public:
     Loader(const QString& syntaxDir, RulesHighlighter* hl,
-           const KateTheme* theme = nullptr)
-        : m_dir(syntaxDir), m_hl(hl), m_theme(theme) {}
+           const KateTheme* theme = nullptr,
+           const qce::kate::KateSyntaxIndex* syntaxIndex = nullptr)
+        : m_dir(syntaxDir), m_hl(hl), m_theme(theme), m_syntaxIndex(syntaxIndex) {}
 
     // Load the main (top-level) language file and set the initial context.
     // Returns false on failure.
@@ -359,6 +361,7 @@ private:
     QString           m_dir;
     RulesHighlighter* m_hl;
     const KateTheme*  m_theme;
+    const qce::kate::KateSyntaxIndex* m_syntaxIndex;  // optional; replaces m_index
 
     QHash<QString, QString>      m_index;       // langName → file path (lazy)
     bool                         m_indexBuilt = false;
@@ -371,6 +374,17 @@ private:
         m_indexBuilt = true;
     }
 
+    // File path for a cross-language ##langName reference. Prefers the
+    // persistent KateSyntaxIndex; without one, scans m_dir once.
+    QString resolveLanguagePath(const QString& langName) {
+        if (m_syntaxIndex) {
+            const auto* e = m_syntaxIndex->byName(langName);
+            return e ? m_syntaxIndex->filePath(*e) : QString();
+        }
+        ensureIndex();
+        return m_index.value(langName);
+    }
+
     // Ensure language `langName` is loaded. Returns pointer or nullptr.
     const ResolvedLang* ensureLoaded(const QString& langName) {
         if (m_resolved.contains(langName)) return &m_resolved[langName];
@@ -378,8 +392,7 @@ private:
             qWarning() << "KateXmlReader: circular IncludeRules for language" << langName;
             return nullptr;
         }
-        ensureIndex();
-        const QString path = m_index.value(langName);
+        const QString path = resolveLanguagePath(langName);
         if (path.isEmpty()) {
             qWarning() << "KateXmlReader: language not found in syntax directory:" << langName;
             return nullptr;
@@ -648,6 +661,16 @@ std::unique_ptr<RulesHighlighter> KateXmlReader::load(const QString& path,
     const QString dir = QFileInfo(path).absolutePath();
     auto hl = std::make_unique<RulesHighlighter>();
     Loader loader(dir, hl.get(), &theme);
+    if (!loader.loadMain(path)) return nullptr;
+    return hl;
+}
+
+std::unique_ptr<RulesHighlighter> KateXmlReader::load(const QString& path,
+                                                       const KateTheme& theme,
+                                                       const qce::kate::KateSyntaxIndex& index) {
+    const QString dir = QFileInfo(path).absolutePath();
+    auto hl = std::make_unique<RulesHighlighter>();
+    Loader loader(dir, hl.get(), &theme, &index);
     if (!loader.loadMain(path)) return nullptr;
     return hl;
 }

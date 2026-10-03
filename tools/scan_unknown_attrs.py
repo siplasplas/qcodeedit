@@ -1,14 +1,42 @@
 #!/usr/bin/env python3
 """Scan Kate syntax XML files and report attributes not handled by KateXmlReader."""
 
-import sys
+import argparse
 import os
+import re
+import sys
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 
-SYNTAX_DIR = os.path.expanduser(
-    "~/.local/share/org.kde.syntax-highlighting/syntax"
-)
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+VERSION_HEADER = os.path.join(REPO_ROOT, "kate", "include", "qce", "kate",
+                              "KateSyntaxVersion.h")
+
+
+def supported_syntax_version():
+    """Read supportedSyntaxVersion() from KateSyntaxVersion.h, e.g. "6.31"."""
+    with open(VERSION_HEADER, encoding="utf-8") as f:
+        m = re.search(r"supportedSyntaxVersion\(\)\s*\{\s*return\s*\{\s*(\d+)\s*,\s*(\d+)\s*\}",
+                      f.read())
+    if not m:
+        sys.exit(f"Cannot find supportedSyntaxVersion() in {VERSION_HEADER}")
+    return f"{m.group(1)}.{m.group(2)}"
+
+
+def generic_data_location():
+    """Mirror QStandardPaths::GenericDataLocation (writable)."""
+    if sys.platform == "win32":
+        return os.environ.get("LOCALAPPDATA", os.path.expanduser("~/AppData/Local"))
+    if sys.platform == "darwin":
+        return os.path.expanduser("~/Library/Application Support")
+    return os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+
+
+def default_syntax_dir():
+    """Same resolution as qce::kate::syntaxDir()."""
+    data_dir = os.environ.get("QCE_KATE_DATA_DIR") or os.path.join(
+        generic_data_location(), "qcodeedit", f"kate-{supported_syntax_version()}")
+    return os.path.join(data_dir, "syntax")
 
 # Attributes that KateXmlReader explicitly reads for each element type.
 KNOWN_ATTRS = {
@@ -115,18 +143,26 @@ def scan_file(path):
 
 
 def main():
-    if not os.path.isdir(SYNTAX_DIR):
-        print(f"Syntax directory not found: {SYNTAX_DIR}")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dir", default=None,
+                        help="directory with Kate *.xml files "
+                             "(default: qcodeedit data dir, see qce::kate::syntaxDir())")
+    args = parser.parse_args()
+    syntax_dir = args.dir or default_syntax_dir()
+
+    if not os.path.isdir(syntax_dir):
+        print(f"Syntax directory not found: {syntax_dir}")
+        print("Download the data set with qce-kate-fetch, or pass --dir.")
         sys.exit(1)
 
-    files = sorted(f for f in os.listdir(SYNTAX_DIR) if f.endswith(".xml"))
-    print(f"Scanning {len(files)} files in {SYNTAX_DIR}\n")
+    files = sorted(f for f in os.listdir(syntax_dir) if f.endswith(".xml"))
+    print(f"Scanning {len(files)} files in {syntax_dir}\n")
 
     total_unknown_attrs = defaultdict(lambda: defaultdict(int))
     total_unknown_tags  = defaultdict(int)
 
     for fname in files:
-        path = os.path.join(SYNTAX_DIR, fname)
+        path = os.path.join(syntax_dir, fname)
         ua, ut = scan_file(path)
         for tag, d in ua.items():
             for attr, cnt in d.items():

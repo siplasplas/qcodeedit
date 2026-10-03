@@ -10,6 +10,8 @@
 #include <QTemporaryDir>
 #include <QtTest/QtTest>
 
+#include "KateTestPaths.h"
+
 /// Tiny Kate-style XML that exercises the main reader paths:
 /// - <itemDatas> with known defStyleNum
 /// - <list>/<item>
@@ -169,13 +171,6 @@ void TestKateXmlReader::handlesDtdEntities() {
         if (sp.attributeId == 1 && sp.length == 3 && sp.start == 4) numberFound = true;
     }
     QVERIFY(numberFound);
-}
-
-static QString kateSyntaxPath(const QString& fileName) {
-    const QString p = QDir::homePath()
-        + QStringLiteral("/.local/share/org.kde.syntax-highlighting/syntax/")
-        + fileName;
-    return QFile::exists(p) ? p : QString();
 }
 
 void TestKateXmlReader::realDotXml_loadsOrSkips() {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <qce/kate/KateSyntaxIndex.h>
 #include <qce/kate/KateTheme.h>
 
 #include <QMainWindow>
@@ -16,6 +17,8 @@ class RuleBasedFoldingProvider;
 }
 
 class QAction;
+class QMenu;
+namespace qce::kate { class KateDataDownloader; }
 
 class DemoWindow : public QMainWindow {
     Q_OBJECT
@@ -32,6 +35,7 @@ private slots:
     void onSelectTheme(const QString& themePath);
     void onScrollBarSideToggled(bool left);
     void onLineNumberSideToggled(bool left);
+    void onDownloadKateData();
 
 private:
     qce::CodeEdit*           m_editor      = nullptr;
@@ -43,6 +47,9 @@ private:
     QString    m_currentPath;
     QString    m_currentSyntaxPath;
     KateTheme  m_currentTheme;         ///< invalid = use built-in theme
+    qce::kate::KateSyntaxIndex m_syntaxIndex;  ///< over qce::kate::dataDir()
+    QMenu*     m_themeMenu  = nullptr;
+    qce::kate::KateDataDownloader* m_downloader = nullptr;
 
     // Settings state
     bool m_lineNumbersOnLeft = true;
@@ -57,4 +64,7 @@ private:
     void updateTitle();
     void applyThemeToEditor();
     void reloadSyntaxWithTheme();
+    void reloadSyntaxIndex();
+    void rebuildThemeMenu();
+    void selectSyntaxForFile(const QString& path);
 };

@@ -1,7 +1,11 @@
 #include "DemoWindow.h"
 
+#include <qce/kate/KatePaths.h>
 #include <qce/kate/KateTheme.h>
 #include <qce/kate/KateXmlReader.h>
+#ifdef QCE_DEMO_HAVE_KATEDATA
+#include <qce/kate/KateDataDownloader.h>
+#endif
 
 #include <qce/CodeEdit.h>
 #include <qce/CodeEditArea.h>
@@ -23,6 +27,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPalette>
+#include <QStatusBar>
 #include <QTextStream>
 
 DemoWindow::DemoWindow(QWidget* parent)
@@ -62,6 +67,7 @@ DemoWindow::DemoWindow(QWidget* parent)
 
 
     setCentralWidget(m_editor);
+    reloadSyntaxIndex();
     buildMenus();
     loadDemoText();
     updateTitle();
@@ -81,6 +87,22 @@ void DemoWindow::loadFile(const QString& path) {
     m_doc->setText(ts.readAll());
     m_currentPath = path;
     updateTitle();
+    selectSyntaxForFile(path);
+}
+
+// Pick a Kate definition by file name (highest priority match) if the data
+// set has been downloaded; otherwise keep the current highlighter.
+void DemoWindow::selectSyntaxForFile(const QString& path) {
+    const auto matches = m_syntaxIndex.forFileName(path);
+    if (matches.isEmpty()) return;
+    m_currentSyntaxPath = m_syntaxIndex.filePath(*matches.first());
+    reloadSyntaxWithTheme();
+    statusBar()->showMessage(tr("Syntax: %1").arg(matches.first()->name), 3000);
+}
+
+void DemoWindow::reloadSyntaxIndex() {
+    m_syntaxIndex = qce::kate::KateSyntaxIndex::load(qce::kate::dataDir());
+    m_syntaxIndex.saveIfDirty();
 }
 
 // --- Slots ------------------------------------------------------------------
@@ -102,8 +124,8 @@ void DemoWindow::onFileClose() {
 }
 
 void DemoWindow::onLoadSyntax() {
-    const QString initial =
-        QDir::homePath() + QStringLiteral("/.local/share/org.kde.syntax-highlighting/syntax");
+    const QString syntaxDir = qce::kate::syntaxDir();
+    const QString initial = QDir(syntaxDir).exists() ? syntaxDir : QDir::homePath();
     const QString path = QFileDialog::getOpenFileName(
         this, tr("Open Kate syntax XML"), initial,
         tr("Kate syntax (*.xml);;All files (*)"),
@@ -173,6 +195,11 @@ void DemoWindow::buildMenus() {
 
     auto* loadSyntaxAct = fileMenu->addAction(tr("&Load Kate syntax..."));
     connect(loadSyntaxAct, &QAction::triggered, this, &DemoWindow::onLoadSyntax);
+
+#ifdef QCE_DEMO_HAVE_KATEDATA
+    auto* downloadAct = fileMenu->addAction(tr("&Download Kate syntax && themes"));
+    connect(downloadAct, &QAction::triggered, this, &DemoWindow::onDownloadKateData);
+#endif
 
     fileMenu->addSeparator();
 
@@ -260,34 +287,67 @@ void DemoWindow::buildMenus() {
     connect(roAct, &QAction::toggled, m_editor->area(),
             &qce::CodeEditArea::setReadOnly);
 
-    // Theme menu
-    const QString themesDir =
-        QDir::homePath() +
-        QStringLiteral("/.local/share/org.kde.syntax-highlighting/themes");
-    const auto themes = KateTheme::listThemes(themesDir);
-    if (!themes.isEmpty()) {
-        auto* themeMenu = menuBar()->addMenu(tr("&Theme"));
-        auto* themeGroup = new QActionGroup(this);
-        themeGroup->setExclusive(true);
+    // Theme menu (filled from qce::kate::themesDir(); refilled after download)
+    m_themeMenu = menuBar()->addMenu(tr("&Theme"));
+    rebuildThemeMenu();
+}
 
-        auto* builtinAct = themeMenu->addAction(tr("(built-in)"));
-        builtinAct->setCheckable(true);
-        builtinAct->setChecked(true);
-        themeGroup->addAction(builtinAct);
-        connect(builtinAct, &QAction::triggered, this,
-                [this] { onSelectTheme(QString{}); });
+void DemoWindow::rebuildThemeMenu() {
+    m_themeMenu->clear();
+    auto* themeGroup = new QActionGroup(m_themeMenu);
+    themeGroup->setExclusive(true);
 
-        themeMenu->addSeparator();
+    auto* builtinAct = m_themeMenu->addAction(tr("(built-in)"));
+    builtinAct->setCheckable(true);
+    builtinAct->setChecked(!m_currentTheme.isValid());
+    themeGroup->addAction(builtinAct);
+    connect(builtinAct, &QAction::triggered, this,
+            [this] { onSelectTheme(QString{}); });
 
-        for (const auto& [name, path] : themes) {
-            auto* act = themeMenu->addAction(name);
-            act->setCheckable(true);
-            themeGroup->addAction(act);
-            const QString p = path;
-            connect(act, &QAction::triggered, this,
-                    [this, p] { onSelectTheme(p); });
-        }
+    const auto themes = KateTheme::listThemes(qce::kate::themesDir());
+    if (themes.isEmpty()) {
+        m_themeMenu->addSeparator();
+        m_themeMenu->addAction(tr("(no themes downloaded)"))->setEnabled(false);
+        return;
     }
+
+    m_themeMenu->addSeparator();
+    for (const auto& [name, path] : themes) {
+        auto* act = m_themeMenu->addAction(name);
+        act->setCheckable(true);
+        act->setChecked(m_currentTheme.isValid() && m_currentTheme.name == name);
+        themeGroup->addAction(act);
+        const QString p = path;
+        connect(act, &QAction::triggered, this,
+                [this, p] { onSelectTheme(p); });
+    }
+}
+
+void DemoWindow::onDownloadKateData() {
+#ifdef QCE_DEMO_HAVE_KATEDATA
+    if (!m_downloader) {
+        m_downloader = new qce::kate::KateDataDownloader(this);
+        connect(m_downloader, &qce::kate::KateDataDownloader::progress, this,
+                [this](int done, int total) {
+                    statusBar()->showMessage(tr("Downloading Kate data: %1/%2").arg(done).arg(total));
+                });
+        connect(m_downloader, &qce::kate::KateDataDownloader::finished, this,
+                [this](bool ok, int downloaded, int failed) {
+                    reloadSyntaxIndex();
+                    rebuildThemeMenu();
+                    statusBar()->showMessage(
+                        ok ? tr("Kate data up to date (%1 files downloaded)").arg(downloaded)
+                           : tr("Kate data incomplete: %1 downloaded, %2 failed")
+                                 .arg(downloaded).arg(failed),
+                        8000);
+                    if (!m_currentPath.isEmpty() && m_currentSyntaxPath.isEmpty())
+                        selectSyntaxForFile(m_currentPath);
+                });
+    }
+    if (m_downloader->busy()) return;
+    statusBar()->showMessage(tr("Downloading Kate data to %1 …").arg(m_downloader->dataDir()));
+    m_downloader->start();
+#endif
 }
 
 static qce::TextAttribute demoAttr(const KateTheme& theme,
@@ -475,8 +535,15 @@ void DemoWindow::applyThemeToEditor() {
 void DemoWindow::reloadSyntaxWithTheme() {
     if (m_currentSyntaxPath.isEmpty()) return;
 
+    // Files from the qcodeedit data dir resolve ##Lang includes via the index.
+    const bool inIndex = m_syntaxIndex.byFile(QFileInfo(m_currentSyntaxPath).fileName())
+        && QFileInfo(m_currentSyntaxPath).absolutePath()
+               == QFileInfo(m_syntaxIndex.syntaxDir()).absoluteFilePath();
+
     std::unique_ptr<qce::RulesHighlighter> hl;
-    if (m_currentTheme.isValid())
+    if (inIndex)
+        hl = KateXmlReader::load(m_currentSyntaxPath, m_currentTheme, m_syntaxIndex);
+    else if (m_currentTheme.isValid())
         hl = KateXmlReader::load(m_currentSyntaxPath, m_currentTheme);
     else
         hl = KateXmlReader::load(m_currentSyntaxPath);

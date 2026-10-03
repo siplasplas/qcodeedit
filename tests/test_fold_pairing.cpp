@@ -11,6 +11,8 @@
 #include <QFile>
 #include <QtTest/QtTest>
 
+#include "KateTestPaths.h"
+
 #ifndef QCE_TEST_DATA_DIR
 #  error "QCE_TEST_DATA_DIR must be set by CMake"
 #endif
@@ -123,13 +125,6 @@ void TestFoldPairing::budgetZero_dropsEverything() {
 // --------------------------------------------------------------------------
 // §4.3 — real xml.xml + books.xml regression
 // --------------------------------------------------------------------------
-
-static QString kateSyntaxPath(const QString& fileName) {
-    const QString p = QDir::homePath()
-        + QStringLiteral("/.local/share/org.kde.syntax-highlighting/syntax/")
-        + fileName;
-    return QFile::exists(p) ? p : QString();
-}
 
 /// With dynamic rules now working, xml.xml emits proper begin/end pairs for
 /// every XML element. Verify that feeding books.xml through foldersInBytes

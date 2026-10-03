@@ -1,3 +1,4 @@
+#include <qce/kate/KatePaths.h>
 #include <qce/kate/KateSyntaxIndex.h>
 #include <qce/kate/KateSyntaxVersion.h>
 #include <qce/kate/KateTheme.h>
@@ -317,11 +318,13 @@ void TestKateSyntaxIndex::forFileName_priorityAndUnsupported() {
 }
 
 void TestKateSyntaxIndex::realData_matchesFileCount() {
-    // Read-only smoke test over a real Kate data set, if one is installed.
-    // Point QCE_KATE_TEST_DATA_DIR at a directory containing syntax/*.xml.
-    const QString dir = qEnvironmentVariable("QCE_KATE_TEST_DATA_DIR");
+    // Read-only smoke test over a real Kate data set, if one is present:
+    // QCE_KATE_TEST_DATA_DIR (a dir containing syntax/*.xml), else
+    // qce::kate::dataDir() as filled by qce-kate-fetch.
+    QString dir = qEnvironmentVariable("QCE_KATE_TEST_DATA_DIR");
+    if (dir.isEmpty()) dir = qce::kate::dataDir();
     if (dir.isEmpty() || !QDir(dir + QStringLiteral("/syntax")).exists())
-        QSKIP("QCE_KATE_TEST_DATA_DIR not set");
+        QSKIP("no Kate data set (run qce-kate-fetch or set QCE_KATE_TEST_DATA_DIR)");
 
     const auto files = QDir(dir + QStringLiteral("/syntax"))
                            .entryList({QStringLiteral("*.xml")}, QDir::Files);

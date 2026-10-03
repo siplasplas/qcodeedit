@@ -9,6 +9,8 @@
 #include <QFile>
 #include <QtTest/QtTest>
 
+#include "KateTestPaths.h"
+
 #ifndef QCE_TEST_DATA_DIR
 #  error "QCE_TEST_DATA_DIR must be set by CMake"
 #endif
@@ -27,13 +29,6 @@ private slots:
     void booksXml_tokenizesStably();
     void booksXml_noErrorSpans();
 };
-
-static QString kateSyntaxPath(const QString& fileName) {
-    const QString p = QDir::homePath()
-        + QStringLiteral("/.local/share/org.kde.syntax-highlighting/syntax/")
-        + fileName;
-    return QFile::exists(p) ? p : QString();
-}
 
 void TestKateXmlTokenizeRegression::booksXml_tokenizesStably() {
     const QString xmlXml = kateSyntaxPath(QStringLiteral("xml.xml"));

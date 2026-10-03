@@ -60,7 +60,12 @@ Options:
 - `QCE_BUILD_DEMO=ON` (default) — builds the demo viewer
 - `QCE_BUILD_TESTS=ON` (default) — builds the Qt Test suite
 - `QCE_BUILD_KATE=ON` (default) — builds the `qcodeedit-kate` companion
-  library (Kate Syntax XML reader). Depends on the core library.
+  library (Kate Syntax XML reader, syntax-data version, data paths and
+  `KateSyntaxIndex`). Depends on the core library.
+- `QCE_BUILD_KATE_DOWNLOADER=ON` (default) — builds `qcodeedit-katedata`
+  (`KateDataDownloader` + `qce-kate-fetch` tool) that fetches Kate syntax
+  definitions and themes into the qcodeedit data directory. The only part
+  that needs Qt Network. See [docs/KATE_DATA.md](docs/KATE_DATA.md).
 
 ## Install
 
@@ -79,11 +84,13 @@ Installed layout under `${prefix}`:
 ```
 include/qce/*.h                            — core public headers
 include/qce/margins/*.h                    — margin headers
-include/qce/kate/KateXmlReader.h           — companion (optional)
+include/qce/kate/*.h                       — companion (optional)
 lib/libqcodeedit.a                         — core static library
 lib/libqcodeedit-kate.a                    — companion static library
+lib/libqcodeedit-katedata.a                — downloader static library
 lib/cmake/qcodeedit/                       — find_package(qcodeedit)
 lib/cmake/qcodeedit-kate/                  — find_package(qcodeedit-kate)
+lib/cmake/qcodeedit-katedata/              — find_package(qcodeedit-katedata)
 ```
 
 ## Consuming
@@ -104,6 +111,10 @@ target_link_libraries(my_app PRIVATE qcodeedit::qcodeedit)
 # Optional: Kate Syntax XML reader (installs itself as a separate package).
 find_package(qcodeedit-kate REQUIRED)
 target_link_libraries(my_app PRIVATE qcodeedit::kate)
+
+# Optional: downloader for Kate syntax definitions and themes (Qt Network).
+find_package(qcodeedit-katedata REQUIRED)
+target_link_libraries(my_app PRIVATE qcodeedit::katedata)
 ```
 
 ```cpp
@@ -128,10 +139,11 @@ connect(editor->area(), &qce::CodeEditArea::cursorPositionChanged,
 
 ## Testing
 
-13 Qt Test suites covering cursor logic, wrap layout, rules highlighter,
-fold state / rule-based folding provider, filler state, Kate XML reader
-(incl. smoke tests on the user's installed Kate syntax files), and a
-widget-level key-event suite.
+Qt Test suites covering cursor logic, wrap layout, rules highlighter,
+fold state / rule-based folding provider, filler state, Kate XML reader,
+Kate data paths / index / downloader (offline, via file:// URLs), and a
+widget-level key-event suite. Smoke tests on real Kate definitions run when
+a data set is present (`qce-kate-fetch`) and are skipped otherwise.
 
 ```bash
 ctest --test-dir build --output-on-failure

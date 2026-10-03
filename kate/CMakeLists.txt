@@ -32,6 +32,10 @@ add_library(qcodeedit::kate ALIAS qcodeedit-kate)
 # Install-tree export name: qcodeedit::kate (matches the build-tree alias).
 set_target_properties(qcodeedit-kate PROPERTIES EXPORT_NAME kate)
 
+# Manual whole-data-set loading test; deliberately not a CTest unit test.
+add_executable(qce-kate-check tools/qce-kate-check.cpp)
+target_link_libraries(qce-kate-check PRIVATE qcodeedit::kate Qt6::Core)
+
 # --- Install ------------------------------------------------------------
 
 install(TARGETS qcodeedit-kate

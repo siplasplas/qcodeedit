@@ -149,6 +149,23 @@ a data set is present (`qce-kate-fetch`) and are skipped otherwise.
 ctest --test-dir build --output-on-failure
 ```
 
+For a manual loading test of the entire installed Kate XML data set (not a
+unit test), run:
+
+```bash
+build/kate/qce-kate-check
+build/kate/qce-kate-check --syntax-dir /path/to/syntax
+```
+
+The default directory comes from `qce::kate::syntaxDir()`, including the
+`QCE_KATE_DATA_DIR` override. The tool attempts every XML, prints diagnostics
+per file and ends with attempted / succeeded / failed counts. A file succeeds
+only when the reader returns a highlighter without warnings; partially loaded
+files with diagnostics count as failures. This checks loading, not the accuracy
+of highlighting real source files. Exit codes: 0 = all passed, 1 = loading
+failures or diagnostics, 2 = missing or empty directory. Built with
+`QCE_BUILD_KATE=ON`; it does not download data or modify the syntax index.
+
 ## License
 
 qcodeedit is distributed under the **GNU Lesser General Public License

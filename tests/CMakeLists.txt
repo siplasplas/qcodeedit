@@ -52,6 +52,14 @@ target_link_libraries(test_kate_syntax_version PRIVATE
 )
 add_test(NAME test_kate_syntax_version COMMAND test_kate_syntax_version)
 
+# Kate data directories (dataRoot / dataDir / syntaxDir / themesDir).
+add_executable(test_kate_paths test_kate_paths.cpp)
+target_link_libraries(test_kate_paths PRIVATE
+    qcodeedit::kate
+    Qt6::Test
+)
+add_test(NAME test_kate_paths COMMAND test_kate_paths)
+
 # Dynamic rule support (Kate's dynamic="true" %n expansion).
 add_executable(test_dynamic_rules test_dynamic_rules.cpp)
 target_link_libraries(test_dynamic_rules PRIVATE

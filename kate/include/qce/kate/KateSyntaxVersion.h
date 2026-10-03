@@ -2,7 +2,6 @@
 
 #include <QString>
 
-#include <compare>
 #include <optional>
 
 namespace qce::kate {
@@ -29,8 +28,17 @@ struct SyntaxVersion {
     /// A bare "X" is accepted as X.0. Returns nullopt on malformed input.
     static std::optional<SyntaxVersion> parse(QStringView text);
 
-    friend constexpr bool operator==(SyntaxVersion, SyntaxVersion) = default;
-    friend constexpr std::strong_ordering operator<=>(SyntaxVersion, SyntaxVersion) = default;
+    // Spelled out (no <=>) so the header stays usable from C++17 consumers.
+    friend constexpr bool operator==(SyntaxVersion a, SyntaxVersion b) {
+        return a.major == b.major && a.minor == b.minor;
+    }
+    friend constexpr bool operator!=(SyntaxVersion a, SyntaxVersion b) { return !(a == b); }
+    friend constexpr bool operator<(SyntaxVersion a, SyntaxVersion b) {
+        return a.major != b.major ? a.major < b.major : a.minor < b.minor;
+    }
+    friend constexpr bool operator>(SyntaxVersion a, SyntaxVersion b)  { return b < a; }
+    friend constexpr bool operator<=(SyntaxVersion a, SyntaxVersion b) { return !(b < a); }
+    friend constexpr bool operator>=(SyntaxVersion a, SyntaxVersion b) { return !(a < b); }
 };
 
 /// The data-set version KateXmlReader has been validated against.

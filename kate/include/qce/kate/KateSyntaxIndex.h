@@ -25,7 +25,14 @@ struct LanguageEntry {
     qint64  size        = 0;
     qint64  mtime       = 0;      ///< msecs since epoch
 
-    friend bool operator==(const LanguageEntry&, const LanguageEntry&) = default;
+    friend bool operator==(const LanguageEntry& a, const LanguageEntry& b) {
+        return a.file == b.file && a.name == b.name && a.section == b.section
+            && a.extensions == b.extensions && a.mimetype == b.mimetype
+            && a.kateversion == b.kateversion && a.version == b.version
+            && a.priority == b.priority && a.hidden == b.hidden
+            && a.unsupported == b.unsupported && a.size == b.size && a.mtime == b.mtime;
+    }
+    friend bool operator!=(const LanguageEntry& a, const LanguageEntry& b) { return !(a == b); }
 };
 
 /// Persistent index of a Kate syntax directory, stored as

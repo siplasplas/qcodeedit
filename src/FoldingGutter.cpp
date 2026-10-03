@@ -3,8 +3,8 @@
 #include <qce/FoldState.h>
 #include <qce/ViewportState.h>
 
-#include <QFontMetrics>
 #include <QPainter>
+#include <QPolygonF>
 #include <QRect>
 
 namespace qce {
@@ -22,11 +22,14 @@ void FoldingGutter::paint(QPainter& painter,
                            const QRect& marginRect) {
     if (!m_state || !vp.isValid() || vp.rows.isEmpty()) return;
 
-    const QFontMetrics fm = painter.fontMetrics();
-    QColor c = painter.pen().color();
-    c.setAlphaF(0.55);
     painter.save();
-    painter.setPen(c);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(QPen(QColor("#A8ADB8"), 1.2, Qt::SolidLine,
+                        Qt::RoundCap, Qt::RoundJoin));
+
+    const qreal size = qMax(0.0, qMin(9.0, qMin(marginRect.width() - 4.0,
+                                              vp.lineHeight * 0.45)));
+    const qreal centerX = marginRect.left() + marginRect.width() / 2.0;
 
     for (int i = 0; i < vp.rows.size(); ++i) {
         const auto& row = vp.rows[i];
@@ -36,12 +39,15 @@ void FoldingGutter::paint(QPainter& painter,
 
         const int topY = marginRect.top() + vp.contentOffsetY + i * vp.lineHeight;
         const bool collapsed = m_state->isCollapsed(regIdx);
-        const QString glyph = collapsed
-            ? QStringLiteral("\u25B8")   // ▸
-            : QStringLiteral("\u25BE");  // ▾
-        const int glyphW = fm.horizontalAdvance(glyph);
-        const int x = marginRect.left() + (marginRect.width() - glyphW) / 2;
-        painter.drawText(x, topY + fm.ascent(), glyph);
+        const qreal centerY = topY + vp.lineHeight / 2.0 - size /2;
+        const QPolygonF chevron = collapsed
+            ? QPolygonF{{centerX - size / 4, centerY - size / 2},
+                        {centerX + size / 4, centerY},
+                        {centerX - size / 4, centerY + size / 2}}
+            : QPolygonF{{centerX - size / 2, centerY - size / 4},
+                        {centerX, centerY + size / 4},
+                        {centerX + size / 2, centerY - size / 4}};
+        painter.drawPolyline(chevron);
     }
     painter.restore();
 }

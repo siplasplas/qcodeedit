@@ -11,6 +11,7 @@
 
 #include <QClipboard>
 #include <QFocusEvent>
+#include <QFontDatabase>
 #include <QFontMetrics>
 #include <QGuiApplication>
 #include <QKeyEvent>
@@ -35,10 +36,13 @@ CodeEditArea::CodeEditArea(QWidget* parent)
       m_caretPainter(std::make_unique<CaretPainter>(this)),
       m_undoStack(new QUndoStack(this)),
       m_wrapLayout(std::make_unique<WrapLayout>()) {
-    QFont f(QStringLiteral("Monospace"));
+    QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    const QStringList families = QFontDatabase::families();
     f.setStyleHint(QFont::TypeWriter);
+    f = f.resolve(font());
+    f.setPointSizeF(10);
     setFont(f);
-    m_renderer->setFont(f);
+    m_renderer->setFont(font());
 
     viewport()->setAutoFillBackground(false);
     setFocusPolicy(Qt::StrongFocus);
@@ -626,7 +630,7 @@ void CodeEditArea::onLinesChanged(int startLine, int) {
 
 void CodeEditArea::refreshViewportState() {
     const QFontMetrics fm(font());
-    const int lineHeight = fm.height();
+    const int lineHeight = qRound(fm.height() * (4.0 / 3.0));
     const int charWidth  = fm.horizontalAdvance(QLatin1Char('M'));
     const int vpW = viewport()->width();
     const int vpH = viewport()->height();
@@ -698,7 +702,7 @@ void CodeEditArea::refreshViewportState() {
 
 void CodeEditArea::updateScrollBarRanges() {
     const QFontMetrics fm(font());
-    const int lineHeight = fm.height();
+    const int lineHeight = qRound(fm.height() * (4.0 / 3.0));
     const int charWidth  = fm.horizontalAdvance(QLatin1Char('M'));
     const int vpH = viewport()->height();
     const int vpW = viewport()->width();
@@ -1068,10 +1072,18 @@ void CodeEditArea::paintLineBackgrounds(QPainter& painter) {
     if (!m_lineBgProvider || !m_doc || !m_viewportState.isValid()) return;
     const ViewportState& vp = m_viewportState;
     const int vpW = vp.viewportWidth;
+    const QFontMetrics fm(font());
+    // Match LineRenderer's baseline and center the band on the capital's ink.
+    // Keep padding integral and symmetric, even when the row height is odd.
+    const QRect capitalBounds = fm.tightBoundingRect(QStringLiteral("L"));
+    const int baseline = fm.ascent() - qMax(0, fm.ascent() - fm.capHeight());
+    const int padding = qMax(0, (vp.lineHeight - capitalBounds.height()) / 2);
+    const int bandOffset = baseline + capitalBounds.top() - padding;
+    const int bandHeight = capitalBounds.height() + 2 * padding;
     auto fill = [&](int line, int topY) {
         const QColor bg = m_lineBgProvider(line);
         if (bg.isValid()) {
-            painter.fillRect(0, topY, vpW, vp.lineHeight, bg);
+            painter.fillRect(0, topY + bandOffset, vpW, bandHeight, bg);
         }
     };
     if (!vp.rows.isEmpty()) {

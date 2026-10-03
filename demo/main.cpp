@@ -2,6 +2,8 @@
 
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QDebug>
+#include <QFontDatabase>
 
 int main(int argc, char** argv) {
     QApplication app(argc, argv);

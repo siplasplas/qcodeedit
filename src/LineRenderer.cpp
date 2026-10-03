@@ -13,9 +13,8 @@ namespace qce {
 LineRenderer::BackgroundBand LineRenderer::backgroundBand(const QFont& font, int lineHeight) {
     const QFontMetrics fm(font);
     const QRect bounds = fm.tightBoundingRect(QStringLiteral("L"));
-    const int baseline = fm.ascent() - qMax(0, fm.ascent() - fm.capHeight());
     const int padding = qMax(0, (lineHeight - bounds.height()) / 2);
-    return {baseline + bounds.top() - padding, bounds.height() + 2 * padding};
+    return {0, bounds.height() + 2 * padding, padding - bounds.top()};
 }
 
 void LineRenderer::paint(QPainter& painter,
@@ -31,15 +30,8 @@ void LineRenderer::paint(QPainter& painter,
 
     painter.setFont(m_font);
 
-    const QFontMetrics fm(m_font);
-    const int ascent = fm.ascent();
     const int lineHeight = vp.lineHeight;
-
-    // fm.ascent() includes room for accents above capitals (Á, É, ...); most
-    // code is plain ASCII and renders ~(ascent - capHeight) pixels below the
-    // cell top, while caret and selection span the full cell. Shift the
-    // baseline up by that gap so glyphs sit at the cell top like the caret.
-    const int topShift = qMax(0, ascent - fm.capHeight());
+    const int baseline = backgroundBand(m_font, lineHeight).baseline;
 
     // X position of the first character after padding, then shifted left by
     // the horizontal scroll offset. Lines that are shorter than the offset
@@ -50,7 +42,7 @@ void LineRenderer::paint(QPainter& painter,
         for (int ri = 0; ri < vp.rows.size(); ++ri) {
             const auto& row = vp.rows[ri];
             const int topY = vp.contentOffsetY + ri * lineHeight;
-            const int baselineY = topY + ascent - topShift;
+            const int baselineY = topY + baseline;
             const QString& line = doc->lineAt(row.logicalLine);
             const QVector<StyleSpan>* spans = m_spansProvider
                 ? m_spansProvider(row.logicalLine) : nullptr;
@@ -87,7 +79,7 @@ void LineRenderer::paint(QPainter& painter,
     const int last  = vp.lastVisibleLine;
     for (int i = first; i <= last && i < lineCount; ++i) {
         const int topY = vp.contentOffsetY + (i - first) * lineHeight;
-        const int baselineY = topY + ascent - topShift;
+        const int baselineY = topY + baseline;
         const QString& line = doc->lineAt(i);
         const QVector<StyleSpan>* spans = m_spansProvider ? m_spansProvider(i) : nullptr;
         drawSegmentWithSpans(painter, line, 0, line.size(),
@@ -124,7 +116,7 @@ void LineRenderer::drawFoldPlaceholder(QPainter& painter, const QString& text,
     fg.setAlphaF(0.75);
     painter.setPen(fg);
     painter.setFont(m_font);
-    painter.drawText(x + pad, topY + fm.ascent(), text);
+    painter.drawText(x + pad, topY + backgroundBand(m_font, lineHeight).baseline, text);
     painter.restore();
 }
 

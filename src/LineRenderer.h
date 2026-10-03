@@ -38,8 +38,9 @@ public:
 
     LineRenderer() = default;
 
-    struct BackgroundBand { int offset; int height; };
-    /// Integral, symmetric padding around capital ink, using the text baseline.
+    struct BackgroundBand { int offset; int height; int baseline; };
+    /// Row-aligned background with text baseline centered on capital ink.
+    /// Integral padding above/below the ink stays symmetric.
     static BackgroundBand backgroundBand(const QFont& font, int lineHeight);
 
     /// Sets the font used for drawing. Caller is responsible for setting the

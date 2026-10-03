@@ -1,4 +1,5 @@
 #include <qce/margins/LineNumberGutter.h>
+#include "LineRenderer.h"
 
 #include <qce/ITextDocument.h>
 #include <qce/ViewportState.h>
@@ -53,7 +54,7 @@ void LineNumberGutter::paint(QPainter& painter,
     painter.setClipRect(marginRect);
 
     const QFontMetrics fm(m_font);
-    const int ascent = fm.ascent();
+    const int baseline = LineRenderer::backgroundBand(m_font, vp.lineHeight).baseline;
     const int rightEdge = marginRect.right() - kHorizontalPadding;
 
     const int first = vp.firstVisibleLine;
@@ -66,7 +67,7 @@ void LineNumberGutter::paint(QPainter& painter,
             if (!row.isFirstRow) continue; // draw number only on first visual row of line
             if (row.logicalLine >= lineCount) continue;
             const int topY = marginRect.top() + vp.contentOffsetY + ri * vp.lineHeight;
-            const int baselineY = topY + ascent;
+            const int baselineY = topY + baseline;
             const QString label = QString::number(row.logicalLine + 1);
             const int textWidth = fm.horizontalAdvance(label);
             painter.drawText(rightEdge - textWidth, baselineY, label);
@@ -76,7 +77,7 @@ void LineNumberGutter::paint(QPainter& painter,
             const int topY = marginRect.top()
                              + vp.contentOffsetY
                              + (i - first) * vp.lineHeight;
-            const int baselineY = topY + ascent;
+            const int baselineY = topY + baseline;
             const QString label = QString::number(i + 1);
             const int textWidth = fm.horizontalAdvance(label);
             painter.drawText(rightEdge - textWidth, baselineY, label);

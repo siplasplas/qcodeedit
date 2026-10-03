@@ -269,10 +269,25 @@ private slots:
             const auto band = LineRenderer::backgroundBand(area.font(), vp.lineHeight);
             const QFontMetrics fm(area.font());
             const QRect ink = fm.tightBoundingRect(QStringLiteral("L"));
-            const int baseline = fm.capHeight();
+            const int baseline = band.baseline;
             const int above = baseline + ink.top() - band.offset;
             const int below = band.offset + band.height - (baseline + ink.bottom() + 1);
             QCOMPARE(above, below);
+            QCOMPARE(band.offset, 0);
+            QVERIFY(band.height >= vp.lineHeight - 1);
+            // Actual capital glyphs are centered in their own row, not at its top.
+            int firstInk = wholeLine.height(), lastInk = -1;
+            for (int y = vp.lineHeight; y < 2 * vp.lineHeight; ++y)
+                for (int x = 4; x < 4 + 3 * vp.charWidth; ++x) {
+                    const QColor color = wholeLine.pixelColor(x, y);
+                    if (color.red() < 100 && color.green() < 100 && color.blue() < 100) {
+                        firstInk = qMin(firstInk, y);
+                        lastInk = qMax(lastInk, y);
+                    }
+                }
+            QVERIFY(lastInk >= firstInk);
+            QCOMPARE(firstInk - vp.lineHeight, above);
+            QCOMPARE(vp.lineHeight + band.height - lastInk - 1, below);
         }
     }
 

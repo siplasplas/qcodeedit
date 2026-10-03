@@ -500,6 +500,7 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
 
 void CodeEditArea::mousePressEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton) {
+        m_mouseSelecting = false;
         // Placeholder hit-test: if the click falls on a collapsed region's
         // "{…}" box, unfold it instead of moving the cursor.
         if (m_viewportState.isValid() && !m_viewportState.rows.isEmpty()
@@ -527,6 +528,7 @@ void CodeEditArea::mousePressEvent(QMouseEvent* e) {
                 }
             }
         }
+        m_mouseSelecting = true;
         const TextCursor pos = cursorFromPoint(e->pos());
         if (e->modifiers() & Qt::ShiftModifier) {
             applySelectionMove(pos);
@@ -541,7 +543,9 @@ void CodeEditArea::mousePressEvent(QMouseEvent* e) {
 
 void CodeEditArea::mouseMoveEvent(QMouseEvent* e) {
     if (e->buttons() & Qt::LeftButton) {
-        applySelectionMove(cursorFromPoint(e->pos()));
+        if (m_mouseSelecting) {
+            applySelectionMove(cursorFromPoint(e->pos()));
+        }
         e->accept();
         return;
     }
@@ -549,6 +553,11 @@ void CodeEditArea::mouseMoveEvent(QMouseEvent* e) {
 }
 
 void CodeEditArea::mouseReleaseEvent(QMouseEvent* e) {
+    if (e->button() == Qt::LeftButton) {
+        m_mouseSelecting = false;
+        e->accept();
+        return;
+    }
     QAbstractScrollArea::mouseReleaseEvent(e);
 }
 

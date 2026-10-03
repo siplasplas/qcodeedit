@@ -30,6 +30,54 @@ private:
     }
 
 private slots:
+    void placeholderClick_doesNotStartDragSelection() {
+        for (int cursorLine : {0, 3}) {
+            SimpleTextDocument doc;
+            doc.setText(QStringLiteral("before\nheader\nbody\nafter"));
+            CodeEditArea area;
+            area.resize(300, 200);
+            area.setDocument(&doc);
+            area.setWordWrap(true);
+            activate(&area);
+            FoldRegion fold;
+            fold.startLine = 1;
+            fold.endLine = 2;
+            fold.placeholder = QStringLiteral("...");
+            area.foldState().setRegions({fold});
+            area.toggleFoldAt(1);
+            area.setCursorPosition({cursorLine, 0});
+            const int lh = area.viewportState().lineHeight;
+            const QPoint placeholder(7, lh + lh / 2);
+            const QPoint destination(20, (cursorLine == 0 ? 3 * lh : 0) + lh / 2);
+            auto dragTo = [&](QPoint pos) {
+                QMouseEvent move(QEvent::MouseMove, QPointF(pos),
+                                 QPointF(area.viewport()->mapToGlobal(pos)),
+                                 Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(area.viewport(), &move);
+            };
+
+            QTest::mousePress(area.viewport(), Qt::LeftButton, Qt::NoModifier,
+                              placeholder);
+            QVERIFY(!area.foldState().isCollapsed(0));
+            dragTo(destination);
+            QTest::mouseRelease(area.viewport(), Qt::LeftButton, Qt::NoModifier,
+                                destination);
+            QVERIFY(!area.hasSelection());
+            QCOMPARE(area.cursorPosition(), (TextCursor{cursorLine, 0}));
+
+            // A subsequent drag beginning in text still selects normally.
+            QTest::mousePress(area.viewport(), Qt::LeftButton, Qt::NoModifier,
+                              QPoint(4, lh / 2));
+            dragTo(QPoint(20, 3 * lh + lh / 2));
+            QVERIFY(area.hasSelection());
+            QTest::mouseRelease(area.viewport(), Qt::LeftButton, Qt::NoModifier,
+                                QPoint(20, 3 * lh + lh / 2));
+            const TextCursor selectionEnd = area.selectionEnd();
+            dragTo(QPoint(30, 2 * lh));
+            QCOMPARE(area.selectionEnd(), selectionEnd);
+        }
+    }
+
     void foldingChevronHover_isLimitedToFoldingStrip() {
         SimpleTextDocument doc;
         doc.setText(QStringLiteral("header\nbody\nfolded\nbody"));

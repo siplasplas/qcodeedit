@@ -144,6 +144,7 @@ private:
     ViewportState  m_viewportState;
     TextCursor     m_cursor;
     TextCursor     m_anchor;
+    bool           m_mouseSelecting = false;
     QColor m_selectionColor{QStringLiteral("#A6D2FF")};
     LineBackgroundFn m_lineBgProvider;
     bool   m_tabCaptured     = true;

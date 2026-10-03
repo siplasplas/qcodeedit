@@ -53,6 +53,11 @@ public:
     /// entries for removed files. Returns true if anything changed.
     bool refresh();
 
+    /// Force `file` to be re-read on the next refresh() even if its size and
+    /// mtime look unchanged. Use after rewriting a file in place: filesystem
+    /// timestamps are coarse (a few ms), so a same-size rewrite can be missed.
+    void invalidate(const QString& file);
+
     /// Write index.json atomically (creates dataDir if needed).
     bool save();
     bool saveIfDirty() { return m_dirty ? save() : true; }

@@ -65,6 +65,7 @@ private slots:
     void refresh_unchangedFileIsNotReread();
     void refresh_changedFileIsReread();
     void refresh_removedAndAddedFiles();
+    void invalidate_forcesRereadOfSameStampFile();
     void load_staleSyntaxVersion_rebuilds();
     void load_corruptJson_rebuilds();
 
@@ -240,6 +241,25 @@ void TestKateSyntaxIndex::refresh_removedAndAddedFiles() {
 
     QVERIFY(idx.save());
     QVERIFY(!idx.refresh());   // nothing changed since
+}
+
+void TestKateSyntaxIndex::invalidate_forcesRereadOfSameStampFile() {
+    const QString p = xmlPath(QStringLiteral("a.xml"));
+    const QDateTime t = QDateTime::currentDateTime().addSecs(-3600);
+    writeFile(p, langXml(QStringLiteral("A"), 1, QStringLiteral("*.a")));
+    setMTime(p, t);
+    auto idx = KateSyntaxIndex::load(dataDir());
+
+    // Same size, same mtime, new version: invisible to refresh() alone.
+    writeFile(p, langXml(QStringLiteral("A"), 2, QStringLiteral("*.a")));
+    setMTime(p, t);
+    QVERIFY(!idx.refresh());
+    QCOMPARE(idx.byName(QStringLiteral("A"))->version, 1);
+
+    idx.invalidate(QStringLiteral("a.xml"));
+    idx.invalidate(QStringLiteral("unknown.xml"));   // no-op
+    QVERIFY(idx.refresh());
+    QCOMPARE(idx.byName(QStringLiteral("A"))->version, 2);
 }
 
 void TestKateSyntaxIndex::load_staleSyntaxVersion_rebuilds() {

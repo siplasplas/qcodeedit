@@ -68,6 +68,16 @@ target_link_libraries(test_kate_syntax_index PRIVATE
 )
 add_test(NAME test_kate_syntax_index COMMAND test_kate_syntax_index)
 
+# Kate data downloader — offline, against file:// URLs only.
+if(TARGET qcodeedit::katedata)
+    add_executable(test_kate_data_downloader test_kate_data_downloader.cpp)
+    target_link_libraries(test_kate_data_downloader PRIVATE
+        qcodeedit::katedata
+        Qt6::Test
+    )
+    add_test(NAME test_kate_data_downloader COMMAND test_kate_data_downloader)
+endif()
+
 # Dynamic rule support (Kate's dynamic="true" %n expansion).
 add_executable(test_dynamic_rules test_dynamic_rules.cpp)
 target_link_libraries(test_dynamic_rules PRIVATE

@@ -1,0 +1,9 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Qt6 COMPONENTS Network)
+find_dependency(qcodeedit-kate @PROJECT_VERSION@ REQUIRED)
+
+include("${CMAKE_CURRENT_LIST_DIR}/qcodeedit-katedataTargets.cmake")
+
+check_required_components(qcodeedit-katedata)

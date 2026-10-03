@@ -196,6 +196,13 @@ bool KateSyntaxIndex::refresh() {
     return changed;
 }
 
+void KateSyntaxIndex::invalidate(const QString& file) {
+    const auto it = m_byFile.constFind(file);
+    if (it == m_byFile.cend()) return;
+    m_entries[*it].size  = -1;   // never matches a real file
+    m_entries[*it].mtime = -1;
+}
+
 bool KateSyntaxIndex::save() {
     if (m_dataDir.isEmpty()) return false;
     if (!QDir().mkpath(m_dataDir)) return false;

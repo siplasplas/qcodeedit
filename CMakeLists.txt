@@ -6,6 +6,8 @@ project(qcodeedit LANGUAGES CXX VERSION 1.4.0)
 option(QCE_BUILD_DEMO  "Build the qcodeedit demo application"  ON)
 option(QCE_BUILD_TESTS "Build the qcodeedit test suite"        ON)
 option(QCE_BUILD_KATE  "Build the qcodeedit-kate companion library" ON)
+option(QCE_BUILD_KATE_DOWNLOADER
+       "Build qcodeedit-katedata (downloads Kate syntax/themes; needs Qt Network)" ON)
 
 include(GNUInstallDirs)
 
@@ -20,6 +22,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # --- Qt -----------------------------------------------------------------
 
 find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets)
+if(QCE_BUILD_KATE AND QCE_BUILD_KATE_DOWNLOADER)
+    find_package(Qt6 6.2 REQUIRED COMPONENTS Network)
+endif()
 if(QCE_BUILD_TESTS)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
     enable_testing()
@@ -174,6 +179,9 @@ install(FILES
 
 if(QCE_BUILD_KATE)
     add_subdirectory(kate)
+    if(QCE_BUILD_KATE_DOWNLOADER)
+        add_subdirectory(katedata)
+    endif()
 endif()
 
 if(QCE_BUILD_DEMO)

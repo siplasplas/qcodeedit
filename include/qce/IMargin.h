@@ -36,6 +36,9 @@ public:
     virtual void mousePressed(const QPoint& /*local*/,
                               const ViewportState& /*vp*/,
                               const QRect& /*marginRect*/) {}
+
+    /// Optional: pointer entered or left this margin's strip. Default: no-op.
+    virtual void hoverChanged(bool /*hovered*/) {}
 };
 
 } // namespace qce

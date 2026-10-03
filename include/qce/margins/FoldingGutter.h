@@ -9,8 +9,9 @@ namespace qce {
 class FoldState;
 
 /// Draws a narrow column of light gray open chevrons (right when collapsed,
-/// down when expanded) on the
-/// first visual row of each foldable region. Clicking a row containing a
+/// down when expanded) on the first visual row of each foldable region.
+/// Expanded chevrons appear only while the pointer is over this margin's strip;
+/// collapsed chevrons are always visible. Clicking a row containing a
 /// region invokes the supplied toggle callback (typically wired to
 /// CodeEditArea::toggleFoldAt).
 ///
@@ -29,10 +30,12 @@ public:
     void mousePressed(const QPoint& local,
                       const ViewportState& vp,
                       const QRect& marginRect) override;
+    void hoverChanged(bool hovered) override { m_hovered = hovered; }
 
 private:
     const FoldState* m_state;
     ToggleCallback   m_toggle;
+    bool m_hovered = false;
 };
 
 } // namespace qce

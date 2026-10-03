@@ -1,9 +1,13 @@
 #include <QtTest>
 #include <QScrollBar>
+#include <QMouseEvent>
 
 #include <qce/CodeEditArea.h>
 #include <qce/SimpleTextDocument.h>
 #include <qce/TextCursor.h>
+#include <qce/Rail.h>
+#include <qce/margins/FoldingGutter.h>
+#include <qce/margins/LineNumberGutter.h>
 
 using namespace qce;
 
@@ -26,6 +30,65 @@ private:
     }
 
 private slots:
+    void foldingChevronHover_isLimitedToFoldingStrip() {
+        SimpleTextDocument doc;
+        doc.setText(QStringLiteral("header\nbody\nfolded\nbody"));
+        CodeEditArea area;
+        area.resize(240, 180);
+        area.setDocument(&doc);
+        area.setWordWrap(true);
+        FoldRegion expanded;
+        expanded.startLine = 0;
+        expanded.endLine = 1;
+        FoldRegion collapsed;
+        collapsed.startLine = 2;
+        collapsed.endLine = 3;
+        area.foldState().setRegions({expanded, collapsed});
+
+        LineNumberGutter numbers(&doc);
+        numbers.setFont(area.font());
+        FoldingGutter folding(&area.foldState(), {});
+        Rail rail;
+        rail.addMargin(&numbers);
+        rail.addMargin(&folding);
+        rail.connectToArea(&area);
+        area.toggleFoldAt(2);
+        const auto vp = area.viewportState();
+        rail.resize(rail.sizeHint().width(), vp.viewportHeight);
+        const int stripX = numbers.preferredWidth(vp);
+        const int stripWidth = folding.preferredWidth(vp);
+        auto renderStrip = [&]() {
+            QImage image(rail.size(), QImage::Format_ARGB32);
+            image.fill(Qt::transparent);
+            rail.render(&image);
+            return image.copy(stripX, 0, stripWidth, vp.lineHeight * 3);
+        };
+        auto movePointer = [&](QPoint pos) {
+            QMouseEvent event(QEvent::MouseMove, QPointF(pos),
+                              QPointF(rail.mapToGlobal(pos)), Qt::NoButton,
+                              Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(&rail, &event);
+        };
+        const auto idle = renderStrip();
+        const auto expandedRow = idle.copy(0, 0, stripWidth, vp.lineHeight);
+        const auto collapsedRow = idle.copy(0, 2 * vp.lineHeight,
+                                            stripWidth, vp.lineHeight);
+        QVERIFY(expandedRow != collapsedRow);
+
+        movePointer(QPoint(stripX + stripWidth / 2, vp.lineHeight));
+        const auto hovered = renderStrip();
+        QVERIFY(hovered.copy(0, 0, stripWidth, vp.lineHeight) != expandedRow);
+        QCOMPARE(hovered.copy(0, 2 * vp.lineHeight, stripWidth, vp.lineHeight),
+                 collapsedRow);
+
+        movePointer(QPoint(stripX / 2, vp.lineHeight));
+        QCOMPARE(renderStrip(), idle);
+        movePointer(QPoint(stripX + stripWidth / 2, vp.lineHeight));
+        QEvent leave(QEvent::Leave);
+        QApplication::sendEvent(&rail, &leave);
+        QCOMPARE(renderStrip(), idle);
+    }
+
     void wrappedRows_foldScrollAndClickMapToDocument() {
         SimpleTextDocument doc;
         doc.setText(QStringLiteral("header\nhidden\nhidden\n")

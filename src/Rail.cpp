@@ -4,6 +4,8 @@
 #include <qce/IMargin.h>
 
 #include <QMouseEvent>
+#include <QCursor>
+#include <QEnterEvent>
 #include <QPainter>
 #include <QPaintEvent>
 
@@ -13,6 +15,7 @@ Rail::Rail(QWidget* parent)
     : QWidget(parent) {
     setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     setAutoFillBackground(false);
+    setMouseTracking(true);
 }
 
 void Rail::addMargin(IMargin* margin) {
@@ -25,6 +28,10 @@ void Rail::addMargin(IMargin* margin) {
 
 void Rail::removeMargin(IMargin* margin) {
     if (m_margins.removeOne(margin)) {
+        if (m_hoveredMargin == margin) {
+            margin->hoverChanged(false);
+            m_hoveredMargin = nullptr;
+        }
         updateGeometry();
         update();
     }
@@ -76,7 +83,43 @@ void Rail::mousePressEvent(QMouseEvent* e) {
 
 void Rail::onViewportChanged(const ViewportState& vp) {
     m_vp = vp;
+    if (underMouse()) updateHoveredMargin(mapFromGlobal(QCursor::pos()));
     updateGeometry();
+    update();
+}
+
+void Rail::mouseMoveEvent(QMouseEvent* e) {
+    updateHoveredMargin(e->pos());
+    QWidget::mouseMoveEvent(e);
+}
+
+void Rail::enterEvent(QEnterEvent* e) {
+    updateHoveredMargin(e->position().toPoint());
+    QWidget::enterEvent(e);
+}
+
+void Rail::leaveEvent(QEvent* e) {
+    updateHoveredMargin(QPoint(-1, -1));
+    QWidget::leaveEvent(e);
+}
+
+void Rail::updateHoveredMargin(const QPoint& pos) {
+    IMargin* hovered = nullptr;
+    if (m_vp.isValid() && rect().contains(pos)) {
+        int x = 0;
+        for (IMargin* margin : m_margins) {
+            const int width = margin->preferredWidth(m_vp);
+            if (pos.x() >= x && pos.x() < x + width) {
+                hovered = margin;
+                break;
+            }
+            x += width;
+        }
+    }
+    if (hovered == m_hoveredMargin) return;
+    if (m_hoveredMargin) m_hoveredMargin->hoverChanged(false);
+    m_hoveredMargin = hovered;
+    if (m_hoveredMargin) m_hoveredMargin->hoverChanged(true);
     update();
 }
 

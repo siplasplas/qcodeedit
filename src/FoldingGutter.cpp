@@ -39,6 +39,7 @@ void FoldingGutter::paint(QPainter& painter,
 
         const int topY = marginRect.top() + vp.contentOffsetY + i * vp.lineHeight;
         const bool collapsed = m_state->isCollapsed(regIdx);
+        if (!collapsed && !m_hovered) continue;
         const qreal centerY = topY + vp.lineHeight / 2.0 - size /2;
         const QPolygonF chevron = collapsed
             ? QPolygonF{{centerX - size / 4, centerY - size / 2},

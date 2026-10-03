@@ -40,6 +40,9 @@ public:
 protected:
     void paintEvent(QPaintEvent* e) override;
     void mousePressEvent(QMouseEvent* e) override;
+    void mouseMoveEvent(QMouseEvent* e) override;
+    void enterEvent(QEnterEvent* e) override;
+    void leaveEvent(QEvent* e) override;
 
 private slots:
     void onViewportChanged(const ViewportState& vp);
@@ -47,8 +50,10 @@ private slots:
 private:
     QList<IMargin*> m_margins;
     ViewportState m_vp;
+    IMargin* m_hoveredMargin = nullptr;
 
     int totalWidth() const;
+    void updateHoveredMargin(const QPoint& pos);
 };
 
 } // namespace qce

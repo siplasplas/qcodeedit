@@ -73,7 +73,7 @@ static const QHash<QString, ThemeEntry>& theme() {
 // DTD entity pre-expansion
 // -----------------------------------------------------------------------------
 
-// Find the closing ']' of a DTD internal subset, skipping quoted strings so
+// Find the closing ']' of a DTD internal subset, skipping comments and quotes so
 // that ']' characters inside entity values (e.g. "[]{|}") are not mistaken
 // for the closing bracket.
 static int findDtdBracketClose(const QString& raw, int from) {
@@ -83,6 +83,11 @@ static int findDtdBracketClose(const QString& raw, int from) {
         const QChar c = raw.at(i);
         if (inQuote) {
             if (c == quoteChar) inQuote = false;
+        } else if (c == QLatin1Char('<')
+                   && raw.mid(i, 4) == QLatin1String("<!--")) {
+            const int commentEnd = raw.indexOf(QStringLiteral("-->"), i + 4);
+            if (commentEnd < 0) return -1;
+            i = commentEnd + 2;
         } else if (c == QLatin1Char('"') || c == QLatin1Char('\'')) {
             inQuote = true;
             quoteChar = c;
@@ -102,12 +107,21 @@ static QString expandDtdEntities(const QString& raw) {
 
     const QString dtd = raw.mid(bracketOpen + 1, bracketClose - bracketOpen - 1);
     static const QRegularExpression re(
-        QStringLiteral("<!ENTITY\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+\"([^\"]*)\""));
+        QStringLiteral("<!--.*?-->|<!ENTITY\\s+([A-Za-z_:][A-Za-z0-9_.:-]*)"
+                       "\\s+(?:\"([^\"]*)\"|'([^']*)')\\s*>"),
+        QRegularExpression::DotMatchesEverythingOption);
     QMap<QString, QString> entities;
     auto it = re.globalMatch(dtd);
     while (it.hasNext()) {
         QRegularExpressionMatch m = it.next();
-        entities.insert(m.captured(1), m.captured(2));
+        if (m.captured(1).isEmpty()) continue; // comment, not a declaration
+        QString value = m.capturedStart(2) >= 0 ? m.captured(2) : m.captured(3);
+        // A value may contain the opposite quote to its DTD delimiter. Escape
+        // both literal quotes before insertion into an XML attribute; preserve
+        // built-in, numeric and nested custom entity references for expansion.
+        value.replace(QLatin1Char('"'), QStringLiteral("&quot;"));
+        value.replace(QLatin1Char('\''), QStringLiteral("&apos;"));
+        entities.insert(m.captured(1), value);
     }
     if (entities.isEmpty()) return raw;
 

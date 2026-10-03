@@ -64,6 +64,9 @@ private slots:
     void highlightsKeyword();
     void multiLineCommentPropagatesState();
     void handlesDtdEntities();
+    void dtdCommentQuotes_doNotTerminateSubset();
+    void dtdEntities_acceptBothQuotesAndHyphenatedNames();
+    void realRubyXml_loadsOrSkips();
     void realDotXml_loadsOrSkips();
     void realCXml_loadsOrSkips();
 
@@ -171,6 +174,106 @@ void TestKateXmlReader::handlesDtdEntities() {
         if (sp.attributeId == 1 && sp.length == 3 && sp.start == 4) numberFound = true;
     }
     QVERIFY(numberFound);
+}
+
+void TestKateXmlReader::dtdCommentQuotes_doNotTerminateSubset() {
+    // Like ruby.xml: an apostrophe in a DTD comment must not open a quote.
+    static const char* xml = R"(<?xml version="1.0"?>
+<!DOCTYPE language [
+    <!ENTITY num "[0-9]+">
+    <!-- doesn't apply to constants; quoted brackets follow -->
+    <!ENTITY quote "[']">
+    <!ENTITY digits "&num;">
+]>
+<language name="comment-dtd">
+<highlighting>
+  <contexts>
+    <context name="Normal" attribute="Normal" lineEndContext="#stay">
+      <RegExpr attribute="Number" String="&digits;"/>
+    </context>
+  </contexts>
+  <itemDatas>
+    <itemData name="Normal" defStyleNum="dsNormal"/>
+    <itemData name="Number" defStyleNum="dsDecVal"/>
+  </itemDatas>
+</highlighting>
+</language>)";
+    QTemporaryDir dir;
+    auto hl = KateXmlReader::load(dumpToTemp(dir, QStringLiteral("comment.xml"), xml));
+    QVERIFY(hl);
+    const auto initial = hl->initialState();
+    qce::HighlightState end;
+    QVector<qce::StyleSpan> spans;
+    hl->highlightLine(QStringLiteral("abc 123"), initial, spans, end);
+    bool numberFound = false;
+    for (const auto& span : spans) {
+        if (span.attributeId == 1 && span.start == 4 && span.length == 3) {
+            numberFound = true;
+        }
+    }
+    QVERIFY(numberFound);
+}
+
+void TestKateXmlReader::dtdEntities_acceptBothQuotesAndHyphenatedNames() {
+    static const char* xml = R"(<?xml version="1.0"?>
+<!DOCTYPE language [
+    <!ENTITY num "[0-9]+">
+    <!ENTITY commands-heads "&num;">
+    <!-- <!ENTITY commands-heads "bad"> -->
+    <!ENTITY quoted '"&commands-heads;"'>
+    <!ENTITY token-name '&lt;&amp;"&apos;'>
+    <!ENTITY single-quote "x'y">
+]>
+<language name="quoted-dtd">
+<highlighting>
+  <contexts>
+    <context name="Normal" attribute="Normal" lineEndContext="#stay">
+      <RegExpr attribute="Number" String="&quoted;"/>
+      <StringDetect attribute="String" String="&token-name;"/>
+      <StringDetect attribute="String" String='&single-quote;'/>
+    </context>
+  </contexts>
+  <itemDatas>
+    <itemData name="Normal" defStyleNum="dsNormal"/>
+    <itemData name="Number" defStyleNum="dsDecVal"/>
+    <itemData name="String" defStyleNum="dsString"/>
+  </itemDatas>
+</highlighting>
+</language>)";
+    QTemporaryDir dir;
+    auto hl = KateXmlReader::load(dumpToTemp(dir, QStringLiteral("quotes.xml"), xml));
+    QVERIFY(hl);
+    qce::HighlightState end;
+    QVector<qce::StyleSpan> spans;
+    hl->highlightLine(QStringLiteral("\"123\" <&\"' x'y"), hl->initialState(), spans, end);
+    bool numberFound = false;
+    bool doubleQuoteFound = false;
+    bool singleQuoteFound = false;
+    for (const auto& span : spans) {
+        if (span.attributeId == 1 && span.start == 0 && span.length == 5) {
+            numberFound = true;
+        }
+        if (span.attributeId == 2 && span.start == 6 && span.length == 4) {
+            doubleQuoteFound = true;
+        }
+        if (span.attributeId == 2 && span.start == 11 && span.length == 3) {
+            singleQuoteFound = true;
+        }
+    }
+    QVERIFY(numberFound);
+    QVERIFY(doubleQuoteFound);
+    QVERIFY(singleQuoteFound);
+}
+
+void TestKateXmlReader::realRubyXml_loadsOrSkips() {
+    const QString path = kateSyntaxPath(QStringLiteral("ruby.xml"));
+    if (path.isEmpty()) QSKIP("ruby.xml not installed on this system");
+    auto hl = KateXmlReader::load(path);
+    QVERIFY(hl);
+    qce::HighlightState end;
+    QVector<qce::StyleSpan> spans;
+    hl->highlightLine(QStringLiteral("puts 123"), hl->initialState(), spans, end);
+    QVERIFY(!spans.isEmpty());
 }
 
 void TestKateXmlReader::realDotXml_loadsOrSkips() {

@@ -44,6 +44,14 @@ target_link_libraries(test_kate_xml_reader PRIVATE
 )
 add_test(NAME test_kate_xml_reader COMMAND test_kate_xml_reader)
 
+# Kate syntax data-set version (SyntaxVersion / supportedSyntaxVersion).
+add_executable(test_kate_syntax_version test_kate_syntax_version.cpp)
+target_link_libraries(test_kate_syntax_version PRIVATE
+    qcodeedit::kate
+    Qt6::Test
+)
+add_test(NAME test_kate_syntax_version COMMAND test_kate_syntax_version)
+
 # Dynamic rule support (Kate's dynamic="true" %n expansion).
 add_executable(test_dynamic_rules test_dynamic_rules.cpp)
 target_link_libraries(test_dynamic_rules PRIVATE

@@ -6,6 +6,8 @@
 #include <QFontMetrics>
 #include <QPainter>
 
+#include <algorithm>
+
 namespace qce {
 
 void LineRenderer::paint(QPainter& painter,
@@ -56,7 +58,7 @@ void LineRenderer::paint(QPainter& painter,
 
             drawSegmentWithSpans(painter, line, row.startCol, drawEnd,
                                  kLeftPaddingPx, baselineY, vp.charWidth, spans,
-                                 topY, lineHeight);
+                                 topY, lineHeight, m_decorationsProvider ? m_decorationsProvider(row.logicalLine) : nullptr);
             if (m_showWhitespace) {
                 const QString seg = line.mid(row.startCol, drawEnd - row.startCol);
                 paintWhitespaceMarkers(painter, seg, kLeftPaddingPx, baselineY,
@@ -82,7 +84,7 @@ void LineRenderer::paint(QPainter& painter,
         const QVector<StyleSpan>* spans = m_spansProvider ? m_spansProvider(i) : nullptr;
         drawSegmentWithSpans(painter, line, 0, line.size(),
                              baseX, baselineY, vp.charWidth, spans,
-                             topY, lineHeight);
+                             topY, lineHeight, m_decorationsProvider ? m_decorationsProvider(i) : nullptr);
         if (m_showWhitespace) {
             paintWhitespaceMarkers(painter, line, baseX, baselineY, vp.charWidth);
         }
@@ -187,11 +189,13 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
                                          int drawX, int baselineY,
                                          int charWidth,
                                          const QVector<StyleSpan>* spans,
-                                         int topY, int lineHeight) const {
+                                         int topY, int lineHeight,
+                                         const QVector<ExtraSelection>* decorations) const {
     if (segStart >= segEnd) return;
 
     // Fast path: no highlighting → single drawText.
-    if (!spans || spans->isEmpty() || !m_palette || m_palette->isEmpty()) {
+    if ((!spans || spans->isEmpty() || !m_palette || m_palette->isEmpty())
+        && (!decorations || decorations->isEmpty())) {
         const QString seg = line.mid(segStart, segEnd - segStart);
         const QString text = expandTabs(seg);
         if (!text.isEmpty()) {
@@ -206,20 +210,38 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
     int rawCol = segStart;
     int visual = 0;                  // relative to segStart (=segment-local visual col)
 
+    qsizetype spanIndex = spans ? std::lower_bound(spans->cbegin(), spans->cend(), segStart,
+        [](const StyleSpan& span, int column) { return span.start + span.length <= column; }) - spans->cbegin() : 0;
+    qsizetype decorationIndex = decorations ? std::lower_bound(decorations->cbegin(), decorations->cend(), segStart,
+        [](const ExtraSelection& range, int column) { return range.end.column <= column; }) - decorations->cbegin() : 0;
     while (rawCol < segEnd) {
         // Find span that covers rawCol, or the next span after it.
         int attrId   = -1;
         int chunkEnd = segEnd;
-        for (const StyleSpan& s : *spans) {
-            const int sEnd = s.start + s.length;
-            if (sEnd <= rawCol) continue;        // span ends before rawCol
-            if (s.start > rawCol) {
-                chunkEnd = qMin(chunkEnd, s.start);
-                break;
+        if (spans && m_palette) {
+            while (spanIndex < spans->size()
+                   && (*spans)[spanIndex].start + (*spans)[spanIndex].length <= rawCol) ++spanIndex;
+            if (spanIndex < spans->size()) {
+                const auto& span = (*spans)[spanIndex];
+                if (span.start > rawCol) chunkEnd = qMin(chunkEnd, span.start);
+                else {
+                    attrId = span.attributeId;
+                    chunkEnd = qMin(chunkEnd, span.start + span.length);
+                }
             }
-            attrId   = s.attributeId;
-            chunkEnd = qMin(chunkEnd, sEnd);
-            break;
+        }
+        const ExtraSelection* decoration = nullptr;
+        if (decorations) {
+            while (decorationIndex < decorations->size()
+                   && (*decorations)[decorationIndex].end.column <= rawCol) ++decorationIndex;
+            if (decorationIndex < decorations->size()) {
+                const auto& range = (*decorations)[decorationIndex];
+                if (range.start.column > rawCol) chunkEnd = qMin(chunkEnd, range.start.column);
+                else {
+                    decoration = &range;
+                    chunkEnd = qMin(chunkEnd, range.end.column);
+                }
+            }
         }
 
         // Apply attribute (foreground / bold / italic / underline / background).
@@ -227,17 +249,29 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
         QFont f   = defaultFont;
         const QString chunk    = line.mid(rawCol, chunkEnd - rawCol);
         const QString expanded = expandTabsAt(chunk, visual);
-        if (attrId >= 0 && attrId < m_palette->size()) {
+        if (m_palette && attrId >= 0 && attrId < m_palette->size()) {
             const TextAttribute& a = (*m_palette)[attrId];
             if (a.background.isValid() && lineHeight > 0) {
-                painter.fillRect(drawX + visual * charWidth, topY,
-                                 expanded.length() * charWidth, lineHeight,
-                                 a.background);
+                const QRect rect(drawX + visual * charWidth, topY,
+                                 expanded.length() * charWidth, lineHeight);
+                for (const QRect& piece : QRegion(rect).subtracted(m_selectionRegion)) {
+                    painter.fillRect(piece, a.background);
+                }
             }
             if (a.foreground.isValid()) pen.setColor(a.foreground);
             if (a.bold)      f.setBold(true);
             if (a.italic)    f.setItalic(true);
             if (a.underline) f.setUnderline(true);
+        }
+        const QRect cell(drawX + visual * charWidth, topY,
+                         expanded.length() * charWidth, lineHeight);
+        if (decoration) {
+            if (decoration->background.isValid()) {
+                for (const QRect& piece : QRegion(cell).subtracted(m_selectionRegion)) {
+                    painter.fillRect(piece, decoration->background);
+                }
+            }
+            if (decoration->foreground.isValid()) pen.setColor(decoration->foreground);
         }
         painter.setPen(pen);
         painter.setFont(f);

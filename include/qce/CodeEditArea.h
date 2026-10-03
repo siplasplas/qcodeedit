@@ -1,6 +1,7 @@
 #pragma once
 
 #include "FoldState.h"
+#include "ExtraSelection.h"
 #include "HighlightState.h"
 #include "StyleSpan.h"
 #include "TextCursor.h"
@@ -8,6 +9,7 @@
 
 #include <QAbstractScrollArea>
 #include <QColor>
+#include <QHash>
 #include <QRegion>
 #include <QVector>
 
@@ -47,8 +49,20 @@ public:
     TextCursor selectionStart() const;
     TextCursor selectionEnd() const;
     QString selectedText() const;
+    /// Clamp both endpoints, preserve direction, scroll the active cursor into view.
+    /// Does not change document contents or undo history.
+    void setSelection(TextCursor anchor, TextCursor cursor);
     void selectAll();
     void clearSelection();
+
+    /// Replace independent range decorations. Reversed endpoints are normalized,
+    /// positions clamped, empty ranges discarded. Later entries win as a complete
+    /// style; invalid foreground preserves syntax. Actual selection wins for background.
+    /// Only visible text is decorated (no newline padding or fold placeholders).
+    /// Cleared on any text change/reset or document replacement; no automatic tracking.
+    /// Updating decorations only repaints, without re-highlighting or recomputing folds.
+    void setExtraSelections(const QVector<ExtraSelection>& selections);
+    QVector<ExtraSelection> extraSelections() const { return m_extraSelections; }
 
     void setSelectionColor(const QColor& color);
     QColor selectionColor() const { return m_selectionColor; }
@@ -147,6 +161,9 @@ private:
     bool           m_mouseSelecting = false;
     QColor m_selectionColor{QStringLiteral("#A6D2FF")};
     LineBackgroundFn m_lineBgProvider;
+    QVector<ExtraSelection> m_extraSelections;
+    // Disjoint, sorted segments per logical line; overlap resolved on bulk update.
+    QHash<int, QVector<ExtraSelection>> m_extraSelectionsByLine;
     bool   m_tabCaptured     = true;
     bool   m_readOnly        = false;
     bool   m_overwrite       = false;

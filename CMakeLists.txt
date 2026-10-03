@@ -67,6 +67,7 @@ add_library(qcodeedit STATIC
     include/qce/SimpleTextDocument.h
     include/qce/CodeEditArea.h
     include/qce/CodeEdit.h
+    include/qce/ExtraSelection.h
     include/qce/TextCursor.h
     include/qce/TextAttribute.h
     include/qce/StyleSpan.h
@@ -123,6 +124,7 @@ install(FILES
     include/qce/SimpleTextDocument.h
     include/qce/CodeEditArea.h
     include/qce/CodeEdit.h
+    include/qce/ExtraSelection.h
     include/qce/TextCursor.h
     include/qce/TextAttribute.h
     include/qce/StyleSpan.h

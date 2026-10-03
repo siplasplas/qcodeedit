@@ -23,6 +23,9 @@
 #include <QToolTip>
 #include <QUndoStack>
 
+#include <algorithm>
+#include <set>
+
 namespace qce {
 
 // ------------------------------------------------------------------------
@@ -50,6 +53,10 @@ CodeEditArea::CodeEditArea(QWidget* parent)
     connect(m_caretPainter.get(), &CaretPainter::blinkToggled,
             viewport(), QOverload<>::of(&QWidget::update));
 
+    m_renderer->setDecorationsProvider([this](int line) -> const QVector<ExtraSelection>* {
+        auto it = m_extraSelectionsByLine.constFind(line);
+        return it == m_extraSelectionsByLine.cend() ? nullptr : &it.value();
+    });
     refreshViewportState();
 }
 
@@ -63,6 +70,7 @@ void CodeEditArea::setDocument(ITextDocument* doc) {
     if (m_doc == doc) {
         return;
     }
+    setExtraSelections({});
     rebindDocumentSignals(doc);
     m_doc = doc;
     m_cursorCtrl->setDocument(doc);
@@ -109,6 +117,71 @@ QString CodeEditArea::selectedText() const {
     }
     result += QLatin1Char('\n') + m_doc->lineAt(e.line).left(e.column);
     return result;
+}
+
+void CodeEditArea::setSelection(TextCursor anchor, TextCursor cursor) {
+    anchor = m_cursorCtrl->clamp(anchor);
+    cursor = m_cursorCtrl->clamp(cursor);
+    const bool cursorChanged = cursor != m_cursor;
+    const bool selectionChangedValue = anchor != m_anchor || cursorChanged;
+    m_anchor = anchor;
+    m_cursor = cursor;
+    m_caretPainter->resetBlink();
+    ensureCursorVisible(cursor);
+    viewport()->update();
+    if (cursorChanged) emit cursorPositionChanged(cursor);
+    if (selectionChangedValue) emit selectionChanged();
+}
+
+void CodeEditArea::setExtraSelections(const QVector<ExtraSelection>& selections) {
+    m_extraSelections.clear();
+    m_extraSelectionsByLine.clear();
+    if (!m_doc || m_doc->lineCount() == 0 || selections.isEmpty()) {
+        viewport()->update();
+        return;
+    }
+    struct Event { int column; int index; bool opening; };
+    QHash<int, QVector<Event>> eventsByLine;
+    for (auto selection : selections) {
+        selection.start = m_cursorCtrl->clamp(selection.start);
+        selection.end = m_cursorCtrl->clamp(selection.end);
+        if (selection.end < selection.start) std::swap(selection.start, selection.end);
+        if (selection.start == selection.end) continue;
+        const int index = m_extraSelections.size();
+        m_extraSelections.append(selection);
+        for (int line = selection.start.line; line <= selection.end.line; ++line) {
+            const int start = line == selection.start.line ? selection.start.column : 0;
+            const int end = line == selection.end.line ? selection.end.column : m_doc->lineAt(line).size();
+            if (start >= end) continue;
+            eventsByLine[line].append({start, index, true});
+            eventsByLine[line].append({end, index, false});
+        }
+    }
+    for (auto it = eventsByLine.begin(); it != eventsByLine.end(); ++it) {
+        auto& events = it.value();
+        std::sort(events.begin(), events.end(), [](const Event& a, const Event& b) {
+            return a.column < b.column;
+        });
+        std::set<int> active;
+        int previous = 0;
+        auto& segments = m_extraSelectionsByLine[it.key()];
+        for (qsizetype i = 0; i < events.size();) {
+            const int column = events[i].column;
+            if (previous < column && !active.empty()) {
+                auto style = m_extraSelections[*active.rbegin()];
+                style.start = {it.key(), previous};
+                style.end = {it.key(), column};
+                segments.append(style);
+            }
+            while (i < events.size() && events[i].column == column) {
+                if (events[i].opening) active.insert(events[i].index);
+                else active.erase(events[i].index);
+                ++i;
+            }
+            previous = column;
+        }
+    }
+    viewport()->update();
 }
 
 void CodeEditArea::selectAll() {
@@ -278,6 +351,7 @@ void CodeEditArea::paintEvent(QPaintEvent* e) {
     paintLineBackgrounds(p);
     paintSelection(p);
     p.setPen(palette().text().color());
+    m_renderer->setSelectionRegion(selectionRegion());
     m_renderer->paint(p, m_doc, m_viewportState);
     int caretVisualCol, caretVisualRow;
     if (m_doc) {
@@ -576,6 +650,7 @@ void CodeEditArea::focusOutEvent(QFocusEvent* e) {
 // ------------------------------------------------------------------------
 
 void CodeEditArea::onDocumentReset() {
+    setExtraSelections({});
     m_cursor = m_cursorCtrl->clamp(TextCursor{});
     m_anchor = m_cursor;
     m_undoStack->clear();
@@ -590,6 +665,7 @@ void CodeEditArea::onDocumentReset() {
 }
 
 void CodeEditArea::onLinesInserted(int startLine, int count) {
+    setExtraSelections({});
     m_cursor = m_cursorCtrl->clamp(m_cursor);
     m_anchor = m_cursorCtrl->clamp(m_anchor);
     if (m_highlighter) {
@@ -607,6 +683,7 @@ void CodeEditArea::onLinesInserted(int startLine, int count) {
 }
 
 void CodeEditArea::onLinesRemoved(int startLine, int count) {
+    setExtraSelections({});
     m_cursor = m_cursorCtrl->clamp(m_cursor);
     m_anchor = m_cursorCtrl->clamp(m_anchor);
     if (m_highlighter) {
@@ -624,6 +701,7 @@ void CodeEditArea::onLinesRemoved(int startLine, int count) {
 }
 
 void CodeEditArea::onLinesChanged(int startLine, int) {
+    setExtraSelections({});
     if (m_highlighter) {
         rehighlightFrom(startLine);
     }

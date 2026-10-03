@@ -23,6 +23,8 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QKeySequence>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -226,6 +228,36 @@ void DemoWindow::buildMenus() {
     unfoldAllAct->setShortcut(QKeySequence(tr("Ctrl+Shift+=")));
     connect(unfoldAllAct, &QAction::triggered, this, [this]{
         m_editor->area()->unfoldAll();
+    });
+
+    editMenu->addSeparator();
+    auto* matchesAct = editMenu->addAction(tr("Highlight text occurrences…"));
+    matchesAct->setShortcut(QKeySequence::Find);
+    connect(matchesAct, &QAction::triggered, this, [this] {
+        auto* area = m_editor->area();
+        bool accepted = false;
+        const QString query = QInputDialog::getText(this, tr("Range decorations example"),
+            tr("Text to highlight:"), QLineEdit::Normal, area->selectedText(), &accepted);
+        if (!accepted) return;
+        QVector<qce::ExtraSelection> matches;
+        if (!query.isEmpty()) {
+            for (int line = 0; line < m_doc->lineCount(); ++line) {
+                const QString text = m_doc->lineAt(line);
+                qsizetype from = 0;
+                while ((from = text.indexOf(query, from)) >= 0) {
+                    matches.append({{line, int(from)}, {line, int(from + query.size())},
+                                    QColor(230, 190, 40, 110), {}});
+                    from += query.size();
+                }
+            }
+        }
+        area->setExtraSelections(matches);
+        if (!matches.isEmpty()) area->setSelection(matches.first().start, matches.first().end);
+        statusBar()->showMessage(tr("Highlighted %1 occurrences").arg(matches.size()));
+    });
+    auto* clearMatchesAct = editMenu->addAction(tr("Clear occurrence highlights"));
+    connect(clearMatchesAct, &QAction::triggered, this, [this] {
+        m_editor->area()->setExtraSelections({});
     });
 
     // Settings menu

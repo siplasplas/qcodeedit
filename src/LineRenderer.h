@@ -1,6 +1,8 @@
 #pragma once
 
 #include <qce/StyleSpan.h>
+#include <qce/ExtraSelection.h>
+#include <QRegion>
 #include <qce/TextAttribute.h>
 
 #include <QFont>
@@ -58,6 +60,10 @@ public:
     /// none. Called once per rendered line/row. Callback may be null.
     void setSpansProvider(SpansForLineFn fn) { m_spansProvider = std::move(fn); }
 
+    using DecorationsForLineFn = std::function<const QVector<ExtraSelection>*(int)>;
+    void setDecorationsProvider(DecorationsForLineFn fn) { m_decorationsProvider = std::move(fn); }
+    void setSelectionRegion(const QRegion& region) { m_selectionRegion = region; }
+
     /// Paints the visible region of the document.
     void paint(QPainter& painter,
                const ITextDocument* doc,
@@ -75,6 +81,8 @@ private:
 
     const QVector<TextAttribute>* m_palette = nullptr;
     SpansForLineFn                m_spansProvider;
+    DecorationsForLineFn m_decorationsProvider;
+    QRegion m_selectionRegion;
 
     /// Column-aware tab expansion starting at visual column 0.
     QString expandTabs(const QString& line) const;
@@ -93,7 +101,8 @@ private:
                               int drawX, int baselineY,
                               int charWidth,
                               const QVector<StyleSpan>* spans,
-                              int topY = 0, int lineHeight = 0) const;
+                              int topY = 0, int lineHeight = 0,
+                              const QVector<ExtraSelection>* decorations = nullptr) const;
 
     /// Draw the fold placeholder text in a faint rounded rectangle; used on
     /// lines that are the header of a collapsed region.

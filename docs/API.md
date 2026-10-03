@@ -201,11 +201,59 @@ area->setCursorPosition({line, col});
 
 bool hasSel = area->hasSelection();
 QString sel  = area->selectedText();
+area->setSelection({0, 2}, {1, 5}); // anchor, active cursor; preserves direction
 area->selectAll();
 area->clearSelection();
 TextCursor s = area->selectionStart();
 TextCursor e = area->selectionEnd();
 ```
+
+---
+
+### Additional range decorations
+
+```cpp
+#include <qce/ExtraSelection.h>
+
+area->setExtraSelections({
+    {{0, 2}, {0, 8}, QColor(230, 190, 40, 110), {}},
+    {{0, 4}, {0, 7}, QColor(240, 140, 40), {}} // later entry wins
+});
+area->setSelection({0, 4}, {0, 7}); // active match is an editable selection
+QVector<qce::ExtraSelection> ranges = area->extraSelections();
+area->setExtraSelections({}); // clear decorations
+```
+
+`setSelection(anchor, cursor)` clamps both endpoints and scrolls the active
+cursor into view. `selectionStart/End` return ordered endpoints; Shift navigation
+retains the supplied anchor. Equal endpoints collapse the selection. It emits
+`cursorPositionChanged` when the active cursor changes and `selectionChanged`
+when either endpoint changes, without editing text or adding undo commands.
+
+Extra ranges are half-open `[start, end)` in zero-based logical line and UTF-16
+column coordinates. Endpoints are clamped, reversed ranges normalized and empty
+ranges discarded; the getter returns this normalized snapshot in input order.
+For overlaps, the last entry wins as a complete style. Invalid foreground keeps
+syntax/default text color and font attributes; invalid background keeps the
+underlying background. The ordinary selection takes priority over syntax and
+extra backgrounds. Whole-line backgrounds remain an independent base layer.
+
+Only actual visible text cells are decorated, including tab expansion and
+wrapped rows, with horizontal scrolling applied. Multiline ranges do not fill
+newline padding. Hidden fold contents and fold placeholders receive no
+decorations, and painting never expands a fold. Colors belong to the caller;
+use an invalid foreground to retain the current light/dark theme's text color.
+
+The area clears all extra ranges on any text edit, reset or document replacement.
+Clients recompute and supply a fresh snapshot after changes. Setting decorations
+only repaints: it preserves cursor, selection, syntax/fold caches, document and
+undo state. Ranges are indexed per line and overlaps resolved during replacement,
+so painting visits the visible line segments rather than every search result.
+
+The demo's **Edit → Highlight text occurrences…** (Ctrl+F) demonstrates the API
+with literal, single-line matches and selects the first result. **Clear occurrence
+highlights** removes the decorations. Search navigation and query/options storage
+remain the application's responsibility.
 
 ---
 

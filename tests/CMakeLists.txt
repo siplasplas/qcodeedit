@@ -112,3 +112,4 @@ target_compile_definitions(test_fold_pairing PRIVATE
 add_test(NAME test_fold_pairing COMMAND test_fold_pairing)
 qce_add_test(test_line_number_gutter)
 qce_add_test(test_code_edit_area_keys)
+qce_add_test(test_extra_selections)

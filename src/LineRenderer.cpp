@@ -10,6 +10,14 @@
 
 namespace qce {
 
+LineRenderer::BackgroundBand LineRenderer::backgroundBand(const QFont& font, int lineHeight) {
+    const QFontMetrics fm(font);
+    const QRect bounds = fm.tightBoundingRect(QStringLiteral("L"));
+    const int baseline = fm.ascent() - qMax(0, fm.ascent() - fm.capHeight());
+    const int padding = qMax(0, (lineHeight - bounds.height()) / 2);
+    return {baseline + bounds.top() - padding, bounds.height() + 2 * padding};
+}
+
 void LineRenderer::paint(QPainter& painter,
                          const ITextDocument* doc,
                          const ViewportState& vp) const {
@@ -204,6 +212,7 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
         return;
     }
 
+    const auto band = backgroundBand(m_font, lineHeight);
     const QPen  defaultPen  = painter.pen();
     const QFont defaultFont = painter.font();
 
@@ -252,8 +261,8 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
         if (m_palette && attrId >= 0 && attrId < m_palette->size()) {
             const TextAttribute& a = (*m_palette)[attrId];
             if (a.background.isValid() && lineHeight > 0) {
-                const QRect rect(drawX + visual * charWidth, topY,
-                                 expanded.length() * charWidth, lineHeight);
+                const QRect rect(drawX + visual * charWidth, topY + band.offset,
+                                 expanded.length() * charWidth, band.height);
                 for (const QRect& piece : QRegion(rect).subtracted(m_selectionRegion)) {
                     painter.fillRect(piece, a.background);
                 }
@@ -263,8 +272,8 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
             if (a.italic)    f.setItalic(true);
             if (a.underline) f.setUnderline(true);
         }
-        const QRect cell(drawX + visual * charWidth, topY,
-                         expanded.length() * charWidth, lineHeight);
+        const QRect cell(drawX + visual * charWidth, topY + band.offset,
+                         expanded.length() * charWidth, band.height);
         if (decoration) {
             if (decoration->background.isValid()) {
                 for (const QRect& piece : QRegion(cell).subtracted(m_selectionRegion)) {

@@ -1,4 +1,5 @@
 #include <QtTest>
+#include "LineRenderer.h"
 #include <QScrollBar>
 #include <QUndoStack>
 #include <qce/CodeEditArea.h>
@@ -36,16 +37,19 @@ public:
 
 class TestExtraSelections : public QObject {
     Q_OBJECT
+    inline static QFont renderFont;
     static QImage render(CodeEditArea& area) {
+        renderFont = area.font();
         QImage result(area.viewport()->size(), QImage::Format_ARGB32_Premultiplied);
         result.fill(Qt::transparent);
         area.viewport()->render(&result);
         return result;
     }
-    // Sample the bottom of a cell, below the glyphs and above the next row.
+    // Sample the bottom of the centered background band, below the glyphs.
     static QColor cell(const QImage& image, const ViewportState& vp, int col, int row = 0) {
+        const auto band = LineRenderer::backgroundBand(renderFont, vp.lineHeight);
         return image.pixelColor(4 + col * vp.charWidth + vp.charWidth / 2,
-                                row * vp.lineHeight + vp.lineHeight - 2);
+                                row * vp.lineHeight + band.offset + band.height - 2);
     }
     static void show(CodeEditArea& area) {
         area.resize(340, 180);
@@ -223,7 +227,8 @@ private slots:
         vp = area.viewportState();
         image = render(area);
         QCOMPARE(image.pixelColor(4 + 3 * vp.charWidth - vp.contentOffsetX,
-                                   vp.lineHeight - 2), QColor(Qt::yellow));
+                                   LineRenderer::backgroundBand(area.font(), vp.lineHeight).offset
+                                   + LineRenderer::backgroundBand(area.font(), vp.lineHeight).height - 2), QColor(Qt::yellow));
         area.setWordWrap(true);
         area.resize(125, 250);
         QCoreApplication::processEvents();
@@ -239,6 +244,38 @@ private slots:
             }
         }
     }
+    void rangeBackgroundsMatchWholeLineBand() {
+        for (bool wrap : {false, true}) {
+            SimpleTextDocument doc;
+            doc.setText("LLL\nLLL\nLLL");
+            CodeEditArea area;
+            area.setDocument(&doc);
+            area.setWordWrap(wrap);
+            show(area);
+            area.setLineBackgroundProvider([](int line) {
+                return line == 1 ? QColor(Qt::yellow) : QColor{};
+            });
+            const QImage wholeLine = render(area);
+            const auto vp = area.viewportState();
+            const QRect stripe(4 + vp.charWidth, 0, vp.charWidth, wholeLine.height());
+            area.setLineBackgroundProvider({});
+            area.setSelectionColor(Qt::yellow);
+            area.setSelection({1, 0}, {1, 3});
+            QCOMPARE(render(area).copy(stripe), wholeLine.copy(stripe));
+            area.setCursorPosition({0, 0});
+            area.setExtraSelections({{{1, 0}, {1, 3}, Qt::yellow, {}}});
+            QCOMPARE(render(area).copy(stripe), wholeLine.copy(stripe));
+
+            const auto band = LineRenderer::backgroundBand(area.font(), vp.lineHeight);
+            const QFontMetrics fm(area.font());
+            const QRect ink = fm.tightBoundingRect(QStringLiteral("L"));
+            const int baseline = fm.capHeight();
+            const int above = baseline + ink.top() - band.offset;
+            const int below = band.offset + band.height - (baseline + ink.bottom() + 1);
+            QCOMPARE(above, below);
+        }
+    }
+
     void bulkRangesAndInvalidColorPriority() {
         SimpleTextDocument doc;
         doc.setText(QString(50000, 'x'));

@@ -3,6 +3,7 @@
 #include <qce/StyleSpan.h>
 #include <qce/ExtraSelection.h>
 #include <QRegion>
+#include <QRect>
 #include <qce/TextAttribute.h>
 
 #include <QFont>
@@ -36,6 +37,10 @@ public:
     static constexpr int kLeftPaddingPx = 4;
 
     LineRenderer() = default;
+
+    struct BackgroundBand { int offset; int height; };
+    /// Integral, symmetric padding around capital ink, using the text baseline.
+    static BackgroundBand backgroundBand(const QFont& font, int lineHeight);
 
     /// Sets the font used for drawing. Caller is responsible for setting the
     /// same font on CodeEditArea so that QFontMetrics agrees.

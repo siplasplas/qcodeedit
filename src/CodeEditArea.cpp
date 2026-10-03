@@ -1099,6 +1099,7 @@ QRegion CodeEditArea::selectionRegion() const {
     const TextCursor e = selectionEnd();
     const ViewportState& vp = m_viewportState;
     const int tw = tabWidth();
+    const auto band = LineRenderer::backgroundBand(font(), vp.lineHeight);
     QRegion region;
 
     if (m_wordWrap && !vp.rows.isEmpty()) {
@@ -1129,7 +1130,7 @@ QRegion CodeEditArea::selectionRegion() const {
             const int topY = vp.contentOffsetY + ri * vp.lineHeight;
             const int x = LineRenderer::kLeftPaddingPx + vcStart * vp.charWidth;
             const int w = (vcEnd - vcStart) * vp.charWidth;
-            if (w > 0) region += QRect(x, topY, w, vp.lineHeight);
+            if (w > 0) region += QRect(x, topY + band.offset, w, band.height);
         }
         return region;
     }
@@ -1150,7 +1151,7 @@ QRegion CodeEditArea::selectionRegion() const {
         }
         const int x = LineRenderer::kLeftPaddingPx + startCol * vp.charWidth - vp.contentOffsetX;
         const int w = (endCol - startCol) * vp.charWidth;
-        if (w > 0) region += QRect(x, topY, w, vp.lineHeight);
+        if (w > 0) region += QRect(x, topY + band.offset, w, band.height);
     }
     return region;
 }
@@ -1159,18 +1160,11 @@ void CodeEditArea::paintLineBackgrounds(QPainter& painter) {
     if (!m_lineBgProvider || !m_doc || !m_viewportState.isValid()) return;
     const ViewportState& vp = m_viewportState;
     const int vpW = vp.viewportWidth;
-    const QFontMetrics fm(font());
-    // Match LineRenderer's baseline and center the band on the capital's ink.
-    // Keep padding integral and symmetric, even when the row height is odd.
-    const QRect capitalBounds = fm.tightBoundingRect(QStringLiteral("L"));
-    const int baseline = fm.ascent() - qMax(0, fm.ascent() - fm.capHeight());
-    const int padding = qMax(0, (vp.lineHeight - capitalBounds.height()) / 2);
-    const int bandOffset = baseline + capitalBounds.top() - padding;
-    const int bandHeight = capitalBounds.height() + 2 * padding;
+    const auto band = LineRenderer::backgroundBand(font(), vp.lineHeight);
     auto fill = [&](int line, int topY) {
         const QColor bg = m_lineBgProvider(line);
         if (bg.isValid()) {
-            painter.fillRect(0, topY + bandOffset, vpW, bandHeight, bg);
+            painter.fillRect(0, topY + band.offset, vpW, band.height, bg);
         }
     };
     if (!vp.rows.isEmpty()) {

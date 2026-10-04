@@ -10,6 +10,7 @@
 #include "WrapLayout.h"
 
 #include <QClipboard>
+#include <QElapsedTimer>
 #include <QFocusEvent>
 #include <QFontDatabase>
 #include <QFontMetrics>
@@ -21,6 +22,7 @@
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QTextCharFormat>
+#include <QTimer>
 #include <QToolTip>
 #include <QUndoStack>
 
@@ -56,6 +58,10 @@ CodeEditArea::CodeEditArea(QWidget* parent)
 
     connect(m_caretPainter.get(), &CaretPainter::blinkToggled,
             viewport(), QOverload<>::of(&QWidget::update));
+
+    m_highlightTimer = new QTimer(this);
+    m_highlightTimer->setInterval(0);
+    connect(m_highlightTimer, &QTimer::timeout, this, &CodeEditArea::highlightChunk);
 
     m_renderer->setDecorationsProvider([this](int line) -> const QVector<ExtraSelection>* {
         auto it = m_extraSelectionsByLine.constFind(line);
@@ -295,7 +301,7 @@ void CodeEditArea::setHighlighter(IHighlighter* hl) {
     if (hl) {
         m_renderer->setAttributePalette(&hl->attributes());
         m_renderer->setSpansProvider([this](int line) -> const QVector<StyleSpan>* {
-            if (line < 0 || line >= m_lineSpans.size()) return nullptr;
+            if (line < 0 || line >= m_validLines || line >= m_lineSpans.size()) return nullptr;
             return &m_lineSpans[line];
         });
     } else {
@@ -375,6 +381,11 @@ void CodeEditArea::paintEvent(QPaintEvent* e) {
     paintSelection(p);
     p.setPen(palette().text().color());
     m_renderer->setSelectionRegion(selectionRegion());
+    // Lazy highlighting: make sure every visible line is highlighted.
+    if (m_highlighter && m_doc && !highlightComplete()
+            && m_lineEndStates.size() == m_doc->lineCount()) {
+        highlightUpTo(qMax(m_viewportState.lastVisibleLine, m_cursor.line) + 1);
+    }
     m_renderer->paint(p, m_doc, m_viewportState);
     paintPreedit(p);
     if (!m_preedit.isEmpty() && !m_preeditCursorVisible) {
@@ -839,6 +850,11 @@ void CodeEditArea::onLinesInserted(int startLine, int count) {
     m_knownLineCount += count;
     const int rehighlightStart = takePendingRehighlight(startLine);
     if (m_highlighter) {
+        // Lines inserted inside the highlighted prefix belong to it (they
+        // are highlighted by rehighlightFrom below).
+        // "<=": lines appended right after the prefix (e.g. at the end of a
+        // fully highlighted document) can be highlighted now as well.
+        if (startLine <= m_validLines) m_validLines += count;
         for (int i = 0; i < count; ++i) {
             m_lineEndStates.insert(startLine, HighlightState{});
             m_lineSpans.insert(startLine, {});
@@ -861,6 +877,7 @@ void CodeEditArea::onLinesRemoved(int startLine, int count) {
     m_knownLineCount -= count;
     const int rehighlightStart = takePendingRehighlight(startLine);
     if (m_highlighter) {
+        if (startLine < m_validLines) m_validLines -= qMin(count, m_validLines - startLine);
         for (int i = 0; i < count && startLine < m_lineEndStates.size(); ++i) {
             m_lineEndStates.removeAt(startLine);
             m_lineSpans.removeAt(startLine);
@@ -1160,6 +1177,8 @@ int CodeEditArea::visualRowOf(TextCursor pos) const {
 // --- Highlighting helpers ------------------------------------------------
 
 void CodeEditArea::rebuildHighlightCache() {
+    m_highlightTimer->stop();
+    m_validLines = 0;
     m_lineEndStates.clear();
     m_lineSpans.clear();
     m_lineFolds.clear();
@@ -1168,9 +1187,64 @@ void CodeEditArea::rebuildHighlightCache() {
     m_lineEndStates.resize(n);
     m_lineSpans.resize(n);
     m_lineFolds.resize(n);
-    // Default-constructed HighlightState has an empty stack; rehighlightFrom's
-    // stability check cannot stop early while the cached value is still empty.
-    rehighlightFrom(0);
+    if (n <= kSyncHighlightLines) {
+        highlightUpTo(n);
+    } else {
+        // Large document: paintEvent() highlights what is visible, the timer
+        // the rest, a slice at a time, without blocking the event loop.
+        m_highlightTimer->start();
+    }
+}
+
+int CodeEditArea::highlightedLineCount() const {
+    return m_highlighter ? m_validLines : (m_doc ? m_doc->lineCount() : 0);
+}
+
+bool CodeEditArea::highlightComplete() const {
+    return !m_highlighter || !m_doc || m_validLines >= m_doc->lineCount();
+}
+
+void CodeEditArea::highlightUpTo(int lineCount) {
+    if (!m_highlighter || !m_doc) return;
+    const int end = qMin(lineCount, int(m_lineEndStates.size()));
+    HighlightState stateIn = (m_validLines == 0)
+        ? m_highlighter->initialState()
+        : m_lineEndStates[m_validLines - 1];
+    for (int i = m_validLines; i < end; ++i) {
+        HighlightState stateOut;
+        m_highlighter->highlightLineWithFolds(m_doc->lineAt(i), stateIn,
+                                              m_lineSpans[i], stateOut, m_lineFolds[i]);
+        m_lineEndStates[i] = stateOut;
+        stateIn = stateOut;
+    }
+    m_validLines = qMax(m_validLines, end);
+}
+
+void CodeEditArea::highlightChunk() {
+    if (!m_highlighter || !m_doc) {
+        m_highlightTimer->stop();
+        return;
+    }
+    // While the document reports a change in two signals the caches do not
+    // match it yet; continue on the next tick.
+    if (m_lineEndStates.size() != m_doc->lineCount()) return;
+
+    QElapsedTimer budget;
+    budget.start();
+    while (!highlightComplete() && budget.elapsed() < 8) {
+        highlightUpTo(m_validLines + 512);
+    }
+    if (!highlightComplete()) return;
+
+    m_highlightTimer->stop();
+    if (m_foldsPending) {
+        rebuildFolds();
+        rebuildWrapLayout();
+        updateScrollBarRanges();
+        refreshViewportState();
+    }
+    viewport()->update();
+    emit highlightingCompleted();
 }
 
 void CodeEditArea::rehighlightFrom(int startLine) {
@@ -1185,12 +1259,15 @@ void CodeEditArea::rehighlightFrom(int startLine) {
     if (m_lineFolds.size() != n) {
         m_lineFolds.resize(n);
     }
+    // Lines past the highlighted prefix are done by highlightUpTo() later.
+    m_validLines = qMin(m_validLines, n);
+    if (startLine >= m_validLines) return;
 
     HighlightState stateIn = (startLine == 0)
         ? m_highlighter->initialState()
         : m_lineEndStates[startLine - 1];
 
-    for (int i = startLine; i < n; ++i) {
+    for (int i = startLine; i < m_validLines; ++i) {
         const HighlightState oldEndState = m_lineEndStates[i];
         HighlightState stateOut;
         m_highlighter->highlightLineWithFolds(m_doc->lineAt(i), stateIn,
@@ -1210,9 +1287,19 @@ void CodeEditArea::rehighlightFrom(int startLine) {
 
 void CodeEditArea::rebuildFolds() {
     if (!m_foldingProvider || !m_doc) {
+        m_foldsPending = false;
         m_foldState.setRegions({});
         return;
     }
+    // Until the whole document is highlighted the markers are incomplete;
+    // regions built from them would drop (and un-collapse) regions that end
+    // further down. Keep the current regions and rebuild when it completes.
+    if (!highlightComplete()) {
+        m_foldsPending = true;
+        if (!m_highlightTimer->isActive()) m_highlightTimer->start();
+        return;
+    }
+    m_foldsPending = false;
     // Fast path: regions from the markers collected while highlighting.
     QVector<FoldRegion> regions;
     if (m_highlighter && m_lineFolds.size() == m_doc->lineCount()
@@ -1450,7 +1537,8 @@ void CodeEditArea::paintPreedit(QPainter& painter) {
     const QString& line = m_doc->lineAt(m_cursor.line);
     const int rowEnd = m_wordWrap ? m_wrapLayout->rowAt(row).endCol : int(line.size());
     const QVector<StyleSpan>* spans =
-        (m_highlighter && m_cursor.line < m_lineSpans.size()) ? &m_lineSpans[m_cursor.line]
+        (m_highlighter && m_cursor.line < m_validLines && m_cursor.line < m_lineSpans.size())
+            ? &m_lineSpans[m_cursor.line]
                                                               : nullptr;
     painter.setPen(palette().text().color());
     m_renderer->paintSegment(painter, line, m_cursor.column, rowEnd, x + width,

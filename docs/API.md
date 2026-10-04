@@ -317,6 +317,17 @@ area->setHighlighter(hl.get());   // non-owning; triggers full re-highlight
 area->setHighlighter(nullptr);    // disable
 ```
 
+Documents longer than `CodeEditArea::kSyncHighlightLines` (5000 lines) are
+highlighted lazily, so large files open at once: lines are highlighted when
+they are painted, the rest of the document in the background, in slices of a
+few milliseconds, without blocking the event loop. Fold regions appear when
+the background pass reaches the end. Edits re-highlight only what changed.
+
+```cpp
+int done = area->highlightedLineCount();   // lines from the top that are up to date
+connect(area, &qce::CodeEditArea::highlightingCompleted, this, [] { /* e.g. hide a busy hint */ });
+```
+
 ### `RulesHighlighter` — builder API
 
 For when you want to wire up highlighting in code (C-like demo, custom rules):

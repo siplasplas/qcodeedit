@@ -14,6 +14,9 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
 - `cursorPositionChanged` signal for status-bar wiring
 - Configurable tab width (default 4 spaces)
 - Horizontal + vertical scroll, with state published via `ViewportState`
+- Large files open at once: syntax highlighting of documents over 5000 lines
+  runs lazily (visible lines first, the rest in the background), and fold
+  regions are rebuilt from markers collected while highlighting
 - Code folding keeps collapsed blocks collapsed while you edit, and they move
   with their text when lines are added or removed above them
 - Input methods (since 1.5.0): IME composition (fcitx5, ibus, Windows IME),

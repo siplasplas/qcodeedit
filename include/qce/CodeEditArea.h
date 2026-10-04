@@ -18,6 +18,7 @@
 #include <functional>
 #include <memory>
 
+class QTimer;
 class QUndoStack;
 
 namespace qce {
@@ -112,6 +113,15 @@ public:
     void setHighlighter(IHighlighter* hl);
     IHighlighter* highlighter() const { return m_highlighter; }
 
+    /// Documents longer than this are highlighted lazily: visible lines when
+    /// painted, the rest in the background (fold regions follow once the
+    /// whole document is highlighted). Shorter ones are highlighted at once.
+    static constexpr int kSyncHighlightLines = 5000;
+
+    /// Number of lines from the top whose highlighting is up to date. Equals
+    /// the document's line count when highlighting is complete.
+    int highlightedLineCount() const;
+
     /// Attach a folding provider (non-owning). Pass nullptr to disable.
     /// Recomputes regions immediately.
     void setFoldingProvider(IFoldingProvider* p);
@@ -145,6 +155,8 @@ signals:
     void viewportChanged(const ViewportState& state);
     void cursorPositionChanged(TextCursor pos);
     void selectionChanged();
+    /// Background highlighting of a large document reached its end.
+    void highlightingCompleted();
 
 protected:
     void paintEvent(QPaintEvent* e) override;
@@ -195,6 +207,11 @@ private:
     int                                m_knownLineCount = 0;
     /// Earliest changed line whose re-highlight waits for that signal.
     int                                m_pendingRehighlightFrom = -1;
+    /// Lines [0, m_validLines) have up-to-date spans, end states and markers.
+    int                                m_validLines = 0;
+    /// Folds wait for the highlighting to reach the end of the document.
+    bool                               m_foldsPending = false;
+    QTimer*                            m_highlightTimer = nullptr;
 
     IFoldingProvider*                  m_foldingProvider = nullptr;
     FoldState                          m_foldState;
@@ -227,6 +244,11 @@ private:
     // --- Highlighting helpers ---
     void rebuildHighlightCache();
     void rehighlightFrom(int startLine);
+    /// Extend the highlighted prefix to at least `lineCount` lines.
+    void highlightUpTo(int lineCount);
+    /// One background slice; finishes folds and layout at the end.
+    void highlightChunk();
+    bool highlightComplete() const;
     /// min(startLine, pending changed line); clears the pending line.
     int  takePendingRehighlight(int startLine);
 

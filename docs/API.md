@@ -108,6 +108,28 @@ bool ro = area->readOnly();
 bool ov = area->overwriteMode();    // toggled with Insert key
 ```
 
+**Input methods:**
+
+The area accepts text from input methods like `QPlainTextEdit`: IME
+composition (fcitx5, ibus, Windows IME), compose sequences and dead keys.
+Nothing needs to be enabled.
+
+- The text being composed (pre-edit) is painted underlined at the caret, but
+  it is not part of the document and not undoable. `preeditString()` returns
+  it.
+- Committed text follows the typing rules: it replaces the selection and, in
+  overwrite mode, the character under the cursor. Together with an input
+  method's replacement range it forms one undo step.
+- `inputMethodQuery()` reports the caret rectangle (so the candidate window
+  appears at the caret), the font, the current line as surrounding text, the
+  cursor and anchor columns, and the selection within the line.
+- A read-only area turns input methods off (`Qt::WA_InputMethodEnabled`).
+- Focus out, `setDocument()`, `setCursorPosition()` and a mouse click end a
+  pending composition.
+- AltGr characters are accepted also when the platform reports AltGr as
+  Ctrl+Alt (Windows); Ctrl shortcuts (Ctrl+A, Ctrl+Z, …) apply only without
+  Alt.
+
 **Display options:**
 
 ```cpp

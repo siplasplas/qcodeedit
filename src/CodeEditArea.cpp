@@ -20,6 +20,7 @@
 #include <QPainter>
 #include <QResizeEvent>
 #include <QScrollBar>
+#include <QTextCharFormat>
 #include <QToolTip>
 #include <QUndoStack>
 
@@ -49,6 +50,9 @@ CodeEditArea::CodeEditArea(QWidget* parent)
 
     viewport()->setAutoFillBackground(false);
     setFocusPolicy(Qt::StrongFocus);
+    // The area (not the viewport) has the focus, so it receives
+    // QInputMethodEvent and answers inputMethodQuery().
+    setAttribute(Qt::WA_InputMethodEnabled, true);
 
     connect(m_caretPainter.get(), &CaretPainter::blinkToggled,
             viewport(), QOverload<>::of(&QWidget::update));
@@ -70,6 +74,7 @@ void CodeEditArea::setDocument(ITextDocument* doc) {
     if (m_doc == doc) {
         return;
     }
+    cancelPreedit(true);
     setExtraSelections({});
     rebindDocumentSignals(doc);
     m_doc = doc;
@@ -84,9 +89,11 @@ void CodeEditArea::setDocument(ITextDocument* doc) {
     updateScrollBarRanges();
     refreshViewportState();
     viewport()->update();
+    updateInputMethod();
 }
 
 void CodeEditArea::setCursorPosition(TextCursor pos) {
+    cancelPreedit(true);
     applyCursorMove(pos);
 }
 
@@ -129,6 +136,7 @@ void CodeEditArea::setSelection(TextCursor anchor, TextCursor cursor) {
     m_caretPainter->resetBlink();
     ensureCursorVisible(cursor);
     viewport()->update();
+    updateInputMethod();
     if (cursorChanged) emit cursorPositionChanged(cursor);
     if (selectionChangedValue) emit selectionChanged();
 }
@@ -193,6 +201,7 @@ void CodeEditArea::selectAll() {
     m_cursor = m_cursorCtrl->clamp({last, INT_MAX});
     m_caretPainter->resetBlink();
     viewport()->update();
+    updateInputMethod();
     emit cursorPositionChanged(m_cursor);
     emit selectionChanged();
 }
@@ -203,6 +212,7 @@ void CodeEditArea::clearSelection() {
     }
     m_anchor = m_cursor;
     viewport()->update();
+    updateInputMethod();
     emit selectionChanged();
 }
 
@@ -260,7 +270,12 @@ void CodeEditArea::setTabCaptured(bool captured) {
 }
 
 void CodeEditArea::setReadOnly(bool ro) {
+    if (m_readOnly == ro) return;
     m_readOnly = ro;
+    // Like QPlainTextEdit: a read-only area takes no input-method text.
+    setAttribute(Qt::WA_InputMethodEnabled, !ro);
+    if (ro) cancelPreedit(true);
+    updateInputMethod(Qt::ImEnabled);
 }
 
 void CodeEditArea::setShowWhitespace(bool show) {
@@ -305,6 +320,7 @@ void CodeEditArea::toggleFoldAt(int line) {
     updateScrollBarRanges();
     refreshViewportState();
     viewport()->update();
+    updateInputMethod(Qt::ImCursorRectangle);
 }
 
 void CodeEditArea::foldAll() {
@@ -313,6 +329,7 @@ void CodeEditArea::foldAll() {
     updateScrollBarRanges();
     refreshViewportState();
     viewport()->update();
+    updateInputMethod(Qt::ImCursorRectangle);
 }
 
 void CodeEditArea::unfoldAll() {
@@ -321,6 +338,7 @@ void CodeEditArea::unfoldAll() {
     updateScrollBarRanges();
     refreshViewportState();
     viewport()->update();
+    updateInputMethod(Qt::ImCursorRectangle);
 }
 
 void CodeEditArea::setWordWrap(bool wrap) {
@@ -331,6 +349,7 @@ void CodeEditArea::setWordWrap(bool wrap) {
     updateScrollBarRanges();
     refreshViewportState();
     viewport()->update();
+    updateInputMethod(Qt::ImCursorRectangle);
 }
 
 void CodeEditArea::setCaretBlinkInterval(int ms) {
@@ -353,6 +372,10 @@ void CodeEditArea::paintEvent(QPaintEvent* e) {
     p.setPen(palette().text().color());
     m_renderer->setSelectionRegion(selectionRegion());
     m_renderer->paint(p, m_doc, m_viewportState);
+    paintPreedit(p);
+    if (!m_preedit.isEmpty() && !m_preeditCursorVisible) {
+        return;  // the input method asked to hide the caret
+    }
     int caretVisualCol, caretVisualRow;
     if (m_doc) {
         caretVisualRow = visualRowOf(m_cursor);
@@ -364,7 +387,8 @@ void CodeEditArea::paintEvent(QPaintEvent* e) {
         caretVisualRow = m_cursor.line;
         caretVisualCol = m_cursor.column;
     }
-    m_caretPainter->paint(p, m_cursor, caretVisualCol, caretVisualRow, m_viewportState, font());
+    m_caretPainter->paint(p, m_cursor, caretVisualCol, caretVisualRow, m_viewportState, font(),
+                          m_preedit.isEmpty() ? 0 : preeditCursorOffsetPx());
 }
 
 void CodeEditArea::resizeEvent(QResizeEvent* e) {
@@ -372,6 +396,7 @@ void CodeEditArea::resizeEvent(QResizeEvent* e) {
     rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
+    updateInputMethod(Qt::ImCursorRectangle);
 }
 
 void CodeEditArea::scrollContentsBy(int dx, int dy) {
@@ -379,6 +404,7 @@ void CodeEditArea::scrollContentsBy(int dx, int dy) {
     Q_UNUSED(dy);
     refreshViewportState();
     viewport()->update();
+    updateInputMethod(Qt::ImCursorRectangle);
 }
 
 // ------------------------------------------------------------------------
@@ -394,6 +420,9 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
     const bool ctrl  = e->modifiers() & Qt::ControlModifier;
     const bool shift = e->modifiers() & Qt::ShiftModifier;
     const bool alt   = e->modifiers() & Qt::AltModifier;
+    // Windows reports AltGr as Ctrl+Alt: Ctrl shortcuts must not swallow
+    // AltGr characters (Polish ą = AltGr+A, ć = AltGr+C, ż = AltGr+Z, …).
+    const bool cmd   = ctrl && !alt;
     const CursorController& cc = *m_cursorCtrl;
     const TextCursor c = m_cursor;
 
@@ -492,18 +521,18 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
 
     // --- Clipboard / undo ---
     case Qt::Key_A:
-        if (ctrl) { selectAll(); break; }
+        if (cmd) { selectAll(); break; }
         goto handle_printable;
 
     case Qt::Key_C:
-        if (ctrl && hasSelection()) {
+        if (cmd && hasSelection()) {
             QGuiApplication::clipboard()->setText(selectedText());
             break;
         }
         goto handle_printable;
 
     case Qt::Key_X:
-        if (ctrl && hasSelection()) {
+        if (cmd && hasSelection()) {
             QGuiApplication::clipboard()->setText(selectedText());
             executeRemoveSelection();
             break;
@@ -511,7 +540,7 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
         goto handle_printable;
 
     case Qt::Key_V:
-        if (ctrl) {
+        if (cmd) {
             const QString text = QGuiApplication::clipboard()->text();
             if (!text.isEmpty()) {
                 executeInsert(text);
@@ -526,38 +555,29 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
         break;
 
     case Qt::Key_Minus:
-        if (ctrl && !shift) { toggleFoldAt(m_cursor.line); break; }
+        if (cmd && !shift) { toggleFoldAt(m_cursor.line); break; }
         goto handle_printable;
 
     case Qt::Key_Plus:
     case Qt::Key_Equal:
-        if (ctrl && !shift) { toggleFoldAt(m_cursor.line); break; }
+        if (cmd && !shift) { toggleFoldAt(m_cursor.line); break; }
         goto handle_printable;
 
     case Qt::Key_Z:
-        if (ctrl && !shift) { undo(); break; }
-        if (ctrl &&  shift) { redo(); break; }
+        if (cmd && !shift) { undo(); break; }
+        if (cmd &&  shift) { redo(); break; }
         goto handle_printable;
 
     case Qt::Key_Y:
-        if (ctrl) { redo(); break; }
+        if (cmd) { redo(); break; }
         goto handle_printable;
 
     default:
     handle_printable: {
         const QString text = e->text();
-        if (!text.isEmpty() && !ctrl && !alt && text.at(0).isPrint()) {
-            if (m_overwrite && !hasSelection()
-                    && m_doc
-                    && m_cursor.column < m_doc->lineAt(m_cursor.line).size()) {
-                // Replace character under cursor in one undo step.
-                m_undoStack->beginMacro(QString());
-                executeRemove(m_cursor, {m_cursor.line, m_cursor.column + 1});
-                executeInsert(text);
-                m_undoStack->endMacro();
-            } else {
-                executeInsert(text);
-            }
+        const bool altGr = (ctrl && alt) || (e->modifiers() & Qt::GroupSwitchModifier);
+        if (!text.isEmpty() && ((!ctrl && !alt) || altGr) && isInsertableText(text)) {
+            insertTypedText(text);
             break;
         }
         QAbstractScrollArea::keyPressEvent(e);
@@ -574,6 +594,11 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
 
 void CodeEditArea::mousePressEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton) {
+        if (!m_preedit.isEmpty()) {
+            // Like QPlainTextEdit: a click finishes the composition where it is.
+            QGuiApplication::inputMethod()->commit();
+            cancelPreedit(false);
+        }
         m_mouseSelecting = false;
         // Placeholder hit-test: if the click falls on a collapsed region's
         // "{…}" box, unfold it instead of moving the cursor.
@@ -643,6 +668,142 @@ void CodeEditArea::focusInEvent(QFocusEvent* e) {
 void CodeEditArea::focusOutEvent(QFocusEvent* e) {
     QAbstractScrollArea::focusOutEvent(e);
     m_caretPainter->setFocused(false);
+    // Qt commits the composition before the focus moves; whatever is left
+    // is stale.
+    cancelPreedit(false);
+}
+
+// ------------------------------------------------------------------------
+// Input methods
+// ------------------------------------------------------------------------
+
+void CodeEditArea::inputMethodEvent(QInputMethodEvent* e) {
+    if (!m_doc || m_readOnly) {
+        cancelPreedit(false);
+        e->ignore();
+        return;
+    }
+
+    // Replacement range: relative to the cursor, limited to the current line.
+    const int line = m_cursor.line;
+    const int lineLen = m_doc->lineAt(line).size();
+    int repFrom = 0, repTo = 0;
+    if (e->replacementLength() > 0) {
+        repFrom = qBound(0, m_cursor.column + e->replacementStart(), lineLen);
+        repTo   = qBound(repFrom,
+                         m_cursor.column + e->replacementStart() + e->replacementLength(),
+                         lineLen);
+    }
+
+    const QString commit = e->commitString();
+    if (!commit.isEmpty() || repFrom < repTo) {
+        // Replacement and commit form a single undo step.
+        m_undoStack->beginMacro(QString());
+        if (repFrom < repTo) executeRemove({line, repFrom}, {line, repTo});
+        if (!commit.isEmpty()) insertTypedText(commit);
+        m_undoStack->endMacro();
+    }
+
+    m_preedit = e->preeditString();
+    m_preeditAttributes = e->attributes();
+    m_preeditCursor = m_preedit.size();
+    m_preeditCursorVisible = true;
+    for (const QInputMethodEvent::Attribute& a : std::as_const(m_preeditAttributes)) {
+        if (a.type == QInputMethodEvent::Cursor) {
+            m_preeditCursor = qBound(0, a.start, int(m_preedit.size()));
+            m_preeditCursorVisible = a.length != 0;
+        }
+    }
+    if (m_preedit.isEmpty()) {
+        m_preeditAttributes.clear();
+    } else {
+        ensureCursorVisible(m_cursor, preeditColumns());
+    }
+
+    m_caretPainter->resetBlink();
+    viewport()->update();
+    updateInputMethod(Qt::ImCursorRectangle);
+    e->accept();
+}
+
+QVariant CodeEditArea::inputMethodQuery(Qt::InputMethodQuery query) const {
+    const QString line = m_doc ? m_doc->lineAt(m_cursor.line) : QString();
+    switch (query) {
+    case Qt::ImEnabled:
+        return !m_readOnly;
+    case Qt::ImCursorRectangle:
+        return caretRect(true).translated(viewport()->pos());
+    case Qt::ImFont:
+        return font();
+    case Qt::ImCursorPosition:
+        return m_cursor.column;
+    case Qt::ImAnchorPosition:
+        // Columns refer to the current line; an anchor on another line is
+        // reported at the matching end of it.
+        if (m_anchor.line == m_cursor.line) return m_anchor.column;
+        return m_anchor.line < m_cursor.line ? 0 : int(line.size());
+    case Qt::ImSurroundingText:
+        return line;
+    case Qt::ImCurrentSelection:
+        return (hasSelection() && m_anchor.line == m_cursor.line) ? selectedText() : QString();
+    case Qt::ImTextBeforeCursor:
+        return line.left(m_cursor.column);
+    case Qt::ImTextAfterCursor:
+        return line.mid(m_cursor.column);
+    case Qt::ImHints:
+        return int(inputMethodHints() | Qt::ImhMultiLine);
+    case Qt::ImInputItemClipRectangle:
+        return viewport()->geometry();
+    default:
+        return QAbstractScrollArea::inputMethodQuery(query);
+    }
+}
+
+void CodeEditArea::updateInputMethod(Qt::InputMethodQueries queries) {
+    if (hasFocus()) {
+        QGuiApplication::inputMethod()->update(queries);
+    }
+}
+
+void CodeEditArea::cancelPreedit(bool resetInputMethod) {
+    if (m_preedit.isEmpty()) return;
+    m_preedit.clear();
+    m_preeditAttributes.clear();
+    m_preeditCursor = 0;
+    m_preeditCursorVisible = true;
+    if (resetInputMethod && hasFocus()) {
+        QGuiApplication::inputMethod()->reset();
+    }
+    viewport()->update();
+}
+
+QRect CodeEditArea::caretRect(bool withPreedit) const {
+    const ViewportState& vp = m_viewportState;
+    const QFontMetrics fm(font());
+    const int height = fm.ascent() + fm.descent();
+    if (!m_doc || !vp.isValid()) {
+        return QRect(LineRenderer::kLeftPaddingPx, 0, 1, height);
+    }
+    const int row = visualRowOf(m_cursor);
+    const int rowStart = m_wordWrap ? m_wrapLayout->rowAt(row).startCol : 0;
+    const int visualCol = LineRenderer::visualColumn(
+        m_doc->lineAt(m_cursor.line).mid(rowStart), m_cursor.column - rowStart, tabWidth());
+    int x = LineRenderer::kLeftPaddingPx + visualCol * vp.charWidth - vp.contentOffsetX;
+    if (withPreedit && !m_preedit.isEmpty()) {
+        x += preeditCursorOffsetPx();
+    }
+    const int y = vp.contentOffsetY + (row - vp.firstVisibleRow) * vp.lineHeight;
+    return QRect(x, y, 1, height);
+}
+
+int CodeEditArea::preeditCursorOffsetPx() const {
+    return QFontMetrics(font()).horizontalAdvance(m_preedit.left(m_preeditCursor));
+}
+
+int CodeEditArea::preeditColumns() const {
+    const int cw = m_viewportState.charWidth;
+    if (cw <= 0 || m_preedit.isEmpty()) return 0;
+    return (QFontMetrics(font()).horizontalAdvance(m_preedit) + cw - 1) / cw;
 }
 
 // ------------------------------------------------------------------------
@@ -848,6 +1009,7 @@ void CodeEditArea::applyCursorMove(TextCursor newPos) {
     m_caretPainter->resetBlink();
     ensureCursorVisible(m_cursor);
     viewport()->update();
+    updateInputMethod();
     if (posChanged) emit cursorPositionChanged(m_cursor);
     if (selWas)     emit selectionChanged();
 }
@@ -861,6 +1023,7 @@ void CodeEditArea::applySelectionMove(TextCursor newPos) {
     m_caretPainter->resetBlink();
     ensureCursorVisible(m_cursor);
     viewport()->update();
+    updateInputMethod();
     emit cursorPositionChanged(m_cursor);
     emit selectionChanged();
 }
@@ -902,7 +1065,7 @@ TextCursor CodeEditArea::cursorFromPoint(const QPoint& pt) const {
     return m_cursorCtrl->clamp({lineNum, col});
 }
 
-void CodeEditArea::ensureCursorVisible(TextCursor pos) {
+void CodeEditArea::ensureCursorVisible(TextCursor pos, int extraColumns) {
     QScrollBar* vBar = verticalScrollBar();
 
     if (m_wordWrap) {
@@ -931,10 +1094,12 @@ void CodeEditArea::ensureCursorVisible(TextCursor pos) {
     const int firstCol    = hBar->value();
     const int visibleCols = m_viewportState.viewportWidth / charWidth;
     const int lastCol     = firstCol + visibleCols - 1;
+    const int rightCol    = pos.column + extraColumns;
     if (pos.column < firstCol) {
         hBar->setValue(pos.column);
-    } else if (pos.column > lastCol) {
-        hBar->setValue(qMax(0, pos.column - visibleCols + 1));
+    } else if (rightCol > lastCol) {
+        // Keep the left end visible if the right end does not fit.
+        hBar->setValue(qMin(pos.column, qMax(0, rightCol - visibleCols + 1)));
     }
 }
 
@@ -1085,8 +1250,40 @@ void CodeEditArea::updateAfterEdit() {
     ensureCursorVisible(m_cursor);
     updateScrollBarRanges();
     viewport()->update();
+    updateInputMethod();
     emit cursorPositionChanged(m_cursor);
     emit selectionChanged();
+}
+
+void CodeEditArea::insertTypedText(const QString& text) {
+    if (m_overwrite && !hasSelection()
+            && m_doc
+            && m_cursor.column < m_doc->lineAt(m_cursor.line).size()) {
+        // Replace character under cursor in one undo step.
+        m_undoStack->beginMacro(QString());
+        executeRemove(m_cursor, {m_cursor.line, m_cursor.column + 1});
+        executeInsert(text);
+        m_undoStack->endMacro();
+    } else {
+        executeInsert(text);
+    }
+}
+
+bool CodeEditArea::isInsertableText(const QString& text) {
+    if (text.isEmpty()) return false;
+    // Iterate code points so surrogate pairs (emoji) count as one character.
+    for (const char32_t c : text.toUcs4()) {
+        if (QChar::isPrint(c)) continue;
+        switch (QChar::category(c)) {
+        case QChar::Mark_NonSpacing:
+        case QChar::Mark_SpacingCombining:
+        case QChar::Mark_Enclosing:
+            continue;
+        default:
+            return false;
+        }
+    }
+    return true;
 }
 
 // ------------------------------------------------------------------------
@@ -1177,6 +1374,52 @@ void CodeEditArea::paintLineBackgrounds(QPainter& painter) {
             fill(i, vp.contentOffsetY + (i - vp.firstVisibleLine) * vp.lineHeight);
         }
     }
+}
+
+void CodeEditArea::paintPreedit(QPainter& painter) {
+    if (m_preedit.isEmpty() || !m_doc || !m_viewportState.isValid()) return;
+    const ViewportState& vp = m_viewportState;
+    const int row = visualRowOf(m_cursor);
+    if (row < vp.firstVisibleRow || row > vp.lastVisibleRow) return;
+
+    const int x = caretRect(false).x();
+    const int topY = vp.contentOffsetY + (row - vp.firstVisibleRow) * vp.lineHeight;
+    const QFontMetrics fm(font());
+    const int width = fm.horizontalAdvance(m_preedit);
+
+    // Cover the rest of the row and repaint it shifted right of the pre-edit
+    // (display only; the document is unchanged).
+    painter.fillRect(QRect(x, topY, vp.viewportWidth - x, vp.lineHeight), palette().base());
+    if (m_lineBgProvider) {
+        const QColor bg = m_lineBgProvider(m_cursor.line);
+        if (bg.isValid()) {
+            const auto band = LineRenderer::backgroundBand(font(), vp.lineHeight);
+            painter.fillRect(x, topY + band.offset, vp.viewportWidth - x, band.height, bg);
+        }
+    }
+    const QString& line = m_doc->lineAt(m_cursor.line);
+    const int rowEnd = m_wordWrap ? m_wrapLayout->rowAt(row).endCol : int(line.size());
+    const QVector<StyleSpan>* spans =
+        (m_highlighter && m_cursor.line < m_lineSpans.size()) ? &m_lineSpans[m_cursor.line]
+                                                              : nullptr;
+    painter.setPen(palette().text().color());
+    m_renderer->paintSegment(painter, line, m_cursor.column, rowEnd, x + width,
+                             topY, vp.lineHeight, vp.charWidth, spans);
+
+    // Backgrounds requested by the input method (e.g. the active clause).
+    for (const QInputMethodEvent::Attribute& a : std::as_const(m_preeditAttributes)) {
+        if (a.type != QInputMethodEvent::TextFormat) continue;
+        const QTextCharFormat f = qvariant_cast<QTextFormat>(a.value).toCharFormat();
+        if (f.background().style() == Qt::NoBrush) continue;
+        const int ax = x + fm.horizontalAdvance(m_preedit.left(a.start));
+        const int aw = fm.horizontalAdvance(m_preedit.mid(a.start, a.length));
+        painter.fillRect(ax, topY, aw, vp.lineHeight, f.background());
+    }
+
+    painter.setFont(font());
+    const int baselineY = topY + LineRenderer::backgroundBand(font(), vp.lineHeight).baseline;
+    painter.drawText(x, baselineY, m_preedit);
+    painter.drawLine(x, baselineY + 2, x + width - 1, baselineY + 2);
 }
 
 void CodeEditArea::paintSelection(QPainter& painter) {

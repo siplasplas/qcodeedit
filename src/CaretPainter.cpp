@@ -57,7 +57,8 @@ void CaretPainter::paint(QPainter& painter,
                           int visualCol,
                           int visualRow,
                           const ViewportState& vp,
-                          const QFont& font) const {
+                          const QFont& font,
+                          int extraPx) const {
     if (!m_focused || !m_shown || !vp.isValid()) {
         return;
     }
@@ -67,7 +68,8 @@ void CaretPainter::paint(QPainter& painter,
 
     const int x = LineRenderer::kLeftPaddingPx
                   + visualCol * vp.charWidth
-                  - vp.contentOffsetX;
+                  - vp.contentOffsetX
+                  + extraPx;
     const int topY = vp.contentOffsetY
                      + (visualRow - vp.firstVisibleRow) * vp.lineHeight;
 

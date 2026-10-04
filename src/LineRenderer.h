@@ -75,6 +75,14 @@ public:
                const ITextDocument* doc,
                const ViewportState& vp) const;
 
+    /// Paints line[segStart, segEnd) with syntax colours at pixel `drawX` in
+    /// the row starting at `topY`, visual column 0 at `segStart`. Used to show
+    /// the rest of a line shifted right of an input-method pre-edit.
+    void paintSegment(QPainter& painter, const QString& line,
+                      int segStart, int segEnd, int drawX,
+                      int topY, int lineHeight, int charWidth,
+                      const QVector<StyleSpan>* spans) const;
+
     /// Visual column (number of displayed characters) at logical char index
     /// `charIndex` in `line`, given `tabWidth`. Tabs advance to the next tab
     /// stop. Used by CodeEditArea to position the caret and selection rects.

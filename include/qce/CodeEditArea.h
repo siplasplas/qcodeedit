@@ -10,6 +10,7 @@
 #include <QAbstractScrollArea>
 #include <QColor>
 #include <QHash>
+#include <QInputMethodEvent>
 #include <QRegion>
 #include <QVector>
 
@@ -131,6 +132,14 @@ public:
     void setCaretBlinkInterval(int ms);
     int  caretBlinkInterval() const;
 
+    // --- Input methods ---
+    /// Text being composed by an input method (IME pre-edit). Painted inline
+    /// at the caret but not part of the document; empty when no composition
+    /// is in progress.
+    QString preeditString() const { return m_preedit; }
+
+    QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
+
 signals:
     void viewportChanged(const ViewportState& state);
     void cursorPositionChanged(TextCursor pos);
@@ -146,6 +155,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent* e) override;
     void focusInEvent(QFocusEvent* e) override;
     void focusOutEvent(QFocusEvent* e) override;
+    void inputMethodEvent(QInputMethodEvent* e) override;
 
 private slots:
     void onDocumentReset();
@@ -182,6 +192,12 @@ private:
     std::unique_ptr<CaretPainter>      m_caretPainter;
     QUndoStack*                        m_undoStack = nullptr;
 
+    // Input-method pre-edit (display only, never in the document or undo).
+    QString                                 m_preedit;
+    QList<QInputMethodEvent::Attribute>     m_preeditAttributes;
+    int                                     m_preeditCursor = 0;  ///< QChar index in m_preedit
+    bool                                    m_preeditCursorVisible = true;
+
     // --- Navigation helpers ---
     void refreshViewportState();
     void updateScrollBarRanges();
@@ -189,7 +205,9 @@ private:
     void applyCursorMove(TextCursor newPos);
     void applySelectionMove(TextCursor newPos);
     TextCursor cursorFromPoint(const QPoint& pt) const;
-    void ensureCursorVisible(TextCursor pos);
+    /// `extraColumns` widens the area kept visible to the right of `pos`
+    /// (used for the input-method pre-edit).
+    void ensureCursorVisible(TextCursor pos, int extraColumns = 0);
     int  pageLineCount() const;
 
     // --- Word-wrap helpers ---
@@ -212,10 +230,34 @@ private:
     void executeRemoveSelection();
     /// Called after any edit or undo/redo to sync visuals.
     void updateAfterEdit();
+    /// Insert typed or committed text with the typing rules: replaces the
+    /// selection, and in overwrite mode the character under the cursor, as
+    /// one undo step.
+    void insertTypedText(const QString& text);
+    /// True if every code point of `text` is printable or a combining mark.
+    static bool isInsertableText(const QString& text);
+
+    // --- Input-method helpers ---
+    /// Tell the platform input method that cursor/selection/surrounding text
+    /// changed. No-op without focus.
+    void updateInputMethod(Qt::InputMethodQueries queries = Qt::ImCursorRectangle
+                               | Qt::ImCursorPosition | Qt::ImAnchorPosition
+                               | Qt::ImSurroundingText | Qt::ImCurrentSelection);
+    /// Drop a pending composition. With `resetInputMethod` the platform input
+    /// method is told to discard its state as well.
+    void cancelPreedit(bool resetInputMethod);
+    /// Caret rectangle in viewport coordinates; with `withPreedit` it is placed
+    /// at the pre-edit cursor.
+    QRect caretRect(bool withPreedit) const;
+    /// Pixel width of the pre-edit up to its cursor.
+    int preeditCursorOffsetPx() const;
+    /// Pre-edit width rounded up to whole character cells.
+    int preeditColumns() const;
 
     // --- Painting helpers ---
     void paintLineBackgrounds(QPainter& painter);
     void paintSelection(QPainter& painter);
+    void paintPreedit(QPainter& painter);
     QRegion selectionRegion() const;
 
     void showReadOnlyHint();

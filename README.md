@@ -14,6 +14,9 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
 - `cursorPositionChanged` signal for status-bar wiring
 - Configurable tab width (default 4 spaces)
 - Horizontal + vertical scroll, with state published via `ViewportState`
+- Input methods (since 1.5.0): IME composition (fcitx5, ibus, Windows IME),
+  compose sequences, dead keys and AltGr characters, with the candidate
+  window placed at the caret (see `docs/API.md`)
 
 ## Design
 

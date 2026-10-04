@@ -91,6 +91,17 @@ void LineRenderer::paint(QPainter& painter,
     }
 }
 
+void LineRenderer::paintSegment(QPainter& painter, const QString& line,
+                                int segStart, int segEnd, int drawX,
+                                int topY, int lineHeight, int charWidth,
+                                const QVector<StyleSpan>* spans) const {
+    if (segStart >= segEnd) return;
+    painter.setFont(m_font);
+    const int baselineY = topY + backgroundBand(m_font, lineHeight).baseline;
+    drawSegmentWithSpans(painter, line, segStart, segEnd, drawX, baselineY,
+                         charWidth, spans, topY, lineHeight);
+}
+
 void LineRenderer::drawFoldPlaceholder(QPainter& painter, const QString& text,
                                         int x, int topY, int lineHeight) const {
     const QFontMetrics fm(m_font);

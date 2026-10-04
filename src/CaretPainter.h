@@ -40,12 +40,14 @@ public:
     /// LineRenderer::visualColumn().
     /// visualCol  — tab-expanded column (from LineRenderer::visualColumn).
     /// visualRow  — absolute visual row index (equals cursor.line when !wordWrap).
+    /// extraPx    — pixel shift to the right (input-method pre-edit cursor).
     void paint(QPainter& painter,
                const TextCursor& cursor,
                int visualCol,
                int visualRow,
                const ViewportState& vp,
-               const QFont& font) const;
+               const QFont& font,
+               int extraPx = 0) const;
 
 signals:
     /// Emitted each time the blink phase changes or focus state changes.

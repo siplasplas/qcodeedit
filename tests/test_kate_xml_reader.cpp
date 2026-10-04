@@ -85,7 +85,7 @@ static QString dumpToTemp(QTemporaryDir& dir, const QString& fileName,
                            const char* src) {
     const QString path = dir.filePath(fileName);
     QFile f(path);
-    f.open(QIODevice::WriteOnly | QIODevice::Text);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return {};  // load() then fails
     f.write(src);
     f.close();
     return path;

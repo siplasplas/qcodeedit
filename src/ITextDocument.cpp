@@ -25,7 +25,7 @@ void ITextDocument::stripTrailingWhitespace() {
             --end;
         }
         if (end < line.size()) {
-            removeText({i, end}, {i, line.size()});
+            removeText({i, end}, {i, int(line.size())});
         }
     }
 }

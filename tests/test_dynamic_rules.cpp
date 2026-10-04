@@ -47,7 +47,7 @@ static const char* kDynamicXml = R"xml(<?xml version="1.0" encoding="UTF-8"?>
 static std::unique_ptr<qce::RulesHighlighter> loadDynamicHighlighter(QTemporaryDir& dir) {
     const QString path = dir.path() + QStringLiteral("/dyn.xml");
     QFile f(path);
-    f.open(QIODevice::WriteOnly);
+    if (!f.open(QIODevice::WriteOnly)) return nullptr;  // callers check the result
     f.write(kDynamicXml);
     f.close();
     return KateXmlReader::load(path);

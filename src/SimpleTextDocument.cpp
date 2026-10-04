@@ -45,7 +45,7 @@ TextCursor SimpleTextDocument::insertText(TextCursor pos, const QString& text) {
         m_lines[pos.line] = prefix + parts.first() + suffix;
         invalidateCache();
         emit linesChanged(pos.line, 1);
-        return {pos.line, pos.column + parts.first().size()};
+        return {pos.line, pos.column + int(parts.first().size())};
     }
 
     // Multi-line: modify current line, then insert new ones after it.
@@ -61,7 +61,7 @@ TextCursor SimpleTextDocument::insertText(TextCursor pos, const QString& text) {
     const int insertCount = parts.size() - 1;
     emit linesChanged(pos.line, 1);
     emit linesInserted(pos.line + 1, insertCount);
-    return {pos.line + insertCount, parts.last().size()};
+    return {pos.line + insertCount, int(parts.last().size())};
 }
 
 QString SimpleTextDocument::removeText(TextCursor start, TextCursor end) {

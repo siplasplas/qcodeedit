@@ -28,6 +28,12 @@ public:
 
     QVector<FoldRegion> computeRegions(const ITextDocument* doc) const override;
 
+    /// Pairs the markers the editor collected while highlighting, without
+    /// tokenising again. Only used when `hl` is this provider's highlighter.
+    bool regionsFromLineMarkers(const IHighlighter*                  hl,
+                                const QVector<QVector<FoldMarker>>& markersPerLine,
+                                QVector<FoldRegion>&                 regions) const override;
+
     /// Byte-range override: runs the highlighter line-by-line over the
     /// raw buffer, collecting FoldMarkers from highlightLineEx and
     /// remapping their QChar columns to byte offsets via Utf8Map.
@@ -40,6 +46,8 @@ public:
                         HighlightState&       stateOut) const override;
 
 private:
+    class Pairer;
+
     const RulesHighlighter* m_hl;
     QHash<QString, QString> m_placeholders;
 };

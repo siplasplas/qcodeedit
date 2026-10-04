@@ -1,3 +1,5 @@
+#include <qce/CodeEditArea.h>
+#include <qce/FoldState.h>
 #include <qce/RuleBasedFoldingProvider.h>
 #include <qce/RulesHighlighter.h>
 #include <qce/SimpleTextDocument.h>
@@ -63,6 +65,45 @@ private slots:
     void unmatchedClose_isIgnored();
     void unmatchedOpen_atEnd_isIgnored();
     void placeholderPerGroup();
+    void regionsFromLineMarkers_matchesComputeRegions();
+    void regionsFromLineMarkers_rejectsOtherHighlighter();
+    void editor_usesMarkersAndMatchesFreshComputation();
+};
+
+static void compareRegions(const QVector<FoldRegion>& got, const QVector<FoldRegion>& expected) {
+    QCOMPARE(got.size(), expected.size());
+    for (int i = 0; i < got.size(); ++i) {
+        QCOMPARE(got[i].startLine,   expected[i].startLine);
+        QCOMPARE(got[i].startColumn, expected[i].startColumn);
+        QCOMPARE(got[i].endLine,     expected[i].endLine);
+        QCOMPARE(got[i].endColumn,   expected[i].endColumn);
+        QCOMPARE(got[i].group,       expected[i].group);
+        QCOMPARE(got[i].placeholder, expected[i].placeholder);
+    }
+}
+
+static QVector<QVector<FoldMarker>> collectMarkers(const IHighlighter& hl,
+                                                   const SimpleTextDocument& doc) {
+    QVector<QVector<FoldMarker>> markers(doc.lineCount());
+    HighlightState state = hl.initialState();
+    QVector<StyleSpan> spans;
+    for (int i = 0; i < doc.lineCount(); ++i) {
+        HighlightState next;
+        hl.highlightLineWithFolds(doc.lineAt(i), state, spans, next, markers[i]);
+        state = next;
+    }
+    return markers;
+}
+
+/// Counts calls to the full-pass computeRegions().
+class CountingProvider : public RuleBasedFoldingProvider {
+public:
+    using RuleBasedFoldingProvider::RuleBasedFoldingProvider;
+    QVector<FoldRegion> computeRegions(const ITextDocument* doc) const override {
+        ++calls;
+        return RuleBasedFoldingProvider::computeRegions(doc);
+    }
+    mutable int calls = 0;
 };
 
 void TestRuleBasedFolding::singleBracePair_oneRegion() {
@@ -138,5 +179,102 @@ void TestRuleBasedFolding::placeholderPerGroup() {
     QCOMPARE(r[0].placeholder, QStringLiteral("/*…*/"));
 }
 
-QTEST_APPLESS_MAIN(TestRuleBasedFolding)
+void TestRuleBasedFolding::regionsFromLineMarkers_matchesComputeRegions() {
+    const QStringList texts{
+        QStringLiteral("int f() {\n    return 1;\n}"),
+        QStringLiteral("{\n  {\n    x\n  }\n}"),
+        QStringLiteral("}\n{\n}\n{\n  no close"),
+        QStringLiteral("a /* {\n } still comment\n*/ {\n  b\n}"),   // braces inside a comment
+        QStringLiteral("{ /* x\n y */ }\n{\n{\n}\n}\n/* a\nb */"),
+    };
+    auto hl = makeBraceCommentHl();
+    RuleBasedFoldingProvider p(hl.get());
+    p.setPlaceholderFor(QStringLiteral("Comment"), QStringLiteral("/*…*/"));
+    for (const QString& text : texts) {
+        SimpleTextDocument doc;
+        doc.setText(text);
+        QVector<FoldRegion> fromMarkers;
+        QVERIFY(p.regionsFromLineMarkers(hl.get(), collectMarkers(*hl, doc), fromMarkers));
+        compareRegions(fromMarkers, p.computeRegions(&doc));
+    }
+}
+
+void TestRuleBasedFolding::regionsFromLineMarkers_rejectsOtherHighlighter() {
+    auto hl = makeBraceCommentHl();
+    auto other = makeBraceCommentHl();
+    RuleBasedFoldingProvider p(hl.get());
+    SimpleTextDocument doc;
+    doc.setText(QStringLiteral("{\n}"));
+    QVector<FoldRegion> regions;
+    QVERIFY(!p.regionsFromLineMarkers(other.get(), collectMarkers(*other, doc), regions));
+}
+
+void TestRuleBasedFolding::editor_usesMarkersAndMatchesFreshComputation() {
+    auto hl = makeBraceCommentHl();
+    CountingProvider p(hl.get());
+    SimpleTextDocument doc;
+    doc.setText(QStringLiteral("a {\n  b\n}\nc /* x\n  y */\n{\n  {\n  }\n}\nend"));
+    CodeEditArea area;
+    area.setDocument(&doc);
+    area.setHighlighter(hl.get());
+    area.setFoldingProvider(&p);
+
+    auto expectFresh = [&](const char* step) {
+        FoldState fresh;
+        fresh.setRegions(p.RuleBasedFoldingProvider::computeRegions(&doc));
+        const auto& got = area.foldState().regions();
+        if (got.size() != fresh.regions().size())
+            QFAIL(qPrintable(QStringLiteral("%1: %2 regions, expected %3")
+                                 .arg(QLatin1String(step)).arg(got.size())
+                                 .arg(fresh.regions().size())));
+        compareRegions(got, fresh.regions());
+    };
+    expectFresh("load");
+
+    // Opening a comment changes the highlighting state of every later line.
+    area.setCursorPosition({0, 0});
+    QTest::keyClicks(&area, QStringLiteral("/*"));
+    expectFresh("open comment");
+
+    // Multi-line insert: the document reports the changed line first.
+    area.setCursorPosition({2, 1});
+    QTest::keyClick(&area, Qt::Key_Return);
+    QTest::keyClicks(&area, QStringLiteral("*/ {"));
+    QTest::keyClick(&area, Qt::Key_Return);
+    QTest::keyClick(&area, Qt::Key_Return);
+    QTest::keyClicks(&area, QStringLiteral("}"));
+    expectFresh("insert lines");
+
+    // One multi-line insert that also changes the state of all later lines
+    // (an input-method commit goes through the same insert path as paste).
+    area.setCursorPosition({1, 0});
+    QInputMethodEvent commit;
+    commit.setCommitString(QStringLiteral("x\n/* opened"));
+    QCoreApplication::sendEvent(&area, &commit);
+    expectFresh("multi-line insert opening a comment");
+    QTest::keyClicks(&area, QStringLiteral(" */"));
+    expectFresh("close that comment");
+
+    // Multi-line removal through a selection.
+    area.setSelection({1, 0}, {6, 1});
+    QTest::keyClick(&area, Qt::Key_Backspace);
+    expectFresh("remove selection");
+
+    // Joining lines with Backspace at a line start.
+    area.setCursorPosition({2, 0});
+    QTest::keyClick(&area, Qt::Key_Backspace);
+    expectFresh("join lines");
+
+    while (area.canUndo()) area.undo();
+    QCOMPARE(doc.toPlainText(),
+             QStringLiteral("a {\n  b\n}\nc /* x\n  y */\n{\n  {\n  }\n}\nend"));
+    expectFresh("undo all");
+
+    while (area.canRedo()) area.redo();
+    expectFresh("redo all");
+
+    QCOMPARE(p.calls, 0);   // never fell back to the full second pass
+}
+
+QTEST_MAIN(TestRuleBasedFolding)  // CodeEditArea needs a QApplication
 #include "test_rule_based_folding.moc"

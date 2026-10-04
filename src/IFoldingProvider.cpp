@@ -13,4 +13,10 @@ void IFoldingProvider::foldersInBytes(const char*           /*data*/,
     stateOut = stateIn;
 }
 
+bool IFoldingProvider::regionsFromLineMarkers(const IHighlighter*                  /*hl*/,
+                                              const QVector<QVector<FoldMarker>>& /*markersPerLine*/,
+                                              QVector<FoldRegion>&                 /*regions*/) const {
+    return false;
+}
+
 } // namespace qce

@@ -83,6 +83,8 @@ void CodeEditArea::setDocument(ITextDocument* doc) {
     m_anchor = m_cursor;
     m_undoStack->clear();
 
+    m_knownLineCount = doc ? doc->lineCount() : 0;
+    m_pendingRehighlightFrom = -1;
     rebuildHighlightCache();
     m_foldState.clear();
     rebuildFolds();
@@ -817,6 +819,8 @@ void CodeEditArea::onDocumentReset() {
     m_cursor = m_cursorCtrl->clamp(TextCursor{});
     m_anchor = m_cursor;
     m_undoStack->clear();
+    m_knownLineCount = m_doc ? m_doc->lineCount() : 0;
+    m_pendingRehighlightFrom = -1;
     rebuildHighlightCache();
     m_foldState.clear();
     rebuildFolds();
@@ -832,12 +836,15 @@ void CodeEditArea::onLinesInserted(int startLine, int count) {
     setExtraSelections({});
     m_cursor = m_cursorCtrl->clamp(m_cursor);
     m_anchor = m_cursorCtrl->clamp(m_anchor);
+    m_knownLineCount += count;
+    const int rehighlightStart = takePendingRehighlight(startLine);
     if (m_highlighter) {
         for (int i = 0; i < count; ++i) {
             m_lineEndStates.insert(startLine, HighlightState{});
             m_lineSpans.insert(startLine, {});
+            m_lineFolds.insert(startLine, {});
         }
-        rehighlightFrom(startLine);
+        rehighlightFrom(rehighlightStart);
     }
     m_foldState.shiftLines(startLine, count);  // keep collapsed regions in place
     rebuildFolds();
@@ -851,12 +858,15 @@ void CodeEditArea::onLinesRemoved(int startLine, int count) {
     setExtraSelections({});
     m_cursor = m_cursorCtrl->clamp(m_cursor);
     m_anchor = m_cursorCtrl->clamp(m_anchor);
+    m_knownLineCount -= count;
+    const int rehighlightStart = takePendingRehighlight(startLine);
     if (m_highlighter) {
         for (int i = 0; i < count && startLine < m_lineEndStates.size(); ++i) {
             m_lineEndStates.removeAt(startLine);
             m_lineSpans.removeAt(startLine);
+            m_lineFolds.removeAt(startLine);
         }
-        rehighlightFrom(startLine);
+        rehighlightFrom(rehighlightStart);
     }
     m_foldState.shiftLines(startLine, -count);
     rebuildFolds();
@@ -868,19 +878,30 @@ void CodeEditArea::onLinesRemoved(int startLine, int count) {
 
 void CodeEditArea::onLinesChanged(int startLine, int) {
     setExtraSelections({});
+    // A document may report the changed line before the lines it inserted or
+    // removed (SimpleTextDocument does for multi-line inserts). Until that
+    // signal arrives the per-line caches and fold regions cannot be lined up
+    // with the text: remember the line and let onLinesInserted() /
+    // onLinesRemoved() re-highlight from it and rebuild the folds.
+    if (m_doc && m_doc->lineCount() != m_knownLineCount) {
+        m_pendingRehighlightFrom = m_pendingRehighlightFrom < 0
+            ? startLine : qMin(m_pendingRehighlightFrom, startLine);
+        return;
+    }
     if (m_highlighter) {
         rehighlightFrom(startLine);
     }
-    // A document may report the changed line before the lines it inserted or
-    // removed (SimpleTextDocument does for multi-line inserts). Until that
-    // signal arrives the fold regions cannot be lined up with the text, so
-    // leave the rebuild to onLinesInserted()/onLinesRemoved().
-    if (!m_doc || m_doc->lineCount() == m_foldLineCount) {
-        rebuildFolds();
-    }
+    rebuildFolds();
     rebuildWrapLayout();
     refreshViewportState();
     viewport()->update();
+}
+
+int CodeEditArea::takePendingRehighlight(int startLine) {
+    const int from = m_pendingRehighlightFrom < 0
+        ? startLine : qMin(m_pendingRehighlightFrom, startLine);
+    m_pendingRehighlightFrom = -1;
+    return from;
 }
 
 // ------------------------------------------------------------------------
@@ -1141,10 +1162,12 @@ int CodeEditArea::visualRowOf(TextCursor pos) const {
 void CodeEditArea::rebuildHighlightCache() {
     m_lineEndStates.clear();
     m_lineSpans.clear();
+    m_lineFolds.clear();
     if (!m_highlighter || !m_doc) return;
     const int n = m_doc->lineCount();
     m_lineEndStates.resize(n);
     m_lineSpans.resize(n);
+    m_lineFolds.resize(n);
     // Default-constructed HighlightState has an empty stack; rehighlightFrom's
     // stability check cannot stop early while the cached value is still empty.
     rehighlightFrom(0);
@@ -1159,6 +1182,9 @@ void CodeEditArea::rehighlightFrom(int startLine) {
         m_lineEndStates.resize(n);
         m_lineSpans.resize(n);
     }
+    if (m_lineFolds.size() != n) {
+        m_lineFolds.resize(n);
+    }
 
     HighlightState stateIn = (startLine == 0)
         ? m_highlighter->initialState()
@@ -1167,8 +1193,8 @@ void CodeEditArea::rehighlightFrom(int startLine) {
     for (int i = startLine; i < n; ++i) {
         const HighlightState oldEndState = m_lineEndStates[i];
         HighlightState stateOut;
-        m_highlighter->highlightLine(m_doc->lineAt(i), stateIn,
-                                      m_lineSpans[i], stateOut);
+        m_highlighter->highlightLineWithFolds(m_doc->lineAt(i), stateIn,
+                                              m_lineSpans[i], stateOut, m_lineFolds[i]);
         m_lineEndStates[i] = stateOut;
         // After the first mandatory re-highlight (startLine), stop as soon as
         // the end-of-line state matches what was cached — downstream lines
@@ -1183,9 +1209,15 @@ void CodeEditArea::rehighlightFrom(int startLine) {
 // --- Folding helpers -----------------------------------------------------
 
 void CodeEditArea::rebuildFolds() {
-    m_foldLineCount = m_doc ? m_doc->lineCount() : 0;
     if (!m_foldingProvider || !m_doc) {
         m_foldState.setRegions({});
+        return;
+    }
+    // Fast path: regions from the markers collected while highlighting.
+    QVector<FoldRegion> regions;
+    if (m_highlighter && m_lineFolds.size() == m_doc->lineCount()
+            && m_foldingProvider->regionsFromLineMarkers(m_highlighter, m_lineFolds, regions)) {
+        m_foldState.setRegions(std::move(regions));
         return;
     }
     m_foldState.setRegions(m_foldingProvider->computeRegions(m_doc));

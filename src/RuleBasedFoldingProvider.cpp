@@ -4,63 +4,98 @@
 #include "qce/RulesHighlighter.h"
 #include "qce/Utf8Map.h"
 
+#include <QHash>
 #include <QString>
 
 namespace qce {
 
-QVector<FoldRegion> RuleBasedFoldingProvider::computeRegions(const ITextDocument* doc) const {
-    QVector<FoldRegion> regions;
-    if (!m_hl || !doc) return regions;
+// Pairs begin/end markers line by line with a Kate-style stack keyed by
+// region id. Shared by computeRegions() and regionsFromLineMarkers().
+class RuleBasedFoldingProvider::Pairer {
+public:
+    explicit Pairer(const RuleBasedFoldingProvider& p) : m_p(p) {}
 
-    struct Open {
-        int regionId;
-        int startLine;
-        int startColumn;
-    };
-    QVector<Open> open;
+    // Unclosed open regions at end of document are silently dropped (same as Kate).
+    QVector<FoldRegion> take() { return std::move(m_regions); }
 
-    HighlightState state = m_hl->initialState();
-    QVector<StyleSpan>  spans;
-    QVector<FoldMarker> folds;
-    const int n = doc->lineCount();
-
-    for (int li = 0; li < n; ++li) {
-        spans.clear();
-        folds.clear();
-        HighlightState next;
-        m_hl->highlightLineEx(doc->lineAt(li), state, spans, next, folds);
-        state = next;
-
+    void addLine(int li, const QVector<FoldMarker>& folds) {
         for (const FoldMarker& f : folds) {
             if (f.isBegin) {
-                open.push_back({f.regionId, li, f.column});
+                m_open.push_back({f.regionId, li, f.column});
             } else {
                 // Close the most-recent open region with the same id.
                 int idx = -1;
-                for (int i = open.size() - 1; i >= 0; --i) {
-                    if (open[i].regionId == f.regionId) { idx = i; break; }
+                for (int i = m_open.size() - 1; i >= 0; --i) {
+                    if (m_open[i].regionId == f.regionId) { idx = i; break; }
                 }
                 if (idx < 0) continue; // unmatched end — ignore (Kate semantics)
 
-                const Open o = open[idx];
+                const Open o = m_open[idx];
                 // Unbalanced open regions nested above are discarded.
-                open.resize(idx);
+                m_open.resize(idx);
 
                 FoldRegion r;
                 r.startLine   = o.startLine;
                 r.startColumn = o.startColumn;
                 r.endLine     = li;
                 r.endColumn   = f.column + f.length;
-                r.group       = m_hl->regionNameById(f.regionId);
-                const auto it = m_placeholders.find(r.group);
-                r.placeholder = (it != m_placeholders.end())
+                r.group       = groupName(f.regionId);
+                const auto it = m_p.m_placeholders.find(r.group);
+                r.placeholder = (it != m_p.m_placeholders.end())
                     ? *it : QStringLiteral("\u2026");
-                regions.push_back(std::move(r));
+                m_regions.push_back(std::move(r));
             }
         }
     }
-    // Unclosed open regions at end of document are silently dropped (same as Kate).
-    return regions;
+
+private:
+    struct Open {
+        int regionId;
+        int startLine;
+        int startColumn;
+    };
+
+    // Looked up once per region id rather than once per region.
+    const QString& groupName(int id) {
+        auto it = m_names.find(id);
+        if (it == m_names.end()) it = m_names.insert(id, m_p.m_hl->regionNameById(id));
+        return *it;
+    }
+
+    const RuleBasedFoldingProvider& m_p;
+    QVector<Open>        m_open;
+    QVector<FoldRegion>  m_regions;
+    QHash<int, QString>  m_names;
+};
+
+QVector<FoldRegion> RuleBasedFoldingProvider::computeRegions(const ITextDocument* doc) const {
+    if (!m_hl || !doc) return {};
+
+    Pairer pairer(*this);
+    HighlightState state = m_hl->initialState();
+    QVector<StyleSpan>  spans;
+    QVector<FoldMarker> folds;
+    const int n = doc->lineCount();
+
+    for (int li = 0; li < n; ++li) {
+        HighlightState next;
+        m_hl->highlightLineEx(doc->lineAt(li), state, spans, next, folds);
+        state = next;
+        pairer.addLine(li, folds);
+    }
+    return pairer.take();
+}
+
+bool RuleBasedFoldingProvider::regionsFromLineMarkers(
+        const IHighlighter*                  hl,
+        const QVector<QVector<FoldMarker>>& markersPerLine,
+        QVector<FoldRegion>&                 regions) const {
+    // Markers from another highlighter would carry other region ids.
+    if (!m_hl || hl != static_cast<const IHighlighter*>(m_hl)) return false;
+    Pairer pairer(*this);
+    for (int li = 0; li < markersPerLine.size(); ++li) pairer.addLine(li, markersPerLine[li]);
+    regions = pairer.take();
+    return true;
 }
 
 void RuleBasedFoldingProvider::foldersInBytes(const char*           data,

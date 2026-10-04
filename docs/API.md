@@ -291,8 +291,20 @@ class IHighlighter {
                                QVector<StyleSpan>& spans,
                                HighlightState& stateOut) const = 0;
     virtual const QVector<TextAttribute>& attributes() const = 0;
+
+    // Optional: also report the line's fold markers. Default: none.
+    virtual void highlightLineWithFolds(const QString& line,
+                                        const HighlightState& stateIn,
+                                        QVector<StyleSpan>& spans,
+                                        HighlightState& stateOut,
+                                        QVector<FoldMarker>& folds) const;
 };
 ```
+
+`CodeEditArea` highlights through `highlightLineWithFolds()` and keeps the
+markers per line, so a folding provider can use them instead of tokenising the
+document again (see `IFoldingProvider::regionsFromLineMarkers`).
+`RulesHighlighter` reports its `beginRegion`/`endRegion` markers there.
 
 `HighlightState` is opaque (a context stack).  `StyleSpan` carries
 `{start, length, attributeId}`.  `TextAttribute` carries
@@ -386,8 +398,20 @@ struct FoldRegion {
 ```cpp
 class IFoldingProvider {
     virtual QVector<FoldRegion> computeRegions(const ITextDocument*) const = 0;
+
+    // Optional fast path: build regions from the per-line fold markers the
+    // editor collected while highlighting with `hl`. Return false (default)
+    // to have the editor call computeRegions().
+    virtual bool regionsFromLineMarkers(const IHighlighter* hl,
+                                        const QVector<QVector<FoldMarker>>& markersPerLine,
+                                        QVector<FoldRegion>& regions) const;
 };
 ```
+
+The editor recomputes regions after every edit. `computeRegions()` usually has
+to tokenise the whole document; `regionsFromLineMarkers()` only pairs markers
+the editor already has, which keeps typing fast in large files.
+`RuleBasedFoldingProvider` implements it when `hl` is its own highlighter.
 
 `CompositeFoldingProvider` merges several providers:
 

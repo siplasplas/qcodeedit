@@ -2,6 +2,7 @@
 
 #include "FoldState.h"
 #include "ExtraSelection.h"
+#include "FoldMarker.h"
 #include "HighlightState.h"
 #include "StyleSpan.h"
 #include "TextCursor.h"
@@ -185,10 +186,18 @@ private:
     IHighlighter*                      m_highlighter = nullptr;
     QVector<HighlightState>            m_lineEndStates;
     QVector<QVector<StyleSpan>>        m_lineSpans;
+    /// Fold markers per line, collected while highlighting; lets the folding
+    /// provider build regions without tokenising the document again.
+    QVector<QVector<FoldMarker>>       m_lineFolds;
+    /// Line count the caches above and the fold state match. Differs from the
+    /// document while it has reported a changed line but not yet the lines
+    /// it inserted or removed.
+    int                                m_knownLineCount = 0;
+    /// Earliest changed line whose re-highlight waits for that signal.
+    int                                m_pendingRehighlightFrom = -1;
 
     IFoldingProvider*                  m_foldingProvider = nullptr;
     FoldState                          m_foldState;
-    int                                m_foldLineCount = 0;  ///< line count m_foldState matches
     std::unique_ptr<CursorController>  m_cursorCtrl;
     std::unique_ptr<CaretPainter>      m_caretPainter;
     QUndoStack*                        m_undoStack = nullptr;
@@ -218,6 +227,8 @@ private:
     // --- Highlighting helpers ---
     void rebuildHighlightCache();
     void rehighlightFrom(int startLine);
+    /// min(startLine, pending changed line); clears the pending line.
+    int  takePendingRehighlight(int startLine);
 
     // --- Folding helpers ---
     void rebuildFolds();

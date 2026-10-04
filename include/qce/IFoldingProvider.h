@@ -12,6 +12,7 @@
 namespace qce {
 
 class ITextDocument;
+class IHighlighter;
 
 /// Abstract source of fold regions. The editor core stores a non-owning
 /// pointer and calls computeRegions() whenever the document changes. The
@@ -33,6 +34,16 @@ class IFoldingProvider {
 public:
     virtual ~IFoldingProvider() = default;
     virtual QVector<FoldRegion> computeRegions(const ITextDocument* doc) const = 0;
+
+    /// Optional fast path. `markersPerLine[i]` holds the fold markers of line
+    /// i (QChar columns) that the editor collected while highlighting the
+    /// whole document with `hl` (IHighlighter::highlightLineWithFolds). A
+    /// provider that can build its regions from them alone fills `regions`
+    /// and returns true; the editor then skips computeRegions(), which would
+    /// tokenise the document again. Default: false.
+    virtual bool regionsFromLineMarkers(const IHighlighter*                  hl,
+                                        const QVector<QVector<FoldMarker>>& markersPerLine,
+                                        QVector<FoldRegion>&                 regions) const;
 
     /// Emit fold markers for the UTF-8 byte range [data, data+len).
     ///   data     — pointer to the first byte; not null if len > 0

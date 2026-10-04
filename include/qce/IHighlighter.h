@@ -1,5 +1,6 @@
 #pragma once
 
+#include "FoldMarker.h"
 #include "HighlightState.h"
 #include "StyleSpan.h"
 #include "TextAttribute.h"
@@ -49,6 +50,17 @@ public:
                                const HighlightState& stateIn,
                                QVector<StyleSpan>&   spans,
                                HighlightState&       stateOut) const = 0;
+
+    /// highlightLine() that also reports the line's fold markers (QChar
+    /// columns; `folds` cleared by the callee). CodeEditArea keeps them per
+    /// line so a folding provider can build regions without a second pass
+    /// (IFoldingProvider::regionsFromLineMarkers). Default: highlightLine()
+    /// with no markers.
+    virtual void highlightLineWithFolds(const QString&        line,
+                                        const HighlightState& stateIn,
+                                        QVector<StyleSpan>&   spans,
+                                        HighlightState&       stateOut,
+                                        QVector<FoldMarker>&  folds) const;
 
     /// Tokenise an arbitrary UTF-8 byte range.
     ///   data     — pointer to the first byte; not null if len > 0

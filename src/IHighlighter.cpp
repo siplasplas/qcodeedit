@@ -6,6 +6,15 @@
 
 namespace qce {
 
+void IHighlighter::highlightLineWithFolds(const QString&        line,
+                                          const HighlightState& stateIn,
+                                          QVector<StyleSpan>&   spans,
+                                          HighlightState&       stateOut,
+                                          QVector<FoldMarker>&  folds) const {
+    folds.clear();
+    highlightLine(line, stateIn, spans, stateOut);
+}
+
 void IHighlighter::tokenizeBytes(const char*           data,
                                   qsizetype             len,
                                   const HighlightState& stateIn,

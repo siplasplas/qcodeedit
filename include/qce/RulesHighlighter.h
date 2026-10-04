@@ -175,6 +175,16 @@ public:
                           HighlightState&       stateOut,
                           QVector<FoldMarker>&  folds) const;
 
+    /// Same as highlightLineEx(); lets CodeEditArea collect fold markers
+    /// while highlighting.
+    void highlightLineWithFolds(const QString&        line,
+                                const HighlightState& stateIn,
+                                QVector<StyleSpan>&   spans,
+                                HighlightState&       stateOut,
+                                QVector<FoldMarker>&  folds) const override {
+        highlightLineEx(line, stateIn, spans, stateOut, folds);
+    }
+
 private:
     /// Try to match `rule` starting at `pos` in `line`. Returns the number of
     /// QChars matched (0 means no match). lookAhead does NOT affect the

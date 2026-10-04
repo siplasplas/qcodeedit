@@ -22,8 +22,15 @@ void WrapLayout::rebuild(const ITextDocument* doc,
     // so that rowForCursor on a hidden cursor lands on the region's header.
     int lastVisibleFirstRow = 0;
 
+    // Walk the sorted hidden ranges alongside the lines: O(lines + ranges)
+    // instead of asking isLineVisible() (O(collapsed)) for every line.
+    const QVector<QPair<int, int>> hidden =
+        foldState ? foldState->hiddenLineRanges() : QVector<QPair<int, int>>();
+    qsizetype nextHidden = 0;
+
     for (int li = 0; li < n; ++li) {
-        if (foldState && !foldState->isLineVisible(li)) {
+        while (nextHidden < hidden.size() && hidden[nextHidden].second < li) ++nextHidden;
+        if (nextHidden < hidden.size() && hidden[nextHidden].first <= li) {
             m_lineFirstRow.push_back(lastVisibleFirstRow);
             continue;
         }

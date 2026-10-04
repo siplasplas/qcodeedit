@@ -2,6 +2,7 @@
 
 #include "FoldRegion.h"
 
+#include <QPair>
 #include <QSet>
 #include <QVector>
 
@@ -48,8 +49,13 @@ public:
     int regionStartingAt(int line) const;
 
     /// Returns true if the given line is currently visible (i.e. not hidden
-    /// inside any collapsed region).
+    /// inside any collapsed region). O(collapsed regions); for whole-document
+    /// passes use hiddenLineRanges().
     bool isLineVisible(int line) const;
+
+    /// Hidden lines as sorted, disjoint, non-adjacent inclusive ranges
+    /// [first, last] (a collapsed region hides startLine+1 .. endLine).
+    QVector<QPair<int, int>> hiddenLineRanges() const;
 
     void foldAll();
     void unfoldAll();

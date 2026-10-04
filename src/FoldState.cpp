@@ -140,12 +140,30 @@ void FoldState::toggle(int regionIndex) {
 }
 
 int FoldState::regionStartingAt(int line) const {
-    // Regions are sorted by startLine ascending. Return first match.
-    for (int i = 0; i < m_regions.size(); ++i) {
-        if (m_regions[i].startLine == line) return i;
-        if (m_regions[i].startLine > line) break;
+    // Regions are sorted by (startLine, startColumn): the first region on the
+    // line is the lower bound. Called per visible row while painting.
+    const auto it = std::lower_bound(m_regions.cbegin(), m_regions.cend(), line,
+        [](const FoldRegion& r, int l) { return r.startLine < l; });
+    return (it != m_regions.cend() && it->startLine == line)
+        ? int(it - m_regions.cbegin()) : -1;
+}
+
+QVector<QPair<int, int>> FoldState::hiddenLineRanges() const {
+    QVector<QPair<int, int>> ranges;
+    ranges.reserve(m_collapsed.size());
+    for (int i : m_collapsed) {
+        const FoldRegion& r = m_regions[i];
+        if (r.endLine > r.startLine) ranges.append({r.startLine + 1, r.endLine});
     }
-    return -1;
+    std::sort(ranges.begin(), ranges.end());
+    QVector<QPair<int, int>> merged;
+    for (const auto& range : std::as_const(ranges)) {
+        if (!merged.isEmpty() && range.first <= merged.last().second + 1)
+            merged.last().second = qMax(merged.last().second, range.second);
+        else
+            merged.append(range);
+    }
+    return merged;
 }
 
 bool FoldState::isLineVisible(int line) const {

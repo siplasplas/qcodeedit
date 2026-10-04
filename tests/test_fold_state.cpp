@@ -30,6 +30,8 @@ private slots:
     void shiftLines_insertedAndRemovedLines();
     void expandContaining_expandsOnlyHidingRegions();
     void clear_forgetsState();
+    void hiddenLineRanges_mergedAndSorted();
+    void regionStartingAt_matchesLinearScan();
 };
 
 // Reference definition of depth: regions that strictly contain `b`.
@@ -356,6 +358,44 @@ void TestFoldState::clear_forgetsState() {
     QVERIFY(s.regions().isEmpty());
     s.setRegions({makeRegion(0, 0, 4, 0)});
     QVERIFY(!s.isCollapsed(0));
+}
+
+void TestFoldState::hiddenLineRanges_mergedAndSorted() {
+    using Ranges = QVector<QPair<int, int>>;
+    FoldState s;
+    s.setRegions({
+        makeRegion(0, 0, 10, 0),    // hides 1..10
+        makeRegion(2, 0, 5, 0),     // nested: 3..5
+        makeRegion(8, 0, 14, 0),    // overlaps: 9..14
+        makeRegion(14, 0, 18, 0),   // adjacent: 15..18
+        makeRegion(30, 0, 33, 0),   // separate: 31..33
+        makeRegion(40, 0, 45, 0),   // not collapsed
+    });
+    QCOMPARE(s.hiddenLineRanges(), Ranges{});
+    for (int i = 0; i < 5; ++i) s.setCollapsed(i, true);
+    QCOMPARE(s.hiddenLineRanges(), (Ranges{{1, 18}, {31, 33}}));
+
+    // Each hidden line is exactly one that isLineVisible() reports hidden.
+    const Ranges ranges = s.hiddenLineRanges();
+    for (int line = 0; line < 50; ++line) {
+        bool inRange = false;
+        for (const auto& r : ranges) inRange |= (line >= r.first && line <= r.second);
+        QCOMPARE(inRange, !s.isLineVisible(line));
+    }
+}
+
+void TestFoldState::regionStartingAt_matchesLinearScan() {
+    FoldState s;
+    s.setRegions({makeRegion(3, 8, 9, 0), makeRegion(3, 2, 6, 0), makeRegion(7, 0, 9, 0),
+                  makeRegion(12, 0, 20, 0)});
+    for (int line = -1; line < 25; ++line) {
+        int expected = -1;
+        for (int i = 0; i < s.regions().size(); ++i) {
+            if (s.regions()[i].startLine == line) { expected = i; break; }
+        }
+        QCOMPARE(s.regionStartingAt(line), expected);
+    }
+    QCOMPARE(s.regions()[s.regionStartingAt(3)].startColumn, 2);  // smallest column first
 }
 
 QTEST_APPLESS_MAIN(TestFoldState)

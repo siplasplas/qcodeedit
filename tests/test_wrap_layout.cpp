@@ -1,5 +1,6 @@
 #include "WrapLayout.h"
 
+#include <qce/FoldState.h>
 #include <qce/SimpleTextDocument.h>
 
 #include <QtTest/QtTest>
@@ -14,6 +15,7 @@ private slots:
     void emptyLine_singleRow();
     void rowForCursor_wrappedLine();
     void firstRowOf_correct();
+    void collapsedRegions_matchIsLineVisible();
 };
 
 using qce::WrapLayout;
@@ -100,6 +102,53 @@ void TestWrapLayout::firstRowOf_correct() {
     // line 0 has 2 rows, so line 1 starts at row 2
     QCOMPARE(wl.firstRowOf(1), 2);
     QCOMPARE(wl.rowAt(wl.firstRowOf(1)).logicalLine, 1);
+}
+
+// Hidden lines come from FoldState::hiddenLineRanges(); the result must be
+// what asking isLineVisible() for every line gives: rows only for visible
+// lines, and a hidden line maps to the first row of the last visible line.
+void TestWrapLayout::collapsedRegions_matchIsLineVisible() {
+    SimpleTextDocument doc;
+    QStringList lines;
+    for (int i = 0; i < 60; ++i)
+        lines << (i % 7 == 0 ? QStringLiteral("a long line that wraps here") : QStringLiteral("x"));
+    doc.setText(lines.join(QLatin1Char('\n')));
+
+    QRandomGenerator rng(4242);  // fixed seed: deterministic
+    for (int round = 0; round < 100; ++round) {
+        QVector<qce::FoldRegion> regions;
+        const int n = int(rng.bounded(1, 15));
+        for (int i = 0; i < n; ++i) {
+            qce::FoldRegion r;
+            r.startLine = int(rng.bounded(0, 58));
+            r.endLine = r.startLine + int(rng.bounded(1, 12));   // nested, overlapping, adjacent
+            r.startColumn = int(rng.bounded(0, 3));
+            regions.append(r);
+        }
+        qce::FoldState fs;
+        fs.setRegions(regions);
+        for (int i = 0; i < fs.regions().size(); ++i)
+            if (rng.bounded(2)) fs.setCollapsed(i, true);
+
+        WrapLayout wl;
+        wl.rebuild(&doc, 10, 1, &fs);
+
+        // Expected rows: every visible line in order, with its wrapped rows.
+        int row = 0;
+        int lastVisibleFirstRow = 0;
+        for (int li = 0; li < doc.lineCount(); ++li) {
+            if (!fs.isLineVisible(li)) {
+                QCOMPARE(wl.firstRowOf(li), lastVisibleFirstRow);
+                continue;
+            }
+            QCOMPARE(wl.firstRowOf(li), row);
+            lastVisibleFirstRow = row;
+            QVERIFY(row < wl.totalRows());
+            while (row < wl.totalRows() && wl.rowAt(row).logicalLine == li) ++row;
+            QCOMPARE(wl.rowAt(row - 1).endCol, int(doc.lineAt(li).size()));
+        }
+        QCOMPARE(wl.totalRows(), row);
+    }
 }
 
 QTEST_APPLESS_MAIN(TestWrapLayout)

@@ -457,7 +457,9 @@ area->foldAll();
 area->unfoldAll();
 fs.foldToLevel(1);          // collapse top-level regions only
 bool collapsed = fs.isCollapsed(regionIdx);
-bool visible   = fs.isLineVisible(line);
+bool visible   = fs.isLineVisible(line);              // O(collapsed regions)
+auto hidden    = fs.hiddenLineRanges();               // sorted [first, last] ranges, for whole-document passes
+int  idx       = fs.regionStartingAt(line);           // binary search
 ```
 
 Collapsed regions survive edits: after the regions are recomputed, a region

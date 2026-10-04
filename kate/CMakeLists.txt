@@ -59,7 +59,7 @@ install(EXPORT qcodeedit-kateTargets
 
 include(CMakePackageConfigHelpers)
 configure_package_config_file(
-    ${CMAKE_SOURCE_DIR}/cmake/qcodeedit-kateConfig.cmake.in
+    ${PROJECT_SOURCE_DIR}/cmake/qcodeedit-kateConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/qcodeedit-kateConfig.cmake
     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/qcodeedit-kate
 )

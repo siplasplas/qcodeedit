@@ -1,31 +1,48 @@
 #include "qce/FoldState.h"
 
 #include <algorithm>
+#include <utility>
+#include <vector>
 
 namespace qce {
 
-// Comparator: (startLine, startColumn) ascending; ties broken by endLine
-// descending so that outer regions come before their contents when scanning.
+// Comparator: (startLine, startColumn) ascending; ties broken by end
+// (endLine, endColumn) descending so that outer regions come before their
+// contents when scanning. computeDepths() relies on this order.
 static bool foldLess(const FoldRegion& a, const FoldRegion& b) {
     if (a.startLine != b.startLine) return a.startLine < b.startLine;
     if (a.startColumn != b.startColumn) return a.startColumn < b.startColumn;
-    return a.endLine > b.endLine;
+    if (a.endLine != b.endLine) return a.endLine > b.endLine;
+    return a.endColumn > b.endColumn;
 }
 
-// True iff `a` strictly contains `b` (b is inside a, not identical).
-static bool contains(const FoldRegion& a, const FoldRegion& b) {
-    // Same-start cases
-    if (a.startLine == b.startLine && a.startColumn == b.startColumn
-        && a.endLine == b.endLine && a.endColumn == b.endColumn) {
-        return false; // identical
+// depth = number of regions that strictly contain the region (start at or
+// before it and end at or after it, not identical). `regions` must be sorted
+// by foldLess and free of exact duplicates. Then the containers of region i
+// are exactly the earlier regions whose end is >= its end: an earlier region
+// starts at or before it, and one with the same start has a larger end. The
+// count of earlier ends below a value comes from a Fenwick tree over the
+// distinct end positions: O(n log n), also for crossing regions.
+static void computeDepths(QVector<FoldRegion>& regions) {
+    using Pos = std::pair<int, int>;  // (endLine, endColumn)
+    std::vector<Pos> ends;
+    ends.reserve(regions.size());
+    for (const FoldRegion& r : regions) ends.emplace_back(r.endLine, r.endColumn);
+    std::sort(ends.begin(), ends.end());
+    ends.erase(std::unique(ends.begin(), ends.end()), ends.end());
+
+    std::vector<int> tree(ends.size() + 1, 0);  // 1-based Fenwick tree
+    auto countBelow = [&](int rank) {           // inserted ends with rank < `rank`
+        int sum = 0;
+        for (int i = rank; i > 0; i -= i & -i) sum += tree[i];
+        return sum;
+    };
+    for (int i = 0; i < regions.size(); ++i) {
+        const Pos end(regions[i].endLine, regions[i].endColumn);
+        const int rank = int(std::lower_bound(ends.begin(), ends.end(), end) - ends.begin());
+        regions[i].depth = i - countBelow(rank);
+        for (int j = rank + 1; j < int(tree.size()); j += j & -j) ++tree[j];
     }
-    const bool startsAtOrBefore =
-        (a.startLine < b.startLine) ||
-        (a.startLine == b.startLine && a.startColumn <= b.startColumn);
-    const bool endsAtOrAfter =
-        (a.endLine > b.endLine) ||
-        (a.endLine == b.endLine && a.endColumn >= b.endColumn);
-    return startsAtOrBefore && endsAtOrAfter;
 }
 
 void FoldState::setRegions(QVector<FoldRegion> regions) {
@@ -46,16 +63,7 @@ void FoldState::setRegions(QVector<FoldRegion> regions) {
                 && a.endLine == b.endLine && a.endColumn == b.endColumn;
         }), out.end());
 
-    // Compute depth: count ancestors that strictly contain this region.
-    // Straightforward O(n^2). Fine for v1; tighten later with a sweep.
-    for (int i = 0; i < out.size(); ++i) {
-        int depth = 0;
-        for (int j = 0; j < out.size(); ++j) {
-            if (i == j) continue;
-            if (contains(out[j], out[i])) ++depth;
-        }
-        out[i].depth = depth;
-    }
+    computeDepths(out);
 
     m_regions = std::move(out);
     m_collapsed.clear();

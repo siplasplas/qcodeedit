@@ -3,6 +3,8 @@
 #include <QMouseEvent>
 
 #include <qce/CodeEditArea.h>
+#include <qce/IFoldingProvider.h>
+#include <qce/ITextDocument.h>
 #include <qce/SimpleTextDocument.h>
 #include <qce/TextCursor.h>
 #include <qce/Rail.h>
@@ -11,10 +13,53 @@
 
 using namespace qce;
 
+// One "curly" region per matching {…} pair spanning lines.
+class BraceFoldingProvider : public IFoldingProvider {
+public:
+    QVector<FoldRegion> computeRegions(const ITextDocument* doc) const override {
+        QVector<FoldRegion> regions;
+        QVector<QPair<int, int>> open;
+        for (int line = 0; line < doc->lineCount(); ++line) {
+            const QString text = doc->lineAt(line);
+            for (int col = 0; col < text.size(); ++col) {
+                if (text.at(col) == QLatin1Char('{')) {
+                    open.append({line, col});
+                } else if (text.at(col) == QLatin1Char('}') && !open.isEmpty()) {
+                    const auto o = open.takeLast();
+                    FoldRegion r;
+                    r.startLine = o.first;
+                    r.startColumn = o.second;
+                    r.endLine = line;
+                    r.endColumn = col + 1;
+                    r.group = QStringLiteral("curly");
+                    regions.append(r);
+                }
+            }
+        }
+        return regions;
+    }
+};
+
 class TestCodeEditAreaKeys : public QObject {
     Q_OBJECT
 
 private:
+    // "a", then a function whose body (lines 2-4) folds, then "b".
+    static void setUpFolded(SimpleTextDocument& doc, CodeEditArea& area,
+                            BraceFoldingProvider& provider) {
+        doc.setText(QStringLiteral("a\nf() {\n  x\n  y\n}\nb"));
+        area.resize(300, 200);
+        area.setDocument(&doc);
+        area.setWordWrap(true);
+        area.setFoldingProvider(&provider);
+        area.toggleFoldAt(1);
+        QVERIFY(area.foldState().isCollapsed(area.foldState().regionStartingAt(1)));
+    }
+
+    static bool collapsedAt(const CodeEditArea& area, int line) {
+        const int idx = area.foldState().regionStartingAt(line);
+        return idx >= 0 && area.foldState().isCollapsed(idx);
+    }
     // Three lines of known lengths: "Hello" (5), "World!" (6), "." (1)
     static SimpleTextDocument* makeDoc(QObject* parent = nullptr) {
         auto* doc = new SimpleTextDocument(parent);
@@ -30,6 +75,56 @@ private:
     }
 
 private slots:
+    void editing_keepsCollapsedRegion() {
+        SimpleTextDocument doc;
+        CodeEditArea area;
+        BraceFoldingProvider provider;
+        setUpFolded(doc, area, provider);
+        activate(&area);
+
+        // Typing on another line.
+        area.setCursorPosition({0, 1});
+        QTest::keyClicks(&area, QStringLiteral("zz"));
+        QCOMPARE(doc.lineAt(0), QStringLiteral("azz"));
+        QVERIFY(collapsedAt(area, 1));
+
+        // A new line above moves the collapsed region down with its text.
+        QTest::keyClick(&area, Qt::Key_Return);
+        QVERIFY(collapsedAt(area, 2));
+        QVERIFY(!collapsedAt(area, 1));
+
+        // Undo moves it back.
+        area.undo();
+        QVERIFY(collapsedAt(area, 1));
+
+        // Removing a line above moves it up.
+        area.redo();
+        QVERIFY(collapsedAt(area, 2));
+        area.setCursorPosition({1, 0});
+        QTest::keyClick(&area, Qt::Key_Backspace);
+        QCOMPARE(doc.lineAt(1), QStringLiteral("f() {"));
+        QVERIFY(collapsedAt(area, 1));
+
+        // Typing below the region.
+        area.setCursorPosition({5, 1});
+        QTest::keyClicks(&area, QStringLiteral("q"));
+        QVERIFY(collapsedAt(area, 1));
+    }
+
+    void enterAtEndOfCollapsedHeader_expandsRegion() {
+        SimpleTextDocument doc;
+        CodeEditArea area;
+        BraceFoldingProvider provider;
+        setUpFolded(doc, area, provider);
+        activate(&area);
+
+        area.setCursorPosition({1, 5});   // after "{"
+        QTest::keyClick(&area, Qt::Key_Return);
+        QCOMPARE(area.cursorPosition().line, 2);
+        QVERIFY(area.foldState().isLineVisible(2));
+        QVERIFY(!collapsedAt(area, 1));
+    }
+
     void placeholderClick_doesNotStartDragSelection() {
         for (int cursorLine : {0, 3}) {
             SimpleTextDocument doc;

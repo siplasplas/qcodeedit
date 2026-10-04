@@ -423,7 +423,7 @@ Ramka: cienka linia wokół tekstu + szare tło + kolor `QPalette::Text` z alpha
 
 - Kliknięcie w placeholder → rozwiń region, umieść kursor na początku rozwiniętego obszaru (startLine+1, col 0).
 - Edycja wewnątrz zwiniętego regionu jest niemożliwa (niewidoczne linie). Jeśli skrypt/klawisz przenosi kursor na ukrytą linię → *rozwijamy* najbardziej zewnętrzny region ukrywający tę linię.
-- Po rebuild foldingu (po edycji) przenosimy stary stan `m_collapsed` na nowe regiony heurystycznie: jeśli region o (startLine, startCol, group) istniał i był zwinięty → nowy o tych samych cechach też jest zwinięty.
+- Implemented: after a fold rebuild (after an edit) the old collapsed state moves to the new regions by (startLine, group); several regions on one line are paired in column order. Lines inserted or removed above a region are applied first with `FoldState::shiftLines()`, so the region follows its text. An edit that leaves the cursor on a hidden line expands the regions hiding it.
 
 ---
 

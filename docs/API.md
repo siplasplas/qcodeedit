@@ -436,6 +436,13 @@ bool collapsed = fs.isCollapsed(regionIdx);
 bool visible   = fs.isLineVisible(line);
 ```
 
+Collapsed regions survive edits: after the regions are recomputed, a region
+keeps the collapsed state of the region with the same start line and group,
+following lines inserted or removed above it (`FoldState::shiftLines()`). An
+edit that leaves the cursor on a hidden line (for example Enter at the end of
+a collapsed header) expands the regions hiding it. A new document or a new
+folding provider starts with no collapsed regions.
+
 ---
 
 ## 6. Margins (gutters)

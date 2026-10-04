@@ -188,6 +188,7 @@ private:
 
     IFoldingProvider*                  m_foldingProvider = nullptr;
     FoldState                          m_foldState;
+    int                                m_foldLineCount = 0;  ///< line count m_foldState matches
     std::unique_ptr<CursorController>  m_cursorCtrl;
     std::unique_ptr<CaretPainter>      m_caretPainter;
     QUndoStack*                        m_undoStack = nullptr;

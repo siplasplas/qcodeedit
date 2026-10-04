@@ -25,6 +25,11 @@ private slots:
     void depth_edgeCases();
     void depth_matchesBruteForce_randomRegions();
     void depth_largeInput();
+    void setRegions_keepsCollapsedStateOfMatchingRegion();
+    void setRegions_expandedDefaultRegionStaysExpanded();
+    void shiftLines_insertedAndRemovedLines();
+    void expandContaining_expandsOnlyHidingRegions();
+    void clear_forgetsState();
 };
 
 // Reference definition of depth: regions that strictly contain `b`.
@@ -257,6 +262,100 @@ void TestFoldState::depth_largeInput() {
     QCOMPARE(s.regions()[chain - 1].depth, chain - 1);
     QCOMPARE(s.regions()[chain].depth, chain);   // first sibling, inside the whole chain
     QCOMPARE(s.regions().last().depth, chain);
+}
+
+void TestFoldState::setRegions_keepsCollapsedStateOfMatchingRegion() {
+    const QString curly = QStringLiteral("curly");
+    FoldState s;
+    s.setRegions({makeRegion(0, 0, 5, 0, curly), makeRegion(10, 4, 15, 0, curly)});
+    s.setCollapsed(1, true);
+
+    // Same start line and group, other columns/end (header or body edited).
+    s.setRegions({makeRegion(0, 0, 5, 0, curly), makeRegion(10, 6, 16, 0, curly),
+                  makeRegion(20, 0, 22, 0, curly)});
+    QVERIFY(!s.isCollapsed(0));
+    QVERIFY(s.isCollapsed(1));
+    QVERIFY(!s.isCollapsed(2));
+
+    // Another group on the same line is a different region.
+    s.setRegions({makeRegion(10, 6, 16, 0, QStringLiteral("Comment"))});
+    QVERIFY(!s.isCollapsed(0));
+
+    // Two regions on one line are paired in column order.
+    s.setRegions({makeRegion(3, 0, 9, 0, curly), makeRegion(3, 8, 6, 0, curly)});
+    s.setCollapsed(1, true);
+    s.setRegions({makeRegion(3, 1, 9, 0, curly), makeRegion(3, 9, 6, 0, curly)});
+    QVERIFY(!s.isCollapsed(0));
+    QVERIFY(s.isCollapsed(1));
+}
+
+void TestFoldState::setRegions_expandedDefaultRegionStaysExpanded() {
+    FoldState s;
+    s.setRegions({makeRegion(0, 0, 2, 0, QStringLiteral("Header"), /*def*/true)});
+    QVERIFY(s.isCollapsed(0));
+    s.setCollapsed(0, false);
+    s.setRegions({makeRegion(0, 0, 3, 0, QStringLiteral("Header"), true),
+                  makeRegion(5, 0, 7, 0, QStringLiteral("Header"), true)});
+    QVERIFY(!s.isCollapsed(0));   // the user's choice wins
+    QVERIFY(s.isCollapsed(1));    // a new region starts from its default
+}
+
+void TestFoldState::shiftLines_insertedAndRemovedLines() {
+    FoldState s;
+    s.setRegions({makeRegion(2, 0, 4, 0), makeRegion(10, 0, 14, 0), makeRegion(20, 0, 30, 0)});
+    s.setCollapsed(1, true);
+
+    s.shiftLines(5, 3);  // 3 lines inserted at line 5
+    QCOMPARE(s.regions()[0].startLine, 2);
+    QCOMPARE(s.regions()[0].endLine, 4);
+    QCOMPARE(s.regions()[1].startLine, 13);
+    QCOMPARE(s.regions()[1].endLine, 17);
+    QVERIFY(s.isCollapsed(1));
+
+    s.shiftLines(3, 1);  // inside region 0: its end moves, its start stays
+    QCOMPARE(s.regions()[0].startLine, 2);
+    QCOMPARE(s.regions()[0].endLine, 5);
+
+    s.shiftLines(0, -2);  // lines 0..1 removed
+    QCOMPARE(s.regions()[0].startLine, 0);
+    QCOMPARE(s.regions()[1].startLine, 12);
+    QVERIFY(s.isCollapsed(1));
+
+    s.shiftLines(0, -1);  // the line region 0 starts on is removed: region dropped
+    QCOMPARE(s.regions().size(), 2);
+    QCOMPARE(s.regions()[0].startLine, 11);
+    QVERIFY(s.isCollapsed(0));   // the collapsed region keeps its flag after reindexing
+    QVERIFY(!s.isCollapsed(1));
+
+    s.shiftLines(12, -10);  // removes the end of region 0 and the start of region 1
+    QCOMPARE(s.regions().size(), 1);
+    QCOMPARE(s.regions()[0].startLine, 11);
+    QCOMPARE(s.regions()[0].endLine, 11);
+}
+
+void TestFoldState::expandContaining_expandsOnlyHidingRegions() {
+    FoldState s;
+    s.setRegions({makeRegion(0, 0, 10, 0), makeRegion(2, 0, 5, 0), makeRegion(20, 0, 25, 0)});
+    s.setCollapsed(0, true);
+    s.setCollapsed(1, true);
+    s.setCollapsed(2, true);
+
+    QVERIFY(!s.expandContaining(0));   // a start line is never hidden
+    QVERIFY(s.expandContaining(3));    // hidden by regions 0 and 1
+    QVERIFY(!s.isCollapsed(0));
+    QVERIFY(!s.isCollapsed(1));
+    QVERIFY(s.isCollapsed(2));
+    QVERIFY(!s.expandContaining(3));
+}
+
+void TestFoldState::clear_forgetsState() {
+    FoldState s;
+    s.setRegions({makeRegion(0, 0, 4, 0)});
+    s.setCollapsed(0, true);
+    s.clear();
+    QVERIFY(s.regions().isEmpty());
+    s.setRegions({makeRegion(0, 0, 4, 0)});
+    QVERIFY(!s.isCollapsed(0));
 }
 
 QTEST_APPLESS_MAIN(TestFoldState)

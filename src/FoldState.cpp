@@ -1,5 +1,8 @@
 #include "qce/FoldState.h"
 
+#include <QHash>
+#include <QPair>
+
 #include <algorithm>
 #include <utility>
 #include <vector>
@@ -65,13 +68,65 @@ void FoldState::setRegions(QVector<FoldRegion> regions) {
 
     computeDepths(out);
 
+    // Carry the collapsed state over from the old regions: key (startLine,
+    // group); several regions on one line are paired in column order, which
+    // both lists already have.
+    QHash<QPair<int, QString>, QList<bool>> previous;
+    for (int i = 0; i < m_regions.size(); ++i) {
+        const FoldRegion& r = m_regions[i];
+        previous[{r.startLine, r.group}].append(m_collapsed.contains(i));
+    }
+
     m_regions = std::move(out);
     m_collapsed.clear();
-
-    // Apply collapsedByDefault.
     for (int i = 0; i < m_regions.size(); ++i) {
-        if (m_regions[i].collapsedByDefault) m_collapsed.insert(i);
+        const FoldRegion& r = m_regions[i];
+        auto it = previous.find({r.startLine, r.group});
+        if (it != previous.end() && !it->isEmpty()) {
+            if (it->takeFirst()) m_collapsed.insert(i);
+        } else if (r.collapsedByDefault) {
+            m_collapsed.insert(i);
+        }
     }
+}
+
+void FoldState::clear() {
+    m_regions.clear();
+    m_collapsed.clear();
+}
+
+void FoldState::shiftLines(int line, int delta) {
+    if (delta == 0 || m_regions.isEmpty()) return;
+    const int removedEnd = delta < 0 ? line - delta : line;  // [line, removedEnd) removed
+    QVector<FoldRegion> kept;
+    kept.reserve(m_regions.size());
+    QSet<int> collapsed;
+    for (int i = 0; i < m_regions.size(); ++i) {
+        FoldRegion r = m_regions[i];
+        if (delta < 0 && r.startLine >= line && r.startLine < removedEnd) continue;
+        if (r.startLine >= line) r.startLine += delta;
+        if (r.endLine >= removedEnd)  r.endLine += delta;
+        else if (r.endLine >= line)   r.endLine = line - 1;  // end was removed
+        r.endLine = qMax(r.endLine, r.startLine);
+        if (m_collapsed.contains(i)) collapsed.insert(kept.size());
+        kept.push_back(std::move(r));
+    }
+    m_regions = std::move(kept);
+    m_collapsed = std::move(collapsed);
+}
+
+bool FoldState::expandContaining(int line) {
+    bool changed = false;
+    for (auto it = m_collapsed.begin(); it != m_collapsed.end();) {
+        const FoldRegion& r = m_regions[*it];
+        if (line > r.startLine && line <= r.endLine) {
+            it = m_collapsed.erase(it);
+            changed = true;
+        } else {
+            ++it;
+        }
+    }
+    return changed;
 }
 
 void FoldState::setCollapsed(int regionIndex, bool collapsed) {

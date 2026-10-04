@@ -84,6 +84,7 @@ void CodeEditArea::setDocument(ITextDocument* doc) {
     m_undoStack->clear();
 
     rebuildHighlightCache();
+    m_foldState.clear();
     rebuildFolds();
     rebuildWrapLayout();
     updateScrollBarRanges();
@@ -305,6 +306,7 @@ void CodeEditArea::setHighlighter(IHighlighter* hl) {
 
 void CodeEditArea::setFoldingProvider(IFoldingProvider* p) {
     m_foldingProvider = p;
+    m_foldState.clear();
     rebuildFolds();
     rebuildWrapLayout();
     updateScrollBarRanges();
@@ -816,6 +818,7 @@ void CodeEditArea::onDocumentReset() {
     m_anchor = m_cursor;
     m_undoStack->clear();
     rebuildHighlightCache();
+    m_foldState.clear();
     rebuildFolds();
     rebuildWrapLayout();
     updateScrollBarRanges();
@@ -836,6 +839,7 @@ void CodeEditArea::onLinesInserted(int startLine, int count) {
         }
         rehighlightFrom(startLine);
     }
+    m_foldState.shiftLines(startLine, count);  // keep collapsed regions in place
     rebuildFolds();
     rebuildWrapLayout();
     updateScrollBarRanges();
@@ -854,6 +858,7 @@ void CodeEditArea::onLinesRemoved(int startLine, int count) {
         }
         rehighlightFrom(startLine);
     }
+    m_foldState.shiftLines(startLine, -count);
     rebuildFolds();
     rebuildWrapLayout();
     updateScrollBarRanges();
@@ -866,7 +871,13 @@ void CodeEditArea::onLinesChanged(int startLine, int) {
     if (m_highlighter) {
         rehighlightFrom(startLine);
     }
-    rebuildFolds();
+    // A document may report the changed line before the lines it inserted or
+    // removed (SimpleTextDocument does for multi-line inserts). Until that
+    // signal arrives the fold regions cannot be lined up with the text, so
+    // leave the rebuild to onLinesInserted()/onLinesRemoved().
+    if (!m_doc || m_doc->lineCount() == m_foldLineCount) {
+        rebuildFolds();
+    }
     rebuildWrapLayout();
     refreshViewportState();
     viewport()->update();
@@ -1172,6 +1183,7 @@ void CodeEditArea::rehighlightFrom(int startLine) {
 // --- Folding helpers -----------------------------------------------------
 
 void CodeEditArea::rebuildFolds() {
+    m_foldLineCount = m_doc ? m_doc->lineCount() : 0;
     if (!m_foldingProvider || !m_doc) {
         m_foldState.setRegions({});
         return;
@@ -1246,6 +1258,12 @@ void CodeEditArea::executeRemoveSelection() {
 void CodeEditArea::updateAfterEdit() {
     m_cursor = m_cursorCtrl->clamp(m_cursor);
     m_anchor = m_cursor;
+    // Collapsed regions survive edits; never leave the cursor on a hidden line
+    // (e.g. Enter at the end of a collapsed header).
+    if (m_foldState.expandContaining(m_cursor.line)) {
+        rebuildWrapLayout();
+        refreshViewportState();
+    }
     m_caretPainter->resetBlink();
     ensureCursorVisible(m_cursor);
     updateScrollBarRanges();

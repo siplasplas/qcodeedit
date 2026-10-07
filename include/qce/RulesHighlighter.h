@@ -100,6 +100,11 @@ struct HighlightRule {
     /// after building `regex`; matchAt() dispatches to a fast path when
     /// the shape is non-Any. Default Any routes through pcre2 as before.
     RegexShape regexShape = RegexShape::Any;
+
+    /// Kate's multi-push switch "A!B!C": contexts pushed, in order, after
+    /// the pops and before nextContextId (here A and B; nextContextId = C).
+    /// Kept last so positional (aggregate) initialisation stays valid.
+    QVector<int> extraPushContextIds;
 };
 
 /// A named state in the highlighter's automaton. Rules are tried in order
@@ -114,6 +119,10 @@ struct HighlightContext {
     int     fallthroughContext      = -1;
     int     fallthroughPopCount     = 0;
     QVector<HighlightRule> rules;
+    // Multi-push switches (see HighlightRule::extraPushContextIds); kept last
+    // so positional (aggregate) initialisation stays valid.
+    QVector<int> lineEndExtraPushContextIds;
+    QVector<int> fallthroughExtraPushContextIds;
 };
 
 /// Named set of words matched by Kind::Keyword rules.

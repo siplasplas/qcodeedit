@@ -71,6 +71,9 @@ private slots:
     void realCXml_loadsOrSkips();
 
     void fallthrough_switchesContextOnNoMatch();
+    void multiPushSwitch_pushesAllContextsInOrder();
+    void lookAheadCycle_terminates();
+    void realYamlXml_keyValueDoesNotHang();
     void hlCHex_matchesHexLiteral();
     void hlCOct_matchesOctalLiteral();
     void hlCChar_matchesCharLiteral();
@@ -343,6 +346,113 @@ void TestKateXmlReader::fallthrough_switchesContextOnNoMatch() {
     QCOMPARE(attrAt(2), 1); // '#' → Red
     QVERIFY(attrAt(0) != 1); // 'a' → not Red
     QVERIFY(attrAt(3) != 1); // 'c' → not Red
+}
+
+// ---------------------------------------------------------------------------
+// Context switches
+// ---------------------------------------------------------------------------
+void TestKateXmlReader::multiPushSwitch_pushesAllContextsInOrder() {
+    // context="A!B" pushes A and then B; "#pop" from B returns to A, not to
+    // Normal. Before multi-push support "A!B" was looked up as one name.
+    static const char* xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<language name="mp" version="1" extensions="*.mp" section="Other">
+<highlighting>
+  <contexts>
+    <context name="Normal" attribute="Normal" lineEndContext="#stay">
+      <DetectChar attribute="Normal" context="A!B" char="x"/>
+    </context>
+    <context name="A" attribute="Normal" lineEndContext="#stay">
+      <DetectChar attribute="Red" context="#stay" char="a"/>
+    </context>
+    <context name="B" attribute="Normal" lineEndContext="#stay">
+      <DetectChar attribute="Normal" context="#pop" char="#"/>
+    </context>
+  </contexts>
+  <itemDatas>
+    <itemData name="Normal" defStyleNum="dsNormal"/>
+    <itemData name="Red"    defStyleNum="dsAlert"/>
+  </itemDatas>
+</highlighting>
+</language>
+)";
+    QTemporaryDir dir;
+    auto hl = KateXmlReader::load(dumpToTemp(dir, QStringLiteral("mp.xml"), xml));
+    QVERIFY(hl);
+
+    qce::HighlightState sOut;
+    QVector<qce::StyleSpan> spans;
+    hl->highlightLine(QStringLiteral("x"), hl->initialState(), spans, sOut);
+    QCOMPARE(sOut.contextStack.size(), 3);  // Normal, A, B
+
+    hl->highlightLine(QStringLiteral("x#a"), hl->initialState(), spans, sOut);
+    QCOMPARE(sOut.contextStack.size(), 2);  // B popped, A on top
+    QCOMPARE(spans.last().attributeId, 1);  // 'a' highlighted by A
+}
+
+void TestKateXmlReader::lookAheadCycle_terminates() {
+    // Two lookAhead rules switching back and forth never consume anything.
+    // The highlighter must still finish the line instead of hanging.
+    static const char* xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<language name="cyc" version="1" extensions="*.cyc" section="Other">
+<highlighting>
+  <contexts>
+    <context name="Normal" attribute="Normal" lineEndContext="#stay">
+      <DetectChar lookAhead="1" context="Other" char="a"/>
+    </context>
+    <context name="Other" attribute="Normal" lineEndContext="#stay">
+      <DetectChar lookAhead="1" context="#pop" char="a"/>
+    </context>
+  </contexts>
+  <itemDatas>
+    <itemData name="Normal" defStyleNum="dsNormal"/>
+  </itemDatas>
+</highlighting>
+</language>
+)";
+    QTemporaryDir dir;
+    auto hl = KateXmlReader::load(dumpToTemp(dir, QStringLiteral("cyc.xml"), xml));
+    QVERIFY(hl);
+
+    qce::HighlightState sOut;
+    QVector<qce::StyleSpan> spans;
+    hl->highlightLine(QStringLiteral("aaa"), hl->initialState(), spans, sOut);
+    int covered = 0;
+    for (const auto& sp : spans) covered += sp.length;
+    QCOMPARE(covered, 3);
+}
+
+void TestKateXmlReader::realYamlXml_keyValueDoesNotHang() {
+    // yaml.xml switches with context="BlockPrefix!ValueTextIndent!…" from a
+    // lookAhead rule at column 0; any "key: value" line used to hang.
+    const QString path = kateSyntaxPath(QStringLiteral("yaml.xml"));
+    if (path.isEmpty()) QSKIP("yaml.xml not installed on this system");
+    auto hl = KateXmlReader::load(path);
+    QVERIFY(hl);
+
+    const QStringList lines = {
+        QStringLiteral("# comment"), QStringLiteral("---"),
+        QStringLiteral("Language: Cpp"), QStringLiteral("BraceWrapping: "),
+        QStringLiteral("  AfterClass: false"), QStringLiteral("IndentWidth: 4"),
+    };
+    qce::HighlightState s = hl->initialState();
+    for (const QString& line : lines) {
+        qce::HighlightState sOut;
+        QVector<qce::StyleSpan> spans;
+        hl->highlightLine(line, s, spans, sOut);
+        QVERIFY2(!spans.isEmpty(), qPrintable(line));
+        s = sOut;
+    }
+
+    // The key and the value are highlighted differently
+    qce::HighlightState sOut;
+    QVector<qce::StyleSpan> spans;
+    hl->highlightLine(QStringLiteral("Language: Cpp"), hl->initialState(), spans, sOut);
+    auto attrAt = [&](int col) {
+        for (const auto& sp : spans)
+            if (sp.start <= col && col < sp.start + sp.length) return sp.attributeId;
+        return -1;
+    };
+    QVERIFY(attrAt(0) != attrAt(10));
 }
 
 // ---------------------------------------------------------------------------

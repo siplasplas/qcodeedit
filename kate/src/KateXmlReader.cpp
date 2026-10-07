@@ -186,9 +186,10 @@ static bool attrBool(const QMap<QString, QString>& a, const QString& key,
     return v == QLatin1String("1") || v == QLatin1String("true");
 }
 
+// "#pop#pop!A!B" = pop twice, then push A and B (B ends up on top).
 struct ContextSwitch {
     int popCount = 0;
-    QString pushName;
+    QStringList pushNames;
 };
 static ContextSwitch parseContextSwitch(const QString& raw) {
     ContextSwitch r;
@@ -198,9 +199,10 @@ static ContextSwitch parseContextSwitch(const QString& raw) {
         ++r.popCount;
         rest.remove(0, 4);
     }
-    if (rest.startsWith(QLatin1Char('!'))) rest.remove(0, 1);
-    rest = rest.trimmed();
-    if (!rest.isEmpty()) r.pushName = rest;
+    for (const QString& name : rest.split(QLatin1Char('!'), Qt::SkipEmptyParts)) {
+        const QString n = name.trimmed();
+        if (!n.isEmpty()) r.pushNames.push_back(n);
+    }
     return r;
 }
 
@@ -469,6 +471,24 @@ private:
         auto resolveCtxLocal = [&](const QString& n) -> int {
             return n.isEmpty() ? -1 : resolved.ctxByName.value(n, -1);
         };
+        // Split a switch's pushes into the contexts pushed first (`extra`)
+        // and the one that ends up on top (returned).
+        auto resolvePushes = [&](const ContextSwitch& sw, QVector<int>& extra) -> int {
+            extra.clear();
+            int top = -1;
+            for (const QString& n : sw.pushNames) {
+                const int id = resolveCtxLocal(n);
+                if (id < 0) {
+                    // Cross-language switches (Ctx##Lang) are not supported
+                    if (!n.contains(QLatin1String("##")))
+                        qWarning() << "KateXmlReader: context not found:" << n;
+                    continue;
+                }
+                if (top >= 0) extra.push_back(top);
+                top = id;
+            }
+            return top;
+        };
 
         // Step 4: fill context rules.
         // IMPORTANT: ensureLoaded() called for cross-language ## references may
@@ -481,9 +501,11 @@ private:
             int                     defaultAttribute;
             int                     lineEndPopCount;
             int                     lineEndNextContext;
+            QVector<int>            lineEndExtraPushContextIds;
             bool                    fallthrough;
             int                     fallthroughPopCount;
             int                     fallthroughContext;
+            QVector<int>            fallthroughExtraPushContextIds;
             QVector<HighlightRule>  rules;
         };
         QVector<PendingCtx> pending;
@@ -497,15 +519,15 @@ private:
             pc.ctxId                = ctxId;
             pc.defaultAttribute     = resolveAttr(rc.attribute);
             pc.lineEndPopCount      = leSw.popCount;
-            pc.lineEndNextContext    = resolveCtxLocal(leSw.pushName);
+            pc.lineEndNextContext    = resolvePushes(leSw, pc.lineEndExtraPushContextIds);
             // In Kate's format, having a non-trivial fallthroughContext (any pop
             // or a named push) implicitly enables fallthrough even without an
             // explicit fallthrough="1" attribute.
             pc.fallthrough          = rc.fallthrough
                                       || ftSw.popCount > 0
-                                      || !ftSw.pushName.isEmpty();
+                                      || !ftSw.pushNames.isEmpty();
             pc.fallthroughPopCount  = ftSw.popCount;
-            pc.fallthroughContext   = resolveCtxLocal(ftSw.pushName);
+            pc.fallthroughContext   = resolvePushes(ftSw, pc.fallthroughExtraPushContextIds);
 
             for (const RawRule& rr : rc.rules) {
                 HighlightRule hr;
@@ -514,7 +536,7 @@ private:
                     parseContextSwitch(rr.attrs.value(QStringLiteral("context")));
                 hr.attributeId   = attr;
                 hr.popCount      = sw.popCount;
-                hr.nextContextId = resolveCtxLocal(sw.pushName);
+                hr.nextContextId = resolvePushes(sw, hr.extraPushContextIds);
                 hr.lookAhead     = attrBool(rr.attrs, QStringLiteral("lookAhead"));
                 hr.firstNonSpace = attrBool(rr.attrs, QStringLiteral("firstNonSpace"));
                 hr.dynamic       = attrBool(rr.attrs, QStringLiteral("dynamic"));
@@ -649,9 +671,11 @@ private:
             hc.defaultAttribute      = pc.defaultAttribute;
             hc.lineEndPopCount       = pc.lineEndPopCount;
             hc.lineEndNextContext    = pc.lineEndNextContext;
+            hc.lineEndExtraPushContextIds = std::move(pc.lineEndExtraPushContextIds);
             hc.fallthrough           = pc.fallthrough;
             hc.fallthroughPopCount   = pc.fallthroughPopCount;
             hc.fallthroughContext    = pc.fallthroughContext;
+            hc.fallthroughExtraPushContextIds = std::move(pc.fallthroughExtraPushContextIds);
             hc.rules                 = std::move(pc.rules);
         }
     }

@@ -517,6 +517,13 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
         stateOut.contextStack.push_back(ctxId);
         stateOut.captureStack.push_back(caps);
     };
+    // Kate's "#pop…!A!B!C": pop, then push A, B and finally C (= next).
+    auto switchCtx = [&](int popCount, const QVector<int>& extra, int next,
+                         const QStringList& caps) {
+        popCtx(popCount);
+        for (int id : extra) pushCtx(id, caps);
+        if (next >= 0) pushCtx(next, caps);
+    };
 
     const int firstNonWs = firstNonSpacePos(line);
 
@@ -524,6 +531,13 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
 
     int pos = 0;
     int fallthroughDepth = 0;  // guard against infinite fallthrough chains
+    // Context switches that consume nothing (lookAhead rules, fallthrough)
+    // since pos last advanced. A definition that cycles through contexts
+    // without consuming (or a switch this engine doesn't fully support)
+    // would otherwise hang the editor; past the limit the character is
+    // emitted with the default attribute, as when no rule matches.
+    int stalledSteps = 0;
+    constexpr int kMaxStalledSteps = 64;
     while (pos < line.size()) {
         const int ctxId = stateOut.contextStack.last();
         if (ctxId < 0 || ctxId >= m_contexts.size()) break;
@@ -559,7 +573,8 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
             }
             return false;
         };
-        tryContext(ctx, tryContext);
+        if (stalledSteps < kMaxStalledSteps)
+            tryContext(ctx, tryContext);
 
         if (matched) {
             fallthroughDepth = 0;
@@ -575,28 +590,29 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
             if (!matched->lookAhead) {
                 emitSpan(spans, pos, matchedLen, attr);
                 pos += matchedLen;
+                stalledSteps = 0;
+            } else {
+                ++stalledSteps;
             }
             // Context switch: pop then push. Push carries the captures from
             // the triggering regex (empty for non-regex rules — matchAt
             // clears regexCaps for those).
-            popCtx(matched->popCount);
-            if (matched->nextContextId >= 0) {
-                pushCtx(matched->nextContextId,
-                        (matched->kind == HighlightRule::RegExpr) ? regexCaps : QStringList());
-            }
+            switchCtx(matched->popCount, matched->extraPushContextIds, matched->nextContextId,
+                      (matched->kind == HighlightRule::RegExpr) ? regexCaps : QStringList());
         } else if (ctx.fallthrough
                    && (ctx.fallthroughContext >= 0 || ctx.fallthroughPopCount > 0)
-                   && fallthroughDepth < 16) {
+                   && fallthroughDepth < 16 && stalledSteps < kMaxStalledSteps) {
             // No rule matched — try the fallthrough context without consuming
             // the character. Guard against infinite chains via depth counter.
             ++fallthroughDepth;
-            popCtx(ctx.fallthroughPopCount);
-            if (ctx.fallthroughContext >= 0)
-                pushCtx(ctx.fallthroughContext, QStringList());
+            ++stalledSteps;
+            switchCtx(ctx.fallthroughPopCount, ctx.fallthroughExtraPushContextIds,
+                      ctx.fallthroughContext, QStringList());
         } else {
             // No rule matched — emit one character with default attribute
             // and advance. This prevents infinite loops.
             fallthroughDepth = 0;
+            stalledSteps = 0;
             emitSpan(spans, pos, 1, ctx.defaultAttribute);
             ++pos;
         }
@@ -608,10 +624,8 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
         const int ctxId = stateOut.contextStack.last();
         if (ctxId >= 0 && ctxId < m_contexts.size()) {
             const HighlightContext& ctx = m_contexts[ctxId];
-            popCtx(ctx.lineEndPopCount);
-            if (ctx.lineEndNextContext >= 0) {
-                pushCtx(ctx.lineEndNextContext, QStringList());
-            }
+            switchCtx(ctx.lineEndPopCount, ctx.lineEndExtraPushContextIds,
+                      ctx.lineEndNextContext, QStringList());
         }
     }
 }

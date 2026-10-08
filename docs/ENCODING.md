@@ -39,6 +39,25 @@ takes `toPlainText()` and adds it back. `FileFormat` keeps `encoding`, `bom`,
 for byte. Without the guard, `encode()` fails and lists the characters the
 encoding cannot store (or writes `?` for them when asked).
 
+## Line breaks
+
+`decode()` turns LF, CRLF and CR (classic Mac) line breaks into `\n`.
+`FileFormat` records the most frequent kind (`crlf`, `cr`, otherwise LF) and
+whether the file mixed several kinds (`mixedLineBreaks`); `encode()` writes the
+most frequent kind for every line. Applications show this information (e.g. in
+their status bar) in their own words.
+
+## Language
+
+`detectLanguage(bytes)` guesses the natural language with cpg's models (code
+`"pl"`, name `"Polish"`). It costs some milliseconds per 100 KB, about as much
+as showing the file, plus loading the models once (about 25 ms), so editors
+call `detectLanguageAsync(bytes, this, callback)` after the file is shown; the
+callback runs in the receiver's thread, and not at all if it was destroyed.
+`preloadDetectionData()` at startup loads the models in the background, so the
+first file with non-ASCII text does not wait for them.
+Source code usually comes out as English.
+
 ## Exact conversion
 
 Applications that keep line breaks themselves, such as a diff tool that

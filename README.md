@@ -51,7 +51,9 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
   and the final line break as read. Text the code page cannot store asks
   whether to write `?` or switch the document to UTF-8. Since 1.9.0
   `decodeExact()` / `encodeExact()` convert without touching line breaks, for
-  tools that keep mixed LF/CRLF themselves (see
+  tools that keep mixed LF/CRLF themselves. Since 1.10.0 CR (classic Mac)
+  line breaks are split into lines too, mixed line breaks are reported, and
+  `detectLanguageAsync()` guesses the text's language in the background (see
   [docs/ENCODING.md](docs/ENCODING.md))
 
 ## Design

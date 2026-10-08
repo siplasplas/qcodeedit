@@ -100,6 +100,44 @@ private slots:
         QCOMPARE(e.bytes, bytes);
     }
 
+    void lineBreakKinds() {
+        const DecodeResult mac = decode(QByteArray("one\rtwo\r"));
+        QVERIFY(mac.format.cr && !mac.format.crlf && !mac.format.mixedLineBreaks);
+        QCOMPARE(mac.text, QStringLiteral("one\ntwo\n"));
+        SimpleTextDocument doc;
+        doc.setText(mac.text);
+        QCOMPARE(doc.lineCount(), 2);
+        QCOMPARE(encode(doc.toPlainText(), mac.format).bytes, QByteArray("one\rtwo\r"));
+
+        // Mixed: reported, and saved with the most frequent kind (CRLF here).
+        const DecodeResult mixed = decode(QByteArray("a\r\nb\r\nc\nd\re\r\n"));
+        QVERIFY(mixed.format.mixedLineBreaks && mixed.format.crlf && !mixed.format.cr);
+        doc.setText(mixed.text);
+        QCOMPARE(doc.lineCount(), 5);
+        QCOMPARE(encode(doc.toPlainText(), mixed.format).bytes, QByteArray("a\r\nb\r\nc\r\nd\r\ne\r\n"));
+
+        const FileFormat windows = decode(QByteArray("x\r\n")).format;
+        QVERIFY(windows.crlf && !windows.cr && !windows.mixedLineBreaks);
+        const FileFormat unix = decode(QByteArray("x\n")).format;
+        QVERIFY(!unix.crlf && !unix.cr && !unix.mixedLineBreaks);
+    }
+
+    void detectsLanguage() {
+        preloadDetectionData(); // detection below waits for it if still loading
+        const Language polish = detectLanguage(kPolishCp1250);
+        QCOMPARE(polish.code, QStringLiteral("pl"));
+        QCOMPARE(polish.name, QStringLiteral("Polish"));
+        QCOMPARE(detectLanguage(kPolish.toUtf8()).code, QStringLiteral("pl"));
+        QVERIFY(detectLanguage(QByteArray()).code.isEmpty());
+
+        QObject context;
+        Language async;
+        bool called = false;
+        detectLanguageAsync(kPolishCp1250, &context, [&](const Language& l) { async = l; called = true; });
+        QTRY_VERIFY(called);
+        QCOMPARE(async.code, QStringLiteral("pl"));
+    }
+
     // decodeExact() / encodeExact() keep every line break as it is.
     void exactKeepsMixedLineBreaks() {
         const QByteArray bytes("a\r\nb\nc\rd\xEA\r\n");

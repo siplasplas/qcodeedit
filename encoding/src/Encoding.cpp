@@ -8,7 +8,10 @@
 
 #include <QFileInfo>
 #include <QLocale>
+#include <QObject>
+#include <QPointer>
 #include <QSet>
+#include <QThreadPool>
 
 #include <exception>
 #include <memory>
@@ -121,6 +124,13 @@ void setFallbackEncoding(const QString& encoding) {
     cpg().fallback = encoding;
 }
 
+void preloadDetectionData() {
+    QThreadPool::globalInstance()->start([] {
+        std::lock_guard lock(cpg().mutex);
+        cpg().loadDetection();
+    });
+}
+
 void setDetectionData(const QString& languagesFile, const QString& modelsDir) {
     std::lock_guard lock(cpg().mutex);
     Cpg& c = cpg();
@@ -186,8 +196,21 @@ DecodeResult decodeExact(const QByteArray& bytes, const QString& encoding) {
     }
 
     result.text = fromUtf8(converted.output);
-    result.format.crlf = result.text.contains(QLatin1String("\r\n"));
-    result.format.finalNewline = result.text.endsWith(QLatin1Char('\n'));
+    // Count each kind of line break; the most frequent one is written back.
+    qsizetype crlf = 0, cr = 0, lf = 0;
+    const QString& t = result.text;
+    for (qsizetype i = 0; i < t.size(); ++i) {
+        if (t[i] == QLatin1Char('\r')) {
+            if (i + 1 < t.size() && t[i + 1] == QLatin1Char('\n')) { ++crlf; ++i; }
+            else ++cr;
+        } else if (t[i] == QLatin1Char('\n')) {
+            ++lf;
+        }
+    }
+    result.format.crlf = crlf > 0 && crlf >= lf && crlf >= cr;
+    result.format.cr = !result.format.crlf && cr > lf;
+    result.format.mixedLineBreaks = (crlf > 0) + (cr > 0) + (lf > 0) > 1;
+    result.format.finalNewline = t.endsWith(QLatin1Char('\n')) || t.endsWith(QLatin1Char('\r'));
     result.ok = true;
     return result;
 }
@@ -196,9 +219,46 @@ DecodeResult decode(const QByteArray& bytes, const QString& encoding) {
     DecodeResult result = decodeExact(bytes, encoding);
     // "\n" line breaks only. The final line break stays in the text:
     // SimpleTextDocument::setText() drops it, and encode() adds it back.
-    if (result.ok && result.format.crlf)
+    if (result.ok) {
         result.text.replace(QLatin1String("\r\n"), QLatin1String("\n"));
+        result.text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+    }
     return result;
+}
+
+Language detectLanguage(const QByteArray& bytes) {
+    Language result;
+    if (bytes.isEmpty()) return result;
+    std::lock_guard lock(cpg().mutex);
+    Cpg& c = cpg();
+    c.loadDetection();
+    if (!c.detector || !c.model) return result;
+    try {
+        const auto candidates = c.detector->detectCodepage(
+            std::string_view(bytes.constData(), size_t(bytes.size())));
+        for (const DetectionResult& candidate : candidates) {
+            if (candidate.language.empty()) continue;
+            result.code = QString::fromStdString(candidate.language);
+            if (const auto* language = c.languages->getByIsoCode(candidate.language))
+                result.name = QString::fromStdString(language->name);
+            break;
+        }
+    } catch (const std::exception&) {
+        result = {};
+    }
+    return result;
+}
+
+void detectLanguageAsync(const QByteArray& bytes, QObject* context,
+                         std::function<void(const Language&)> done) {
+    QPointer<QObject> receiver(context);
+    QThreadPool::globalInstance()->start([bytes, receiver, done = std::move(done)]() {
+        const Language language = detectLanguage(bytes);
+        if (!receiver) return;
+        QMetaObject::invokeMethod(receiver, [receiver, done, language]() {
+            if (receiver) done(language);
+        }, Qt::QueuedConnection);
+    });
 }
 
 EncodeResult encodeExact(const QString& text, const QString& encoding, bool bom, bool replace) {
@@ -222,7 +282,8 @@ EncodeResult encodeExact(const QString& text, const QString& encoding, bool bom,
 EncodeResult encode(const QString& text, const FileFormat& format, bool replace) {
     QString full = text;
     if (format.finalNewline) full += QLatin1Char('\n');
-    if (format.crlf) full.replace(QLatin1Char('\n'), QLatin1String("\r\n"));
+    if (format.cr) full.replace(QLatin1Char('\n'), QLatin1Char('\r'));
+    else if (format.crlf) full.replace(QLatin1Char('\n'), QLatin1String("\r\n"));
     return encodeExact(full, format.encoding, format.bom, replace);
 }
 

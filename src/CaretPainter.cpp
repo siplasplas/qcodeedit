@@ -53,7 +53,7 @@ void CaretPainter::onTimerTick() {
 }
 
 void CaretPainter::paint(QPainter& painter,
-                          const TextCursor& cursor,
+                          const TextCursor& /*cursor*/,
                           int visualCol,
                           int visualRow,
                           const ViewportState& vp,

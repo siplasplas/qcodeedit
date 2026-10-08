@@ -38,10 +38,10 @@ namespace qce {
 CodeEditArea::CodeEditArea(QWidget* parent)
     : QAbstractScrollArea(parent),
       m_renderer(std::make_unique<LineRenderer>()),
+      m_wrapLayout(std::make_unique<WrapLayout>()),
       m_cursorCtrl(std::make_unique<CursorController>(nullptr)),
       m_caretPainter(std::make_unique<CaretPainter>(this)),
-      m_undoStack(new QUndoStack(this)),
-      m_wrapLayout(std::make_unique<WrapLayout>()) {
+      m_undoStack(new QUndoStack(this)) {
     QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     const QStringList families = QFontDatabase::families();
     f.setStyleHint(QFont::TypeWriter);

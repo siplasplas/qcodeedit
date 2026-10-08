@@ -32,10 +32,12 @@ if (guard->encodeForSave(doc->toPlainText(), &out))
     write(out);
 ```
 
-`decode()` returns the text with `\n` line breaks and without BOM and final
-line break; `FileFormat` keeps `encoding`, `bom`, `crlf` and `finalNewline`,
-and `encode()` restores them. Without the guard, `encode()` fails and lists
-the characters the encoding cannot store (or writes `?` for them when asked).
+`decode()` returns the text with `\n` line breaks and without BOM, ready for
+`SimpleTextDocument::setText()`, which drops a final line break; `encode()`
+takes `toPlainText()` and adds it back. `FileFormat` keeps `encoding`, `bom`,
+`crlf` and `finalNewline`, so a file such as `one\r\n\r\n` is written back byte
+for byte. Without the guard, `encode()` fails and lists the characters the
+encoding cannot store (or writes `?` for them when asked).
 
 ## Characters outside the code page
 

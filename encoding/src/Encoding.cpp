@@ -188,8 +188,9 @@ DecodeResult decode(const QByteArray& bytes, const QString& encoding) {
     QString text = fromUtf8(converted.output);
     result.format.crlf = text.contains(QLatin1String("\r\n"));
     if (result.format.crlf) text.replace(QLatin1String("\r\n"), QLatin1String("\n"));
+    // The final line break stays in the text: SimpleTextDocument::setText()
+    // drops it, and encode() adds it back to the document text.
     result.format.finalNewline = text.endsWith(QLatin1Char('\n'));
-    if (result.format.finalNewline) text.chop(1);
 
     result.ok = true;
     result.text = std::move(text);

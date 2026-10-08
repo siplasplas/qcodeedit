@@ -23,7 +23,10 @@ struct FileFormat {
 
 struct DecodeResult {
     bool ok = false;
-    QString text;    ///< "\n" line breaks, without BOM and final line break
+    /// The content with "\n" line breaks and without BOM, for
+    /// SimpleTextDocument::setText(). A final line break is still there
+    /// (setText() drops it; encode() adds it back to toPlainText()).
+    QString text;
     FileFormat format;
     QString error;   ///< set when !ok
 };
@@ -44,9 +47,10 @@ struct EncodeResult {
     QList<char32_t> unrepresentable;
 };
 
-/// Encodes `text` for saving in `format`, restoring CRLF, BOM and the final
-/// line break. Fails, listing the characters, when the encoding cannot store
-/// some of them; with `replaceUnrepresentable` writes '?' for each instead.
+/// Encodes the document text (SimpleTextDocument::toPlainText(), without a
+/// final line break) for saving in `format`, restoring CRLF, BOM and the
+/// final line break. Fails, listing the characters, when the encoding cannot
+/// store some of them; with `replaceUnrepresentable` writes '?' for each.
 EncodeResult encode(const QString& text, const FileFormat& format,
                     bool replaceUnrepresentable = false);
 

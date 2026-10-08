@@ -63,18 +63,41 @@ private slots:
     void decodeExplicitCodePage() {
         const DecodeResult r = decode(kPolishCp1250, QStringLiteral("cp1250"));
         QVERIFY(r.ok);
-        QCOMPARE(r.text, kPolish);
+        QCOMPARE(r.text, kPolish + QLatin1Char('\n'));
         QCOMPARE(r.format.encoding, QStringLiteral("cp1250"));
         QVERIFY(r.format.crlf);
         QVERIFY(r.format.finalNewline);
         QVERIFY(!r.format.bom);
     }
 
-    void roundTripRestoresBytes() {
-        const DecodeResult r = decode(kPolishCp1250, QStringLiteral("cp1250"));
-        const EncodeResult e = encode(r.text, r.format);
+    // decode() -> SimpleTextDocument -> encode() gives the file back byte for
+    // byte, including empty last lines and a missing final line break.
+    void roundTripThroughDocument_data() {
+        QTest::addColumn<QByteArray>("bytes");
+        QTest::addColumn<QString>("encoding");
+        QTest::newRow("cp1250 crlf") << kPolishCp1250 << QStringLiteral("cp1250");
+        QTest::newRow("lf") << QByteArray("one\ntwo\n") << QString();
+        QTest::newRow("crlf") << QByteArray("one\r\ntwo\r\n") << QString();
+        QTest::newRow("no final newline") << QByteArray("one\ntwo") << QString();
+        QTest::newRow("empty last line") << QByteArray("one\n\n") << QString();
+        QTest::newRow("empty last line crlf") << QByteArray("one\r\n\r\n") << QString();
+        QTest::newRow("empty") << QByteArray() << QString();
+        QTest::newRow("newline only") << QByteArray("\n") << QString();
+        QTest::newRow("two newlines") << QByteArray("\n\n") << QString();
+        QTest::newRow("utf8 bom") << QByteArray("\xEF\xBB\xBFza\xC5\xBC\n") << QString();
+        QTest::newRow("latin1") << QByteArray("caf\xE9 \xFF\n") << QStringLiteral("iso-8859-1");
+    }
+
+    void roundTripThroughDocument() {
+        QFETCH(QByteArray, bytes);
+        QFETCH(QString, encoding);
+        const DecodeResult r = decode(bytes, encoding);
+        QVERIFY(r.ok);
+        SimpleTextDocument doc;
+        doc.setText(r.text);
+        const EncodeResult e = encode(doc.toPlainText(), r.format);
         QVERIFY(e.ok);
-        QCOMPARE(e.bytes, kPolishCp1250);
+        QCOMPARE(e.bytes, bytes);
     }
 
     void detectsPolishCp1250() {
@@ -83,7 +106,7 @@ private slots:
         const DecodeResult r = decode(kPolishCp1250);
         QVERIFY(r.ok);
         QCOMPARE(r.format.encoding, QStringLiteral("cp1250"));
-        QCOMPARE(r.text, kPolish);
+        QCOMPARE(r.text, kPolish + QLatin1Char('\n'));
     }
 
     void detectsUtf8AndAscii() {
@@ -96,8 +119,9 @@ private slots:
         const DecodeResult r = decode(QByteArray("\xEF\xBB\xBFzażółć\n"), QStringLiteral("utf8"));
         QVERIFY(r.ok);
         QVERIFY(r.format.bom);
-        QCOMPARE(r.text, QStringLiteral("zażółć"));
-        QCOMPARE(encode(r.text, r.format).bytes, QByteArray("\xEF\xBB\xBFzażółć\n"));
+        QCOMPARE(r.text, QStringLiteral("zażółć\n"));
+        QCOMPARE(encode(QStringLiteral("zażółć"), r.format).bytes,
+                 QByteArray("\xEF\xBB\xBFzażółć\n"));
     }
 
     void invalidBytesFailForExplicitEncoding() {

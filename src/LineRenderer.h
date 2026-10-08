@@ -38,9 +38,15 @@ public:
 
     LineRenderer() = default;
 
+    /// Height of one text row for `font`. The single source of the row height:
+    /// CodeEditArea's viewport state and scroll ranges both use it.
+    static int lineHeightFor(const QFont& font);
+
     struct BackgroundBand { int offset; int height; int baseline; };
     /// Row-aligned background with text baseline centered on capital ink.
-    /// Integral padding above/below the ink stays symmetric.
+    /// Integral padding above/below the ink stays symmetric, except that the
+    /// baseline is kept within [ascent, lineHeight - descent] so glyphs never
+    /// leave the row (in a tight row the baseline is the ascent).
     static BackgroundBand backgroundBand(const QFont& font, int lineHeight);
 
     /// Sets the font used for drawing. Caller is responsible for setting the

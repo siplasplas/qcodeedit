@@ -10,11 +10,25 @@
 
 namespace qce {
 
+int LineRenderer::lineHeightFor(const QFont& font) {
+    // Tight rows: ascent + descent, no extra leading. backgroundBand() keeps
+    // the glyphs inside the row for any height >= this.
+    return QFontMetrics(font).height();
+}
+
 LineRenderer::BackgroundBand LineRenderer::backgroundBand(const QFont& font, int lineHeight) {
     const QFontMetrics fm(font);
     const QRect bounds = fm.tightBoundingRect(QStringLiteral("L"));
     const int padding = qMax(0, (lineHeight - bounds.height()) / 2);
-    return {0, bounds.height() + 2 * padding, padding - bounds.top()};
+    // Center the baseline on capital ink, but keep the whole text box
+    // (ascent above, descent below the baseline) inside the row so that
+    // descenders and accents are never covered by the next/previous row's
+    // background. With spare height this changes nothing; in a tight row
+    // (lineHeight == ascent + descent) the baseline lands on the ascent.
+    int baseline = padding - bounds.top();
+    const int lowest = lineHeight - fm.descent();
+    baseline = (lowest >= fm.ascent()) ? qBound(fm.ascent(), baseline, lowest) : fm.ascent();
+    return {0, bounds.height() + 2 * padding, baseline};
 }
 
 void LineRenderer::paint(QPainter& painter,
@@ -108,12 +122,9 @@ void LineRenderer::drawFoldPlaceholder(QPainter& painter, const QString& text,
     const int pad = 3;
     const int textW = fm.horizontalAdvance(text);
     const int w = textW + 2 * pad;
-    // Some glyphs ('{', 'y', 'g') extend a couple of pixels below what
-    // fm.height() reports; pad the box a bit so the border doesn't clip
-    // them. A small overshoot into the next line's space is acceptable
-    // (placeholders are rare and transient).
-    const int extraBot = 2;
-    const QRect r(x, topY, w, lineHeight + extraBot);
+    // The box fills the row; backgroundBand() keeps the glyphs inside it.
+    // adjusted(): a 1-px pen draws one pixel right of and below the rect.
+    const QRect r = QRect(x, topY, w, lineHeight).adjusted(0, 0, -1, -1);
 
     painter.save();
     QColor bg = painter.pen().color();

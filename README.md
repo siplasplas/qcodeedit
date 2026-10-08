@@ -14,6 +14,9 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
 - `cursorPositionChanged` signal for status-bar wiring
 - Configurable tab width (default 4 spaces)
 - Horizontal + vertical scroll, with state published via `ViewportState`
+- Compact rows: the row height is the font's ascent + descent (no extra
+  leading), and glyphs are always kept inside their row, so backgrounds of
+  neighbouring rows never cover descenders or accents
 - Large files open at once: syntax highlighting of documents over 5000 lines
   runs lazily (visible lines first, the rest in the background), and fold
   regions are rebuilt from markers collected while highlighting

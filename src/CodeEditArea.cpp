@@ -927,7 +927,7 @@ int CodeEditArea::takePendingRehighlight(int startLine) {
 
 void CodeEditArea::refreshViewportState() {
     const QFontMetrics fm(font());
-    const int lineHeight = qRound(fm.height() * (4.0 / 3.0));
+    const int lineHeight = LineRenderer::lineHeightFor(font());
     const int charWidth  = fm.horizontalAdvance(QLatin1Char('M'));
     const int vpW = viewport()->width();
     const int vpH = viewport()->height();
@@ -999,7 +999,7 @@ void CodeEditArea::refreshViewportState() {
 
 void CodeEditArea::updateScrollBarRanges() {
     const QFontMetrics fm(font());
-    const int lineHeight = qRound(fm.height() * (4.0 / 3.0));
+    const int lineHeight = LineRenderer::lineHeightFor(font());
     const int charWidth  = fm.horizontalAdvance(QLatin1Char('M'));
     const int vpH = viewport()->height();
     const int vpW = viewport()->width();
@@ -1557,7 +1557,9 @@ void CodeEditArea::paintPreedit(QPainter& painter) {
     painter.setFont(font());
     const int baselineY = topY + LineRenderer::backgroundBand(font(), vp.lineHeight).baseline;
     painter.drawText(x, baselineY, m_preedit);
-    painter.drawLine(x, baselineY + 2, x + width - 1, baselineY + 2);
+    // Underline just below the baseline, but inside the (possibly tight) row.
+    const int underlineY = qMin(baselineY + 2, topY + vp.lineHeight - 1);
+    painter.drawLine(x, underlineY, x + width - 1, underlineY);
 }
 
 void CodeEditArea::paintSelection(QPainter& painter) {

@@ -1,5 +1,6 @@
 #include <QtTest>
 #include "LineRenderer.h"
+#include <QFontDatabase>
 #include <QScrollBar>
 #include <QUndoStack>
 #include <qce/CodeEditArea.h>
@@ -45,11 +46,25 @@ class TestExtraSelections : public QObject {
         area.viewport()->render(&result);
         return result;
     }
-    // Sample the bottom of the centered background band, below the glyphs.
-    static QColor cell(const QImage& image, const ViewportState& vp, int col, int row = 0) {
+    // Background of a character cell: the most frequent colour inside the
+    // cell's band. Glyph ink covers a minority of the cell, so the result does
+    // not depend on where the glyphs reach (tight rows leave no free pixel
+    // row below them).
+    static QColor cellAt(const QImage& image, const ViewportState& vp, int x, int row) {
         const auto band = LineRenderer::backgroundBand(renderFont, vp.lineHeight);
-        return image.pixelColor(4 + col * vp.charWidth + vp.charWidth / 2,
-                                row * vp.lineHeight + band.offset + band.height - 2);
+        QHash<QRgb, int> counts;
+        const int top = row * vp.lineHeight + band.offset;
+        for (int y = top; y < top + band.height; ++y)
+            for (int px = x; px < x + vp.charWidth; ++px)
+                ++counts[image.pixel(px, y)];
+        QRgb best = 0;
+        int bestCount = -1;
+        for (auto it = counts.cbegin(); it != counts.cend(); ++it)
+            if (it.value() > bestCount) { best = it.key(); bestCount = it.value(); }
+        return QColor::fromRgba(best);
+    }
+    static QColor cell(const QImage& image, const ViewportState& vp, int col, int row = 0) {
+        return cellAt(image, vp, 4 + col * vp.charWidth, row);
     }
     static void show(CodeEditArea& area) {
         area.resize(340, 180);
@@ -226,9 +241,7 @@ private slots:
         area.horizontalScrollBar()->setValue(2);
         vp = area.viewportState();
         image = render(area);
-        QCOMPARE(image.pixelColor(4 + 3 * vp.charWidth - vp.contentOffsetX,
-                                   LineRenderer::backgroundBand(area.font(), vp.lineHeight).offset
-                                   + LineRenderer::backgroundBand(area.font(), vp.lineHeight).height - 2), QColor(Qt::yellow));
+        QCOMPARE(cellAt(image, vp, 4 + 3 * vp.charWidth - vp.contentOffsetX, 0), QColor(Qt::yellow));
         area.setWordWrap(true);
         area.resize(125, 250);
         QCoreApplication::processEvents();
@@ -272,7 +285,10 @@ private slots:
             const int baseline = band.baseline;
             const int above = baseline + ink.top() - band.offset;
             const int below = band.offset + band.height - (baseline + ink.bottom() + 1);
-            QCOMPARE(above, below);
+            // Symmetric unless the baseline had to move to keep ascent/descent
+            // inside the row (see glyphBoxStaysInsideRow).
+            const int padding = (vp.lineHeight - ink.height()) / 2;
+            if (baseline == padding - ink.top()) QCOMPARE(above, below);
             QCOMPARE(band.offset, 0);
             QVERIFY(band.height >= vp.lineHeight - 1);
             // Actual capital glyphs are centered in their own row, not at its top.
@@ -289,6 +305,39 @@ private slots:
             QCOMPARE(firstInk - vp.lineHeight, above);
             QCOMPARE(vp.lineHeight + band.height - lastInk - 1, below);
         }
+    }
+
+    // For any row height >= LineRenderer::lineHeightFor() the text box
+    // (ascent above, descent below the baseline) stays inside the row, so the
+    // neighbouring rows' backgrounds never cover descenders or accents. When
+    // the capital-centred baseline already fits, it is kept unchanged.
+    void glyphBoxStaysInsideRow() {
+        QStringList families{QStringLiteral("monospace")};
+        for (const QString& f : {QStringLiteral("DejaVu Sans Mono"), QStringLiteral("Liberation Mono"),
+                                 QStringLiteral("Noto Sans Mono"), QStringLiteral("Ubuntu Mono")})
+            if (QFontDatabase::families().contains(f)) families << f;
+        int checked = 0;
+        for (const QString& family : families) {
+            for (double pt : {8.0, 9.0, 10.0, 11.0, 12.0, 14.0, 18.0}) {
+                QFont font(family);
+                font.setPointSizeF(pt);
+                const QFontMetrics fm(font);
+                const QRect cap = fm.tightBoundingRect(QStringLiteral("L"));
+                const int tight = LineRenderer::lineHeightFor(font);
+                QCOMPARE(tight, fm.ascent() + fm.descent());
+                for (int lh : {tight, tight + 2, qRound(tight * 1.15), qRound(tight * 4.0 / 3.0)}) {
+                    const auto band = LineRenderer::backgroundBand(font, lh);
+                    const QString what = QStringLiteral("%1 %2pt row %3").arg(family).arg(pt).arg(lh);
+                    QVERIFY2(band.baseline - fm.ascent() >= 0, qPrintable(what + QStringLiteral(": ascent above row")));
+                    QVERIFY2(band.baseline + fm.descent() <= lh, qPrintable(what + QStringLiteral(": descent below row")));
+                    const int centred = qMax(0, (lh - cap.height()) / 2) - cap.top();
+                    if (centred >= fm.ascent() && centred + fm.descent() <= lh)
+                        QCOMPARE(band.baseline, centred);
+                    ++checked;
+                }
+            }
+        }
+        QVERIFY(checked > 0);
     }
 
     void bulkRangesAndInvalidColorPriority() {

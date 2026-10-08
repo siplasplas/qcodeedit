@@ -1,6 +1,7 @@
 #include "CursorController.h"
 
 #include <qce/ITextDocument.h>
+#include <qce/WordBoundary.h>
 
 #include <algorithm>
 
@@ -111,13 +112,7 @@ TextCursor CursorController::moveWordLeft(TextCursor c) const {
         c.column = lineLength(c.line);
         return c;
     }
-    const QString line = m_doc->lineAt(c.line);
-    int col = c.column;
-    // Skip whitespace to the left.
-    while (col > 0 && line.at(col - 1).isSpace()) --col;
-    // Skip non-whitespace to the left.
-    while (col > 0 && !line.at(col - 1).isSpace()) --col;
-    c.column = col;
+    c.column = words::previousWordStop(m_doc->lineAt(c.line), c.column);
     return c;
 }
 
@@ -131,13 +126,7 @@ TextCursor CursorController::moveWordRight(TextCursor c) const {
         c.column = 0;
         return c;
     }
-    const QString line = m_doc->lineAt(c.line);
-    int col = c.column;
-    // Skip non-whitespace to the right.
-    while (col < len && !line.at(col).isSpace()) ++col;
-    // Skip whitespace to the right.
-    while (col < len && line.at(col).isSpace()) ++col;
-    c.column = col;
+    c.column = words::nextWordStop(m_doc->lineAt(c.line), c.column);
     return c;
 }
 

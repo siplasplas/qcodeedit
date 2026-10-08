@@ -396,6 +396,61 @@ private slots:
         QTest::keyClick(&area, Qt::Key_Left);
         QCOMPARE(area.cursorPosition(), (TextCursor{0, 2}));
     }
+
+    void ctrlArrows_stopAtWordsAndPunctuation() {
+        SimpleTextDocument doc;
+        doc.setText(QStringLiteral("obj.method(x)"));
+        CodeEditArea area;
+        area.setDocument(&doc);
+        activate(&area);
+
+        const int expected[] = {3, 4, 10, 11, 12, 13};
+        for (int col : expected) {
+            QTest::keyClick(&area, Qt::Key_Right, Qt::ControlModifier);
+            QCOMPARE(area.cursorPosition(), (TextCursor{0, col}));
+        }
+        QTest::keyClick(&area, Qt::Key_Left, Qt::ControlModifier);
+        QCOMPARE(area.cursorPosition(), (TextCursor{0, 12}));
+        QTest::keyClick(&area, Qt::Key_Left, Qt::ControlModifier);
+        QCOMPARE(area.cursorPosition(), (TextCursor{0, 11}));
+    }
+
+    void ctrlBackspace_deletesPreviousWord() {
+        SimpleTextDocument doc;
+        doc.setText(QStringLiteral("one two_3  \nnext"));
+        CodeEditArea area;
+        area.setDocument(&doc);
+        activate(&area);
+
+        QTest::keyClick(&area, Qt::Key_End);
+        QTest::keyClick(&area, Qt::Key_Backspace, Qt::ControlModifier);
+        QCOMPARE(doc.lineAt(0), QStringLiteral("one "));
+        QCOMPARE(area.cursorPosition(), (TextCursor{0, 4}));
+
+        // At column 0 it joins with the previous line, like Backspace.
+        QTest::keyClick(&area, Qt::Key_Down);
+        QTest::keyClick(&area, Qt::Key_Home);
+        QTest::keyClick(&area, Qt::Key_Backspace, Qt::ControlModifier);
+        QCOMPARE(doc.lineAt(0), QStringLiteral("one next"));
+    }
+
+    void ctrlDelete_deletesNextWord() {
+        SimpleTextDocument doc;
+        doc.setText(QStringLiteral("alpha, beta\ngamma"));
+        CodeEditArea area;
+        area.setDocument(&doc);
+        activate(&area);
+
+        QTest::keyClick(&area, Qt::Key_Delete, Qt::ControlModifier);
+        QCOMPARE(doc.lineAt(0), QStringLiteral(", beta"));
+        QTest::keyClick(&area, Qt::Key_Delete, Qt::ControlModifier);
+        QCOMPARE(doc.lineAt(0), QStringLiteral("beta"));
+
+        // At the line end it joins with the next line, like Delete.
+        QTest::keyClick(&area, Qt::Key_End);
+        QTest::keyClick(&area, Qt::Key_Delete, Qt::ControlModifier);
+        QCOMPARE(doc.lineAt(0), QStringLiteral("betagamma"));
+    }
 };
 
 QTEST_MAIN(TestCodeEditAreaKeys)

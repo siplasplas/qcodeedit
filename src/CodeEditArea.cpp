@@ -472,6 +472,10 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
     case Qt::Key_Backspace:
         if (hasSelection()) {
             executeRemoveSelection();
+        } else if (ctrl) {
+            // Delete to the previous word stop (joins lines at column 0).
+            const TextCursor from = cc.moveWordLeft(m_cursor);
+            if (from != m_cursor) executeRemove(from, m_cursor);
         } else if (m_cursor.column > 0) {
             executeRemove({m_cursor.line, m_cursor.column - 1}, m_cursor);
         } else if (m_cursor.line > 0) {
@@ -483,6 +487,10 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
     case Qt::Key_Delete:
         if (hasSelection()) {
             executeRemoveSelection();
+        } else if (ctrl) {
+            // Delete to the next word stop (joins lines at the line end).
+            const TextCursor to = cc.moveWordRight(m_cursor);
+            if (to != m_cursor) executeRemove(m_cursor, to);
         } else {
             const int lineLen = m_doc->lineAt(m_cursor.line).size();
             if (m_cursor.column < lineLen) {

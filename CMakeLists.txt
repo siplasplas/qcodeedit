@@ -44,6 +44,7 @@ add_library(qcodeedit STATIC
     src/Rail.cpp
     src/EditCommands.cpp
     src/WrapLayout.cpp
+    src/WordBoundary.cpp
     src/RulesHighlighter.cpp
     src/IHighlighter.cpp
     src/IFoldingProvider.cpp
@@ -84,6 +85,7 @@ add_library(qcodeedit STATIC
     include/qce/margins/LineNumberGutter.h
     include/qce/margins/FoldingGutter.h
     include/qce/GutterColors.h
+    include/qce/WordBoundary.h
     include/qce/Rail.h
     include/qce/LeftRail.h
     include/qce/RightRail.h
@@ -140,6 +142,7 @@ install(FILES
     include/qce/FoldState.h
     include/qce/RuleBasedFoldingProvider.h
     include/qce/GutterColors.h
+    include/qce/WordBoundary.h
     include/qce/Rail.h
     include/qce/LeftRail.h
     include/qce/RightRail.h

@@ -1,3 +1,5 @@
+HANDOFF*.md
+
 # Build output
 build/
 build-*/

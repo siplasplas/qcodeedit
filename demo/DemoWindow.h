@@ -19,6 +19,7 @@ class RuleBasedFoldingProvider;
 class QAction;
 class QMenu;
 namespace qce::kate { class KateDataDownloader; }
+namespace qce::encoding { class EncodingGuard; }
 
 class DemoWindow : public QMainWindow {
     Q_OBJECT
@@ -31,6 +32,8 @@ public:
 private slots:
     void onFileOpen();
     void onFileClose();
+    void onFileSave();
+    void onSwitchToUtf8();
     void onLoadSyntax();
     void onSelectTheme(const QString& themePath);
     void onScrollBarSideToggled(bool left);
@@ -50,6 +53,8 @@ private:
     qce::kate::KateSyntaxIndex m_syntaxIndex;  ///< over qce::kate::dataDir()
     QMenu*     m_themeMenu  = nullptr;
     qce::kate::KateDataDownloader* m_downloader = nullptr;
+    /// File encoding of the open document (built with qcodeedit-encoding).
+    qce::encoding::EncodingGuard* m_encodingGuard = nullptr;
 
     // Settings state
     bool m_lineNumbersOnLeft = true;

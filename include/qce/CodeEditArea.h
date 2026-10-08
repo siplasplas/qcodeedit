@@ -78,6 +78,14 @@ public:
     using LineBackgroundFn = std::function<QColor(int line)>;
     void setLineBackgroundProvider(LineBackgroundFn fn);
 
+    /// Called before user text enters the document: typed characters, paste
+    /// and input-method commits. The filter may change `text`; returning
+    /// false cancels the insertion. Used e.g. by qce::encoding::EncodingGuard
+    /// to keep a legacy code page document representable. Pass an empty
+    /// function to remove it.
+    using InsertFilterFn = std::function<bool(QString& text)>;
+    void setInsertFilter(InsertFilterFn fn) { m_insertFilter = std::move(fn); }
+
     // --- Undo / redo ---
     void undo();
     void redo();
@@ -184,6 +192,7 @@ private:
     bool           m_mouseSelecting = false;
     QColor m_selectionColor{QStringLiteral("#A6D2FF")};
     LineBackgroundFn m_lineBgProvider;
+    InsertFilterFn m_insertFilter;
     QVector<ExtraSelection> m_extraSelections;
     // Disjoint, sorted segments per logical line; overlap resolved on bulk update.
     QHash<int, QVector<ExtraSelection>> m_extraSelectionsByLine;

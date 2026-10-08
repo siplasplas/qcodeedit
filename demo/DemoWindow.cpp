@@ -6,6 +6,11 @@
 #ifdef QCE_DEMO_HAVE_KATEDATA
 #include <qce/kate/KateDataDownloader.h>
 #endif
+#ifdef QCE_DEMO_HAVE_ENCODING
+#include <qce/encoding/Encoding.h>
+#include <qce/encoding/EncodingGuard.h>
+#include <QSaveFile>
+#endif
 
 #include <qce/CodeEdit.h>
 #include <qce/CodeEditArea.h>
@@ -38,6 +43,11 @@ DemoWindow::DemoWindow(QWidget* parent)
 
     m_editor = new qce::CodeEdit(this);
     m_editor->setDocument(m_doc);
+#ifdef QCE_DEMO_HAVE_ENCODING
+    m_encodingGuard = new qce::encoding::EncodingGuard(m_editor->area(), this);
+    connect(m_encodingGuard, &qce::encoding::EncodingGuard::encodingChanged,
+            this, &DemoWindow::updateTitle);
+#endif
 
     m_lineNumbers = std::make_unique<qce::LineNumberGutter>(m_doc);
     m_lineNumbers->setFont(m_editor->area()->font());
@@ -83,6 +93,23 @@ DemoWindow::DemoWindow(QWidget* parent)
 DemoWindow::~DemoWindow() = default;
 
 void DemoWindow::loadFile(const QString& path) {
+#ifdef QCE_DEMO_HAVE_ENCODING
+    // Bytes in any code page or UTF: detected, edited as Unicode, saved back
+    // in the same encoding.
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, tr("Open failed"),
+                             tr("Cannot open file: %1").arg(path));
+        return;
+    }
+    const auto decoded = qce::encoding::decode(f.readAll());
+    if (!decoded.ok) {
+        QMessageBox::warning(this, tr("Open failed"), decoded.error);
+        return;
+    }
+    m_doc->setText(decoded.text);
+    m_encodingGuard->setFormat(decoded.format);
+#else
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QMessageBox::warning(this, tr("Open failed"),
@@ -91,9 +118,31 @@ void DemoWindow::loadFile(const QString& path) {
     }
     QTextStream ts(&f);
     m_doc->setText(ts.readAll());
+#endif
     m_currentPath = path;
     updateTitle();
     selectSyntaxForFile(path);
+}
+
+void DemoWindow::onFileSave() {
+#ifdef QCE_DEMO_HAVE_ENCODING
+    if (m_currentPath.isEmpty()) return;
+    QByteArray bytes;
+    if (!m_encodingGuard->encodeForSave(m_doc->toPlainText(), &bytes)) return;
+    QSaveFile f(m_currentPath);
+    if (!f.open(QIODevice::WriteOnly) || f.write(bytes) != bytes.size() || !f.commit()) {
+        QMessageBox::warning(this, tr("Save failed"),
+                             tr("Cannot save file: %1").arg(m_currentPath));
+        return;
+    }
+    statusBar()->showMessage(tr("Saved as %1").arg(m_encodingGuard->encoding()), 3000);
+#endif
+}
+
+void DemoWindow::onSwitchToUtf8() {
+#ifdef QCE_DEMO_HAVE_ENCODING
+    m_encodingGuard->setEncoding(QStringLiteral("utf8"));
+#endif
 }
 
 // Pick a Kate definition by file name (highest priority match) if the data
@@ -196,6 +245,15 @@ void DemoWindow::buildMenus() {
     auto* closeAct = fileMenu->addAction(tr("&Close"));
     closeAct->setShortcut(QKeySequence::Close);
     connect(closeAct, &QAction::triggered, this, &DemoWindow::onFileClose);
+
+#ifdef QCE_DEMO_HAVE_ENCODING
+    auto* saveAct = fileMenu->addAction(tr("&Save"));
+    saveAct->setShortcut(QKeySequence::Save);
+    connect(saveAct, &QAction::triggered, this, &DemoWindow::onFileSave);
+
+    auto* utf8Act = fileMenu->addAction(tr("Switch encoding to &UTF-8"));
+    connect(utf8Act, &QAction::triggered, this, &DemoWindow::onSwitchToUtf8);
+#endif
 
     fileMenu->addSeparator();
 
@@ -611,7 +669,10 @@ void DemoWindow::updateTitle() {
     if (m_currentPath.isEmpty()) {
         setWindowTitle(appName);
     } else {
-        const QString name = QFileInfo(m_currentPath).fileName();
+        QString name = QFileInfo(m_currentPath).fileName();
+#ifdef QCE_DEMO_HAVE_ENCODING
+        name += QStringLiteral(" [%1]").arg(m_encodingGuard->encoding());
+#endif
         setWindowTitle(QStringLiteral("%1 \u2014 %2").arg(name, appName));
     }
 }

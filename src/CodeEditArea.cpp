@@ -564,8 +564,11 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
 
     case Qt::Key_V:
         if (cmd) {
-            const QString text = QGuiApplication::clipboard()->text();
-            if (!text.isEmpty()) {
+            QString text = QGuiApplication::clipboard()->text();
+            // The filter (e.g. an encoding check) may change or cancel it;
+            // a read-only view only shows its hint.
+            const bool accepted = m_readOnly || !m_insertFilter || m_insertFilter(text);
+            if (accepted && !text.isEmpty()) {
                 executeInsert(text);
             }
             break;
@@ -1400,7 +1403,9 @@ void CodeEditArea::updateAfterEdit() {
     emit selectionChanged();
 }
 
-void CodeEditArea::insertTypedText(const QString& text) {
+void CodeEditArea::insertTypedText(const QString& typed) {
+    QString text = typed;
+    if (m_insertFilter && !m_readOnly && (!m_insertFilter(text) || text.isEmpty())) return;
     if (m_overwrite && !hasSelection()
             && m_doc
             && m_cursor.column < m_doc->lineAt(m_cursor.line).size()) {

@@ -45,6 +45,12 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
 - Input methods (since 1.5.0): IME composition (fcitx5, ibus, Windows IME),
   compose sequences, dead keys and AltGr characters, with the candidate
   window placed at the caret (see `docs/API.md`)
+- Legacy code pages (since 1.8.0, optional `qcodeedit::encoding`): files in
+  cp1250, ISO 8859-2, cp852, Mazovia and other code pages, or UTF-8/16/32, are
+  detected, edited as Unicode and saved back in their encoding with BOM, CRLF
+  and the final line break as read. Text the code page cannot store asks
+  whether to write `?` or switch the document to UTF-8 (see
+  [docs/ENCODING.md](docs/ENCODING.md))
 
 ## Design
 
@@ -97,6 +103,11 @@ Options:
   (`KateDataDownloader` + `qce-kate-fetch` tool) that fetches Kate syntax
   definitions and themes into the qcodeedit data directory. The only part
   that needs Qt Network. See [docs/KATE_DATA.md](docs/KATE_DATA.md).
+- `QCE_BUILD_ENCODING=ON` (default) — builds `qcodeedit-encoding` (code pages
+  and UTF, detection, the editor's encoding guard) on the
+  [cpg](https://github.com/siplasplas/cpg) library. Needs ICU and zlib; an
+  installed cpg 1.1 is used, otherwise it is fetched. See
+  [docs/ENCODING.md](docs/ENCODING.md).
 
 ## Install
 
@@ -119,9 +130,11 @@ include/qce/kate/*.h                       — companion (optional)
 lib/libqcodeedit.a                         — core static library
 lib/libqcodeedit-kate.a                    — companion static library
 lib/libqcodeedit-katedata.a                — downloader static library
+lib/libqcodeedit-encoding.a                — encodings static library
 lib/cmake/qcodeedit/                       — find_package(qcodeedit)
 lib/cmake/qcodeedit-kate/                  — find_package(qcodeedit-kate)
 lib/cmake/qcodeedit-katedata/              — find_package(qcodeedit-katedata)
+lib/cmake/qcodeedit-encoding/              — find_package(qcodeedit-encoding)
 ```
 
 ## Consuming
@@ -146,6 +159,10 @@ target_link_libraries(my_app PRIVATE qcodeedit::kate)
 # Optional: downloader for Kate syntax definitions and themes (Qt Network).
 find_package(qcodeedit-katedata REQUIRED)
 target_link_libraries(my_app PRIVATE qcodeedit::katedata)
+
+# Optional: code pages and UTF with detection (cpg, ICU, zlib).
+find_package(qcodeedit-encoding REQUIRED)
+target_link_libraries(my_app PRIVATE qcodeedit::encoding)
 ```
 
 ```cpp

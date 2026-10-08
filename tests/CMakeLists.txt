@@ -124,3 +124,10 @@ qce_add_test(test_gutter_colors)
 qce_add_test(test_code_edit_area_keys)
 qce_add_test(test_code_edit_area_input_method)
 qce_add_test(test_extra_selections INTERNAL)
+
+# Code pages, detection and the editor's encoding guard (needs cpg).
+if(TARGET qcodeedit::encoding)
+    add_executable(test_encoding test_encoding.cpp)
+    target_link_libraries(test_encoding PRIVATE qcodeedit::encoding Qt6::Test)
+    add_test(NAME test_encoding COMMAND test_encoding)
+endif()

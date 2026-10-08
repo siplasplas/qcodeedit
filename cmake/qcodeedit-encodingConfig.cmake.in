@@ -1,0 +1,10 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Qt6 COMPONENTS Widgets)
+find_dependency(qcodeedit @PROJECT_VERSION@ REQUIRED)
+find_dependency(cpg 1.1)
+
+include("${CMAKE_CURRENT_LIST_DIR}/qcodeedit-encodingTargets.cmake")
+
+check_required_components(qcodeedit-encoding)

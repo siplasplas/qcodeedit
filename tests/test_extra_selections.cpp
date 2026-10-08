@@ -307,7 +307,7 @@ private slots:
         }
     }
 
-    // For any row height >= LineRenderer::lineHeightFor() the text box
+    // For any row height >= ascent + descent the text box
     // (ascent above, descent below the baseline) stays inside the row, so the
     // neighbouring rows' backgrounds never cover descenders or accents. When
     // the capital-centred baseline already fits, it is kept unchanged.
@@ -323,9 +323,10 @@ private slots:
                 font.setPointSizeF(pt);
                 const QFontMetrics fm(font);
                 const QRect cap = fm.tightBoundingRect(QStringLiteral("L"));
-                const int tight = LineRenderer::lineHeightFor(font);
-                QCOMPARE(tight, fm.ascent() + fm.descent());
-                for (int lh : {tight, tight + 2, qRound(tight * 1.15), qRound(tight * 4.0 / 3.0)}) {
+                const int tight = fm.ascent() + fm.descent();
+                const int editor = LineRenderer::lineHeightFor(font);
+                QVERIFY(editor >= tight);
+                for (int lh : {tight, tight + 2, qRound(tight * 1.15), qRound(tight * 4.0 / 3.0), editor}) {
                     const auto band = LineRenderer::backgroundBand(font, lh);
                     const QString what = QStringLiteral("%1 %2pt row %3").arg(family).arg(pt).arg(lh);
                     QVERIFY2(band.baseline - fm.ascent() >= 0, qPrintable(what + QStringLiteral(": ascent above row")));

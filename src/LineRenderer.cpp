@@ -11,9 +11,9 @@
 namespace qce {
 
 int LineRenderer::lineHeightFor(const QFont& font) {
-    // Tight rows: ascent + descent, no extra leading. backgroundBand() keeps
-    // the glyphs inside the row for any height >= this.
-    return QFontMetrics(font).height();
+    // Ascent + descent plus 15% leading. backgroundBand() keeps the glyphs
+    // inside the row for any height >= ascent + descent.
+    return qRound(QFontMetrics(font).height() * 1.15);
 }
 
 LineRenderer::BackgroundBand LineRenderer::backgroundBand(const QFont& font, int lineHeight) {

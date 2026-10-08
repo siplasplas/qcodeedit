@@ -59,6 +59,14 @@ target_link_libraries(test_kate_paths PRIVATE
 )
 add_test(NAME test_kate_paths COMMAND test_kate_paths)
 
+# Kate theme editor colours and the default (Breeze) theme choice.
+add_executable(test_kate_theme test_kate_theme.cpp)
+target_link_libraries(test_kate_theme PRIVATE
+    qcodeedit::kate
+    Qt6::Test
+)
+add_test(NAME test_kate_theme COMMAND test_kate_theme)
+
 # Persistent Kate syntax index (index.json) + wildcard matcher.
 add_executable(test_kate_syntax_index test_kate_syntax_index.cpp)
 target_link_libraries(test_kate_syntax_index PRIVATE
@@ -111,6 +119,7 @@ target_compile_definitions(test_fold_pairing PRIVATE
 )
 add_test(NAME test_fold_pairing COMMAND test_fold_pairing)
 qce_add_test(test_line_number_gutter)
+qce_add_test(test_gutter_colors)
 qce_add_test(test_code_edit_area_keys)
 qce_add_test(test_code_edit_area_input_method)
 qce_add_test(test_extra_selections INTERNAL)

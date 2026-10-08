@@ -37,8 +37,14 @@ KateTheme KateTheme::load(const QString& path) {
 
     const QJsonObject editorColors =
         root.value(QLatin1String("editor-colors")).toObject();
-    const QString bg = editorColors.value(QLatin1String("BackgroundColor")).toString();
-    if (!bg.isEmpty()) theme.editorBackground = QColor(bg);
+    auto editorColor = [&](const char* key) {
+        const QString value = editorColors.value(QLatin1String(key)).toString();
+        return value.isEmpty() ? QColor() : QColor(value);
+    };
+    theme.editorBackground = editorColor("BackgroundColor");
+    theme.iconBorder       = editorColor("IconBorder");
+    theme.lineNumbers      = editorColor("LineNumbers");
+    theme.separator        = editorColor("Separator");
 
     const QJsonObject textStyles =
         root.value(QLatin1String("text-styles")).toObject();

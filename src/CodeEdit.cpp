@@ -5,6 +5,7 @@
 #include "qce/RightRail.h"
 
 #include <QHBoxLayout>
+#include <QPalette>
 #include <QScrollBar>
 
 namespace qce {
@@ -25,6 +26,15 @@ CodeEdit::CodeEdit(QWidget* parent)
     layout->addWidget(m_area, /*stretch=*/1);
     layout->addWidget(m_rightRail);
     setLayout(layout);
+
+    // Built-in default theme: black text on white, independent of the system
+    // palette, so syntax colours meant for a light background stay readable
+    // under a dark desktop theme. Set on the container so that a palette the
+    // application sets here still propagates to the area.
+    QPalette pal = palette();
+    pal.setColor(QPalette::Base, Qt::white);
+    pal.setColor(QPalette::Text, Qt::black);
+    setPalette(pal);
 }
 
 CodeEdit::~CodeEdit() = default;
@@ -51,6 +61,15 @@ void CodeEdit::addRightMargin(IMargin* margin) {
 
 void CodeEdit::removeRightMargin(IMargin* margin) {
     m_rightRail->removeMargin(margin);
+}
+
+void CodeEdit::setGutterColors(const GutterColors& colors) {
+    m_leftRail->setColors(colors);
+    m_rightRail->setColors(colors);
+}
+
+GutterColors CodeEdit::gutterColors() const {
+    return m_leftRail->colors();
 }
 
 void CodeEdit::setScrollBarSide(ScrollBarSide side) {

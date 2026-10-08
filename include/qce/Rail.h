@@ -1,5 +1,6 @@
 #pragma once
 
+#include <qce/GutterColors.h>
 #include <qce/ViewportState.h>
 
 #include <QList>
@@ -23,7 +24,9 @@ class CodeEditArea;
 class Rail : public QWidget {
     Q_OBJECT
 public:
-    explicit Rail(QWidget* parent = nullptr);
+    /// `textEdge` is the edge next to CodeEditArea, where the separator
+    /// line is drawn (right for LeftRail, left for RightRail).
+    explicit Rail(QWidget* parent = nullptr, Qt::Edge textEdge = Qt::RightEdge);
 
     /// Appends a margin to the rail. The rail does not take ownership.
     void addMargin(IMargin* margin);
@@ -34,6 +37,15 @@ public:
     /// Connects viewportChanged() from the area to this rail's update slot.
     void connectToArea(CodeEditArea* area);
 
+    /// Sets the rail colours; invalid entries are derived from the area's
+    /// palette (see GutterColors).
+    void setColors(const GutterColors& colors);
+    const GutterColors& colors() const { return m_colors; }
+
+    /// The colours actually used for painting, with invalid entries derived
+    /// from the connected area's palette.
+    GutterColors effectiveColors() const;
+
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override { return sizeHint(); }
 
@@ -43,12 +55,16 @@ protected:
     void mouseMoveEvent(QMouseEvent* e) override;
     void enterEvent(QEnterEvent* e) override;
     void leaveEvent(QEvent* e) override;
+    bool eventFilter(QObject* watched, QEvent* e) override;
 
 private slots:
     void onViewportChanged(const ViewportState& vp);
 
 private:
     QList<IMargin*> m_margins;
+    CodeEditArea* m_area = nullptr;
+    GutterColors m_colors;
+    Qt::Edge m_textEdge;
     ViewportState m_vp;
     IMargin* m_hoveredMargin = nullptr;
 

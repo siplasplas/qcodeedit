@@ -562,6 +562,12 @@ void DemoWindow::applyThemeToEditor() {
 
     m_editor->setPalette(pal);
     m_editor->area()->viewport()->setPalette(pal);
+
+    // Without a theme the gutter colours are derived from the palette.
+    m_editor->setGutterColors(m_currentTheme.isValid()
+        ? qce::GutterColors{m_currentTheme.iconBorder, m_currentTheme.lineNumbers,
+                            m_currentTheme.separator}
+        : qce::GutterColors{});
 }
 
 void DemoWindow::reloadSyntaxWithTheme() {

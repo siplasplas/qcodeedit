@@ -17,6 +17,13 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
 - Row height is the font's ascent + descent plus 15% leading, and glyphs are
   always kept inside their row, so backgrounds of neighbouring rows never
   cover descenders or accents
+- Default colours are black text on white, whatever the desktop theme;
+  applications apply their own theme through the palette
+- Gutter in Kate style: a strip slightly darker than the text background,
+  muted line numbers, a separator line, and a short arrow on the
+  continuation rows of wrapped lines. Colours come from
+  `CodeEdit::setGutterColors()` (Kate themes: `IconBorder`, `LineNumbers`,
+  `Separator` in `KateTheme`) or are derived from the palette
 - Large files open at once: syntax highlighting of documents over 5000 lines
   runs lazily (visible lines first, the rest in the background), and fold
   regions are rebuilt from markers collected while highlighting

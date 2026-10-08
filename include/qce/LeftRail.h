@@ -11,7 +11,7 @@ namespace qce {
 class LeftRail : public Rail {
     Q_OBJECT
 public:
-    explicit LeftRail(QWidget* parent = nullptr) : Rail(parent) {}
+    explicit LeftRail(QWidget* parent = nullptr) : Rail(parent, Qt::RightEdge) {}
 };
 
 } // namespace qce

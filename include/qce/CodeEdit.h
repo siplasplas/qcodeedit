@@ -1,5 +1,7 @@
 #pragma once
 
+#include <qce/GutterColors.h>
+
 #include <QWidget>
 
 class QScrollBar;
@@ -20,6 +22,9 @@ class RightRail;
 ///
 /// CodeEdit does not render text itself — text rendering is delegated to
 /// CodeEditArea. Margin rendering is delegated to Rail/IMargin.
+///
+/// The default palette is black text on white (QPalette::Text / Base),
+/// regardless of the desktop theme; apply a theme with setPalette().
 class CodeEdit : public QWidget {
     Q_OBJECT
 public:
@@ -57,6 +62,11 @@ public:
     /// kept in sync with the area's scroll position.
     void setScrollBarSide(ScrollBarSide side);
     ScrollBarSide scrollBarSide() const { return m_scrollBarSide; }
+
+    /// Colours of both rails. Invalid entries (the default) are derived from
+    /// the area's palette; set them from a theme for exact colours.
+    void setGutterColors(const GutterColors& colors);
+    GutterColors gutterColors() const;
 
 private:
     CodeEditArea* m_area        = nullptr;

@@ -42,6 +42,20 @@ int LineNumberGutter::preferredWidth(const ViewportState& vp) const {
     return digits * vp.charWidth + 2 * kHorizontalPadding;
 }
 
+void LineNumberGutter::paintWrapArrow(QPainter& painter, int right, int centerY,
+                                      int charWidth) {
+    // "↳" drawn with lines: a short stem down, then right to an arrow head.
+    const int w = qMax(5, charWidth * 4 / 5);
+    const int h = qMax(3, w / 2);
+    const int head = qMax(2, h / 2);
+    const int x0 = right - w;
+    const int bottom = centerY + h / 2;
+    painter.drawLine(x0, bottom - h, x0, bottom);
+    painter.drawLine(x0, bottom, right, bottom);
+    painter.drawLine(right - head, bottom - head, right, bottom);
+    painter.drawLine(right - head, bottom + head, right, bottom);
+}
+
 void LineNumberGutter::paint(QPainter& painter,
                               const ViewportState& vp,
                               const QRect& marginRect) {
@@ -64,9 +78,14 @@ void LineNumberGutter::paint(QPainter& painter,
     if (vp.wordWrap && !vp.rows.isEmpty()) {
         for (int ri = 0; ri < vp.rows.size(); ++ri) {
             const auto& row = vp.rows[ri];
-            if (!row.isFirstRow) continue; // draw number only on first visual row of line
             if (row.logicalLine >= lineCount) continue;
             const int topY = marginRect.top() + vp.contentOffsetY + ri * vp.lineHeight;
+            if (!row.isFirstRow) {
+                // Continuation row of a wrapped line: a short hooked arrow.
+                paintWrapArrow(painter, rightEdge, topY + baseline - fm.xHeight() / 2,
+                               vp.charWidth);
+                continue;
+            }
             const int baselineY = topY + baseline;
             const QString label = QString::number(row.logicalLine + 1);
             const int textWidth = fm.horizontalAdvance(label);

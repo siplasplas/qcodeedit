@@ -22,6 +22,9 @@ struct KateTheme {
 
     QString                    name;              ///< display name from metadata
     QColor                     editorBackground;  ///< editor-colors.BackgroundColor
+    QColor                     iconBorder;        ///< editor-colors.IconBorder (gutter)
+    QColor                     lineNumbers;       ///< editor-colors.LineNumbers
+    QColor                     separator;         ///< editor-colors.Separator
     QHash<QString, StyleEntry> styles;            ///< key: "Normal", "Keyword", …
 
     bool isValid() const { return !name.isEmpty(); }

@@ -11,11 +11,39 @@
 
 namespace qce {
 
-Rail::Rail(QWidget* parent)
-    : QWidget(parent) {
+namespace {
+
+QColor mix(const QColor& from, const QColor& to, double t) {
+    return QColor::fromRgbF(float(from.redF() + (to.redF() - from.redF()) * t),
+                            float(from.greenF() + (to.greenF() - from.greenF()) * t),
+                            float(from.blueF() + (to.blueF() - from.blueF()) * t));
+}
+
+} // namespace
+
+Rail::Rail(QWidget* parent, Qt::Edge textEdge)
+    : QWidget(parent), m_textEdge(textEdge) {
     setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     setAutoFillBackground(false);
     setMouseTracking(true);
+}
+
+void Rail::setColors(const GutterColors& colors) {
+    m_colors = colors;
+    update();
+}
+
+GutterColors Rail::effectiveColors() const {
+    const QPalette& pal = m_area ? m_area->palette() : palette();
+    const QColor base = pal.base().color();
+    const QColor text = pal.text().color();
+    // Fractions picked so that a white/black palette gives Kate's Breeze
+    // Light gutter: #f0f0f0 strip, #a0a0a0 numbers, #d5d5d5 separator.
+    GutterColors c = m_colors;
+    if (!c.background.isValid()) c.background = mix(base, text, 0.06);
+    if (!c.foreground.isValid()) c.foreground = mix(base, text, 0.37);
+    if (!c.separator.isValid())  c.separator  = mix(base, text, 0.165);
+    return c;
 }
 
 void Rail::addMargin(IMargin* margin) {
@@ -38,8 +66,16 @@ void Rail::removeMargin(IMargin* margin) {
 }
 
 void Rail::connectToArea(CodeEditArea* area) {
+    m_area = area;
     connect(area, &CodeEditArea::viewportChanged,
             this, &Rail::onViewportChanged);
+    // Derived colours follow the area's palette (e.g. a theme change).
+    area->installEventFilter(this);
+}
+
+bool Rail::eventFilter(QObject* watched, QEvent* e) {
+    if (watched == m_area && e->type() == QEvent::PaletteChange) update();
+    return QWidget::eventFilter(watched, e);
 }
 
 QSize Rail::sizeHint() const {
@@ -50,15 +86,22 @@ void Rail::paintEvent(QPaintEvent*) {
     if (!m_vp.isValid()) {
         return;
     }
+    const GutterColors colors = effectiveColors();
     QPainter painter(this);
-    painter.fillRect(rect(), palette().window());
-    painter.setPen(palette().text().color());
+    painter.fillRect(rect(), colors.background);
 
     int x = 0;
     for (IMargin* m : m_margins) {
         const int w = m->preferredWidth(m_vp);
+        painter.setPen(colors.foreground);
         m->paint(painter, m_vp, QRect(x, 0, w, height()));
         x += w;
+    }
+
+    if (x > 0) {
+        painter.setPen(colors.separator);
+        const int sx = (m_textEdge == Qt::LeftEdge) ? 0 : width() - 1;
+        painter.drawLine(sx, 0, sx, height() - 1);
     }
 }
 

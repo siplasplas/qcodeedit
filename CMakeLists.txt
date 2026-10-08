@@ -83,6 +83,7 @@ add_library(qcodeedit STATIC
     include/qce/RuleBasedFoldingProvider.h
     include/qce/margins/LineNumberGutter.h
     include/qce/margins/FoldingGutter.h
+    include/qce/GutterColors.h
     include/qce/Rail.h
     include/qce/LeftRail.h
     include/qce/RightRail.h
@@ -138,6 +139,7 @@ install(FILES
     include/qce/FoldPairing.h
     include/qce/FoldState.h
     include/qce/RuleBasedFoldingProvider.h
+    include/qce/GutterColors.h
     include/qce/Rail.h
     include/qce/LeftRail.h
     include/qce/RightRail.h

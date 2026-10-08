@@ -48,6 +48,10 @@ DemoWindow::DemoWindow(QWidget* parent)
         [this](int line) { m_editor->area()->toggleFoldAt(line); });
     m_editor->addLeftMargin(m_foldGutter.get());
 
+    // Breeze Light or Breeze Dark to match the desktop, when downloaded.
+    m_currentTheme = KateTheme::loadDefault();
+    applyThemeToEditor();
+
     buildDemoHighlighter();
     m_editor->area()->setHighlighter(m_highlighter.get());
     m_foldProvider = std::make_unique<qce::RuleBasedFoldingProvider>(m_highlighter.get());

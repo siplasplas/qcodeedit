@@ -18,7 +18,11 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
   always kept inside their row, so backgrounds of neighbouring rows never
   cover descenders or accents
 - Default colours are black text on white, whatever the desktop theme;
-  applications apply their own theme through the palette
+  applications apply their own theme through the palette.
+  `KateTheme::loadDefault()` picks Breeze Light or Breeze Dark to match the
+  desktop colour scheme (the demo starts with it), Breeze Light when Breeze
+  Dark is missing; when neither is downloaded it returns an invalid theme
+  and the black-on-white default stays
 - Gutter in Kate style: a strip slightly darker than the text background,
   muted line numbers, a separator line, and a short arrow on the
   continuation rows of wrapped lines. Colours come from

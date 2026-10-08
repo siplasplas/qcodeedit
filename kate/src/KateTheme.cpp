@@ -1,7 +1,11 @@
 #include <qce/kate/KateTheme.h>
+#include <qce/kate/KatePaths.h>
 
 #include <QDir>
 #include <QFile>
+#include <QGuiApplication>
+#include <QPalette>
+#include <QStyleHints>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -51,6 +55,29 @@ KateTheme KateTheme::load(const QString& path) {
     for (auto it = textStyles.begin(); it != textStyles.end(); ++it)
         theme.styles.insert(it.key(), parseStyleEntry(it.value().toObject()));
 
+    return theme;
+}
+
+static bool desktopIsDark() {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    const Qt::ColorScheme scheme = QGuiApplication::styleHints()->colorScheme();
+    if (scheme != Qt::ColorScheme::Unknown) return scheme == Qt::ColorScheme::Dark;
+#endif
+    const QPalette pal = QGuiApplication::palette();
+    return pal.window().color().lightness() < pal.windowText().color().lightness();
+}
+
+QString KateTheme::defaultThemePath() {
+    return qce::kate::themesDir() + QLatin1Char('/')
+         + (desktopIsDark() ? QLatin1String("breeze-dark.theme")
+                            : QLatin1String("breeze-light.theme"));
+}
+
+KateTheme KateTheme::loadDefault() {
+    KateTheme theme = load(defaultThemePath());
+    // A dark desktop without breeze-dark.theme still gets Breeze Light.
+    if (!theme.isValid())
+        theme = load(qce::kate::themesDir() + QLatin1String("/breeze-light.theme"));
     return theme;
 }
 

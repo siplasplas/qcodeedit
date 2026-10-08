@@ -51,7 +51,10 @@ public:
     /// Encodes the editor text for saving. Characters that slipped in
     /// without the guard (e.g. a replace done through the document) bring up
     /// the same choice. Returns false when the user cancels.
-    bool encodeForSave(const QString& text, QByteArray* bytes);
+    /// With `exactText` the text is the whole file content with its own line
+    /// breaks (see encodeExact()); otherwise the format's CRLF and final line
+    /// break are applied (see encode()).
+    bool encodeForSave(const QString& text, QByteArray* bytes, bool exactText = false);
 
 signals:
     void encodingChanged(const QString& encoding);

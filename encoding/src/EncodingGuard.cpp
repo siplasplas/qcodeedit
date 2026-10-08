@@ -90,16 +90,20 @@ bool EncodingGuard::filter(QString& text) {
     return false;
 }
 
-bool EncodingGuard::encodeForSave(const QString& text, QByteArray* bytes) {
-    EncodeResult result = encode(text, m_format);
+bool EncodingGuard::encodeForSave(const QString& text, QByteArray* bytes, bool exactText) {
+    auto run = [&](bool replace) {
+        return exactText ? encodeExact(text, m_format.encoding, m_format.bom, replace)
+                         : encode(text, m_format, replace);
+    };
+    EncodeResult result = run(false);
     if (!result.ok && !result.unrepresentable.isEmpty()) {
         switch (choose(result.unrepresentable)) {
         case Choice::Replace:
-            result = encode(text, m_format, true);
+            result = run(true);
             break;
         case Choice::SwitchToUtf8:
             setEncoding(QStringLiteral("utf8"));
-            result = encode(text, m_format);
+            result = run(false);
             break;
         case Choice::Cancel:
             return false;

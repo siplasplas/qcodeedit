@@ -162,7 +162,7 @@ QString detect(const QByteArray& bytes, const QString& language) {
     return c.fallback;
 }
 
-DecodeResult decode(const QByteArray& bytes, const QString& encoding) {
+DecodeResult decodeExact(const QByteArray& bytes, const QString& encoding) {
     DecodeResult result;
     result.format.encoding = encoding.isEmpty() ? detect(bytes) : encoding;
 
@@ -185,28 +185,28 @@ DecodeResult decode(const QByteArray& bytes, const QString& encoding) {
         return result;
     }
 
-    QString text = fromUtf8(converted.output);
-    result.format.crlf = text.contains(QLatin1String("\r\n"));
-    if (result.format.crlf) text.replace(QLatin1String("\r\n"), QLatin1String("\n"));
-    // The final line break stays in the text: SimpleTextDocument::setText()
-    // drops it, and encode() adds it back to the document text.
-    result.format.finalNewline = text.endsWith(QLatin1Char('\n'));
-
+    result.text = fromUtf8(converted.output);
+    result.format.crlf = result.text.contains(QLatin1String("\r\n"));
+    result.format.finalNewline = result.text.endsWith(QLatin1Char('\n'));
     result.ok = true;
-    result.text = std::move(text);
     return result;
 }
 
-EncodeResult encode(const QString& text, const FileFormat& format, bool replace) {
-    QString full = text;
-    if (format.finalNewline) full += QLatin1Char('\n');
-    if (format.crlf) full.replace(QLatin1Char('\n'), QLatin1String("\r\n"));
+DecodeResult decode(const QByteArray& bytes, const QString& encoding) {
+    DecodeResult result = decodeExact(bytes, encoding);
+    // "\n" line breaks only. The final line break stays in the text:
+    // SimpleTextDocument::setText() drops it, and encode() adds it back.
+    if (result.ok && result.format.crlf)
+        result.text.replace(QLatin1String("\r\n"), QLatin1String("\n"));
+    return result;
+}
 
+EncodeResult encodeExact(const QString& text, const QString& encoding, bool bom, bool replace) {
     ConversionResult converted;
     {
         std::lock_guard lock(cpg().mutex);
         converted = cpg().converter.fromUtf8(
-            toStd(format.encoding), full.toUtf8().toStdString(),
+            toStd(encoding), text.toUtf8().toStdString(),
             replace ? UnmappablePolicy::Replace : UnmappablePolicy::Reject);
     }
     EncodeResult result;
@@ -214,9 +214,16 @@ EncodeResult encode(const QString& text, const FileFormat& format, bool replace)
     result.ok = converted.success;
     if (converted.success) {
         result.bytes = QByteArray(converted.output.data(), qsizetype(converted.output.size()));
-        if (format.bom) result.bytes.prepend(bomFor(format.encoding));
+        if (bom) result.bytes.prepend(bomFor(encoding));
     }
     return result;
+}
+
+EncodeResult encode(const QString& text, const FileFormat& format, bool replace) {
+    QString full = text;
+    if (format.finalNewline) full += QLatin1Char('\n');
+    if (format.crlf) full.replace(QLatin1Char('\n'), QLatin1String("\r\n"));
+    return encodeExact(full, format.encoding, format.bom, replace);
 }
 
 QList<char32_t> unrepresentable(const QString& text, const QString& encoding) {

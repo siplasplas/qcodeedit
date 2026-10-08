@@ -54,6 +54,17 @@ struct EncodeResult {
 EncodeResult encode(const QString& text, const FileFormat& format,
                     bool replaceUnrepresentable = false);
 
+/// Exact conversion for applications that keep line breaks themselves (e.g.
+/// a diff tool preserving mixed LF/CRLF): the text holds every character of
+/// the file, "\r" included, only a BOM matching the encoding is removed
+/// (format.bom). format.crlf and format.finalNewline describe the content.
+DecodeResult decodeExact(const QByteArray& bytes, const QString& encoding = {});
+
+/// Counterpart of decodeExact(): `text` is written as it is, with a BOM in
+/// front when `bom` is set. Unrepresentable characters as in encode().
+EncodeResult encodeExact(const QString& text, const QString& encoding, bool bom = false,
+                         bool replaceUnrepresentable = false);
+
 /// Characters of `text` that `encoding` cannot store, each once, in order.
 /// Always empty for UTF encodings.
 QList<char32_t> unrepresentable(const QString& text, const QString& encoding);

@@ -39,6 +39,15 @@ takes `toPlainText()` and adds it back. `FileFormat` keeps `encoding`, `bom`,
 for byte. Without the guard, `encode()` fails and lists the characters the
 encoding cannot store (or writes `?` for them when asked).
 
+## Exact conversion
+
+Applications that keep line breaks themselves, such as a diff tool that
+preserves mixed LF/CRLF per line, use `decodeExact()` and `encodeExact()`:
+the text holds every character of the file, `\r` included, and is written
+back as it is; only a BOM matching the encoding is removed and reported.
+`EncodingGuard::encodeForSave(text, &bytes, true)` saves such text with the
+same question about unrepresentable characters.
+
 ## Characters outside the code page
 
 When text entering the editor contains characters the document's code page

@@ -49,7 +49,9 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
   cp1250, ISO 8859-2, cp852, Mazovia and other code pages, or UTF-8/16/32, are
   detected, edited as Unicode and saved back in their encoding with BOM, CRLF
   and the final line break as read. Text the code page cannot store asks
-  whether to write `?` or switch the document to UTF-8 (see
+  whether to write `?` or switch the document to UTF-8. Since 1.9.0
+  `decodeExact()` / `encodeExact()` convert without touching line breaks, for
+  tools that keep mixed LF/CRLF themselves (see
   [docs/ENCODING.md](docs/ENCODING.md))
 
 ## Design

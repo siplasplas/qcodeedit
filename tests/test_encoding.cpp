@@ -100,6 +100,38 @@ private slots:
         QCOMPARE(e.bytes, bytes);
     }
 
+    // decodeExact() / encodeExact() keep every line break as it is.
+    void exactKeepsMixedLineBreaks() {
+        const QByteArray bytes("a\r\nb\nc\rd\xEA\r\n");
+        const DecodeResult r = decodeExact(bytes, QStringLiteral("cp1250"));
+        QVERIFY(r.ok);
+        QCOMPARE(r.text, QStringLiteral("a\r\nb\nc\rdę\r\n"));
+        QVERIFY(r.format.crlf);
+        QVERIFY(r.format.finalNewline);
+        const EncodeResult e = encodeExact(r.text, QStringLiteral("cp1250"));
+        QVERIFY(e.ok);
+        QCOMPARE(e.bytes, bytes);
+    }
+
+    void exactKeepsBom() {
+        const QByteArray bytes("\xEF\xBB\xBFx\r\n");
+        const DecodeResult r = decodeExact(bytes);
+        QVERIFY(r.ok);
+        QCOMPARE(r.format.encoding, QStringLiteral("utf8"));
+        QVERIFY(r.format.bom);
+        QCOMPARE(r.text, QStringLiteral("x\r\n"));
+        QCOMPARE(encodeExact(r.text, r.format.encoding, r.format.bom).bytes, bytes);
+    }
+
+    void guardEncodesExactText() {
+        Editor e;
+        e.answer = EncodingGuard::Choice::Replace;
+        QByteArray bytes;
+        QVERIFY(e.guard.encodeForSave(QStringLiteral("ł\r\n☺\n"), &bytes, true));
+        QCOMPARE(bytes, QByteArray("\xB3\r\n?\n"));
+        QCOMPARE(e.asked.size(), 1);
+    }
+
     void detectsPolishCp1250() {
         QCOMPARE(detect(kPolishCp1250), QStringLiteral("cp1250"));
         QCOMPARE(detect(kPolishCp1250, QStringLiteral("pl")), QStringLiteral("cp1250"));

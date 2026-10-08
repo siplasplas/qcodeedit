@@ -541,6 +541,15 @@ area->setLineBackgroundProvider([](int line) -> QColor {
 The lambda is called once per visible line during each repaint.  For
 DiffMerge, derive the color from a `DiffResult` data structure.
 
+The line with the caret can have its own background (the text keeps its
+colors). It is off by default; a color from the provider above wins on its
+lines:
+
+```cpp
+area->setCurrentLineColor(QColor("#EEEEEE"));
+area->setCurrentLineColor({});   // off again
+```
+
 ---
 
 ## 8. `ViewportState` — for custom margins and scroll sync

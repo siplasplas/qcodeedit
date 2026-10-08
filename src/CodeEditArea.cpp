@@ -14,6 +14,7 @@
 #include <QFocusEvent>
 #include <QFontDatabase>
 #include <QFontMetrics>
+#include <QFontMetricsF>
 #include <QGuiApplication>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -31,6 +32,22 @@
 
 namespace qce {
 
+namespace {
+
+// Columns are a grid of whole pixels (ViewportState::charWidth), but a font's
+// advance is usually fractional (e.g. 7.81 px): text drawn as one run then
+// drifts away from the caret, selection and mouse columns. Letter spacing
+// makes every character exactly one grid cell wide.
+QFont fitToCharGrid(QFont font) {
+    font.setLetterSpacing(QFont::AbsoluteSpacing, 0);
+    const qreal advance = QFontMetricsF(font).horizontalAdvance(QLatin1Char('M'));
+    const int cell = qMax(1, qRound(advance));
+    font.setLetterSpacing(QFont::AbsoluteSpacing, cell - advance);
+    return font;
+}
+
+} // namespace
+
 // ------------------------------------------------------------------------
 // Construction
 // ------------------------------------------------------------------------
@@ -47,7 +64,7 @@ CodeEditArea::CodeEditArea(QWidget* parent)
     f.setStyleHint(QFont::TypeWriter);
     f = f.resolve(font());
     f.setPointSizeF(10);
-    setFont(f);
+    setFont(fitToCharGrid(f));
     m_renderer->setFont(font());
 
     viewport()->setAutoFillBackground(false);
@@ -237,6 +254,19 @@ void CodeEditArea::setLineBackgroundProvider(LineBackgroundFn fn) {
     viewport()->update();
 }
 
+void CodeEditArea::setCurrentLineColor(const QColor& color) {
+    m_currentLineColor = color;
+    viewport()->update();
+}
+
+QColor CodeEditArea::lineBackground(int line) const {
+    if (m_lineBgProvider) {
+        const QColor bg = m_lineBgProvider(line);
+        if (bg.isValid()) return bg;
+    }
+    return line == m_cursor.line ? m_currentLineColor : QColor();
+}
+
 // --- Undo / redo --------------------------------------------------------
 
 void CodeEditArea::undo() {
@@ -412,6 +442,25 @@ void CodeEditArea::resizeEvent(QResizeEvent* e) {
     updateScrollBarRanges();
     refreshViewportState();
     updateInputMethod(Qt::ImCursorRectangle);
+}
+
+void CodeEditArea::changeEvent(QEvent* e) {
+    QAbstractScrollArea::changeEvent(e);
+    if (e->type() != QEvent::FontChange) return;
+    // A font set by the application is fitted to the grid as well; setting
+    // the fitted font comes back here and finds nothing to change.
+    const QFont fitted = fitToCharGrid(font());
+    if (fitted.letterSpacing() != font().letterSpacing()
+            || fitted.letterSpacingType() != font().letterSpacingType()) {
+        setFont(fitted);
+        return;
+    }
+    m_renderer->setFont(font());
+    rebuildWrapLayout();
+    updateScrollBarRanges();
+    refreshViewportState();
+    viewport()->update();
+    updateInputMethod(Qt::ImCursorRectangle | Qt::ImFont);
 }
 
 void CodeEditArea::scrollContentsBy(int dx, int dy) {
@@ -1504,12 +1553,13 @@ QRegion CodeEditArea::selectionRegion() const {
 }
 
 void CodeEditArea::paintLineBackgrounds(QPainter& painter) {
-    if (!m_lineBgProvider || !m_doc || !m_viewportState.isValid()) return;
+    if ((!m_lineBgProvider && !m_currentLineColor.isValid())
+            || !m_doc || !m_viewportState.isValid()) return;
     const ViewportState& vp = m_viewportState;
     const int vpW = vp.viewportWidth;
     const auto band = LineRenderer::backgroundBand(font(), vp.lineHeight);
     auto fill = [&](int line, int topY) {
-        const QColor bg = m_lineBgProvider(line);
+        const QColor bg = lineBackground(line);
         if (bg.isValid()) {
             painter.fillRect(0, topY + band.offset, vpW, band.height, bg);
         }
@@ -1540,12 +1590,10 @@ void CodeEditArea::paintPreedit(QPainter& painter) {
     // Cover the rest of the row and repaint it shifted right of the pre-edit
     // (display only; the document is unchanged).
     painter.fillRect(QRect(x, topY, vp.viewportWidth - x, vp.lineHeight), palette().base());
-    if (m_lineBgProvider) {
-        const QColor bg = m_lineBgProvider(m_cursor.line);
-        if (bg.isValid()) {
-            const auto band = LineRenderer::backgroundBand(font(), vp.lineHeight);
-            painter.fillRect(x, topY + band.offset, vp.viewportWidth - x, band.height, bg);
-        }
+    const QColor bg = lineBackground(m_cursor.line);
+    if (bg.isValid()) {
+        const auto band = LineRenderer::backgroundBand(font(), vp.lineHeight);
+        painter.fillRect(x, topY + band.offset, vp.viewportWidth - x, band.height, bg);
     }
     const QString& line = m_doc->lineAt(m_cursor.line);
     const int rowEnd = m_wordWrap ? m_wrapLayout->rowAt(row).endCol : int(line.size());

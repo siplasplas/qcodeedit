@@ -78,6 +78,12 @@ public:
     using LineBackgroundFn = std::function<QColor(int line)>;
     void setLineBackgroundProvider(LineBackgroundFn fn);
 
+    /// Background of the line with the caret; the text keeps its colours.
+    /// Off by default (invalid QColor). A colour from the line background
+    /// provider takes precedence on its lines.
+    void setCurrentLineColor(const QColor& color);
+    QColor currentLineColor() const { return m_currentLineColor; }
+
     /// Called before user text enters the document: typed characters, paste
     /// and input-method commits. The filter may change `text`; returning
     /// false cancels the insertion. Used e.g. by qce::encoding::EncodingGuard
@@ -169,6 +175,7 @@ signals:
 protected:
     void paintEvent(QPaintEvent* e) override;
     void resizeEvent(QResizeEvent* e) override;
+    void changeEvent(QEvent* e) override;
     void scrollContentsBy(int dx, int dy) override;
     void keyPressEvent(QKeyEvent* e) override;
     void mousePressEvent(QMouseEvent* e) override;
@@ -192,6 +199,8 @@ private:
     bool           m_mouseSelecting = false;
     QColor m_selectionColor{QStringLiteral("#A6D2FF")};
     LineBackgroundFn m_lineBgProvider;
+    QColor m_currentLineColor;
+    QColor lineBackground(int line) const;
     InsertFilterFn m_insertFilter;
     QVector<ExtraSelection> m_extraSelections;
     // Disjoint, sorted segments per logical line; overlap resolved on bulk update.

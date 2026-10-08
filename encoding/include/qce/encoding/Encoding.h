@@ -39,15 +39,23 @@ struct DecodeResult {
     QString error;   ///< set when !ok
 };
 
-/// Decodes file bytes. With an empty `encoding` it is detected (see detect()).
+/// Decodes file bytes. With an empty `encoding` it is detected (see detect()),
+/// legacy code pages only among those of `language` when given (e.g. "pl":
+/// cp1250, iso-8859-2, cp852, ...), which is faster and avoids guessing a
+/// wrong language from a few words. UTF is recognised regardless.
 /// LF, CRLF and CR line breaks all become "\n".
-DecodeResult decode(const QByteArray& bytes, const QString& encoding = {});
+DecodeResult decode(const QByteArray& bytes, const QString& encoding = {},
+                    const QString& language = {});
 
 /// Natural language of a text, by cpg's language models.
 struct Language {
     QString code; ///< cpg language key, e.g. "pl", "en", "cz"; empty when unknown
     QString name; ///< e.g. "Polish"
 };
+
+/// Languages cpg knows (code and name), sorted by name; empty without its
+/// detection data. For letting the user pick the language of legacy files.
+QList<Language> availableLanguages();
 
 /// Guesses the language of file bytes (any encoding). Takes some
 /// milliseconds per 100 KB (plus loading the models once), so an editor
@@ -84,7 +92,8 @@ EncodeResult encode(const QString& text, const FileFormat& format,
 /// a diff tool preserving mixed LF/CRLF): the text holds every character of
 /// the file, "\r" included, only a BOM matching the encoding is removed
 /// (format.bom). The line-break fields of format describe the content.
-DecodeResult decodeExact(const QByteArray& bytes, const QString& encoding = {});
+DecodeResult decodeExact(const QByteArray& bytes, const QString& encoding = {},
+                         const QString& language = {});
 
 /// Counterpart of decodeExact(): `text` is written as it is, with a BOM in
 /// front when `bom` is set. Unrepresentable characters as in encode().

@@ -122,6 +122,24 @@ private slots:
         QVERIFY(!unix.crlf && !unix.cr && !unix.mixedLineBreaks);
     }
 
+    // A language hint limits legacy code pages to that language's; UTF still wins.
+    void decodeWithLanguageHint() {
+        // A short line: without the hint the language could be misread.
+        const QByteArray shortCp1250("// zmiana \xBF\xF3\xB3tego koloru\n");
+        const DecodeResult hinted = decode(shortCp1250, {}, QStringLiteral("pl"));
+        QVERIFY(hinted.ok);
+        QCOMPARE(hinted.format.encoding, QStringLiteral("cp1250"));
+        QCOMPARE(hinted.text, QStringLiteral("// zmiana żółtego koloru\n"));
+        QCOMPARE(decode(kPolish.toUtf8(), {}, QStringLiteral("pl")).format.encoding, QStringLiteral("utf8"));
+
+        const QList<Language> languages = availableLanguages();
+        QVERIFY(languages.size() > 20);
+        const auto polish = std::find_if(languages.begin(), languages.end(),
+                                         [](const Language& l) { return l.code == QLatin1String("pl"); });
+        QVERIFY(polish != languages.end());
+        QCOMPARE(polish->name, QStringLiteral("Polish"));
+    }
+
     void detectsLanguage() {
         preloadDetectionData(); // detection below waits for it if still loading
         const Language polish = detectLanguage(kPolishCp1250);

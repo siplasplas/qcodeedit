@@ -13,6 +13,7 @@
 #include <QSet>
 #include <QThreadPool>
 
+#include <algorithm>
 #include <exception>
 #include <memory>
 #include <mutex>
@@ -172,9 +173,10 @@ QString detect(const QByteArray& bytes, const QString& language) {
     return c.fallback;
 }
 
-DecodeResult decodeExact(const QByteArray& bytes, const QString& encoding) {
+DecodeResult decodeExact(const QByteArray& bytes, const QString& encoding,
+                         const QString& language) {
     DecodeResult result;
-    result.format.encoding = encoding.isEmpty() ? detect(bytes) : encoding;
+    result.format.encoding = encoding.isEmpty() ? detect(bytes, language) : encoding;
 
     // A BOM is cut off here and remembered; ICU would drop it silently.
     const QByteArray bom = bomFor(result.format.encoding);
@@ -215,14 +217,29 @@ DecodeResult decodeExact(const QByteArray& bytes, const QString& encoding) {
     return result;
 }
 
-DecodeResult decode(const QByteArray& bytes, const QString& encoding) {
-    DecodeResult result = decodeExact(bytes, encoding);
+DecodeResult decode(const QByteArray& bytes, const QString& encoding,
+                    const QString& language) {
+    DecodeResult result = decodeExact(bytes, encoding, language);
     // "\n" line breaks only. The final line break stays in the text:
     // SimpleTextDocument::setText() drops it, and encode() adds it back.
     if (result.ok) {
         result.text.replace(QLatin1String("\r\n"), QLatin1String("\n"));
         result.text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
     }
+    return result;
+}
+
+QList<Language> availableLanguages() {
+    std::lock_guard lock(cpg().mutex);
+    Cpg& c = cpg();
+    c.loadDetection();
+    QList<Language> result;
+    if (!c.languages) return result;
+    for (const auto& [code, name] : c.languages->listAll())
+        result.append({QString::fromStdString(code), QString::fromStdString(name)});
+    std::sort(result.begin(), result.end(), [](const Language& a, const Language& b) {
+        return QString::localeAwareCompare(a.name, b.name) < 0;
+    });
     return result;
 }
 

@@ -49,6 +49,12 @@ their status bar) in their own words.
 
 ## Language
 
+When the language of legacy files is known (e.g. a setting "files not in
+UTF-8 are Polish"), pass it to `decode(bytes, {}, "pl")`: only that language's
+code pages are considered, which is faster and avoids misreading the language
+from a few words in comments; UTF is recognised regardless.
+`availableLanguages()` lists the languages cpg knows, for such a setting.
+
 `detectLanguage(bytes)` guesses the natural language with cpg's models (code
 `"pl"`, name `"Polish"`). It costs some milliseconds per 100 KB, about as much
 as showing the file, plus loading the models once (about 25 ms), so editors

@@ -53,7 +53,9 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
   `decodeExact()` / `encodeExact()` convert without touching line breaks, for
   tools that keep mixed LF/CRLF themselves. Since 1.10.0 CR (classic Mac)
   line breaks are split into lines too, mixed line breaks are reported, and
-  `detectLanguageAsync()` guesses the text's language in the background (see
+  `detectLanguageAsync()` guesses the text's language in the background.
+  Since 1.11.0 `decode()` takes a language hint that limits legacy code pages
+  to that language's, and `availableLanguages()` lists cpg's languages (see
   [docs/ENCODING.md](docs/ENCODING.md))
 
 ## Design
@@ -110,7 +112,7 @@ Options:
 - `QCE_BUILD_ENCODING=ON` (default) — builds `qcodeedit-encoding` (code pages
   and UTF, detection, the editor's encoding guard) on the
   [cpg](https://github.com/siplasplas/cpg) library. Needs ICU and zlib; an
-  installed cpg 1.1 is used, otherwise it is fetched. See
+  installed cpg 1.1.1 is used, otherwise it is fetched. See
   [docs/ENCODING.md](docs/ENCODING.md).
 
 ## Install

@@ -113,6 +113,9 @@ QString SimpleTextDocument::removeText(TextCursor start, TextCursor end) {
 
 void SimpleTextDocument::setLines(QStringList lines) {
     m_lines = std::move(lines);
+    if (m_lines.isEmpty()) {
+        m_lines.append(QString());
+    }
     invalidateCache();
     emit documentReset();
 }

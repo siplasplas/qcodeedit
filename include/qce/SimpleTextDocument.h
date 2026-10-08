@@ -11,6 +11,11 @@ namespace qce {
 /// All operations are O(n) in document size — fine for light editing but
 /// unsuitable for very large files. Replace with gap buffer / piece table
 /// for a production backend.
+///
+/// A document always has at least one line: an empty document is one empty
+/// line, so a view shows line 1 and the caret in it. Whether the file ends
+/// with a line break is not part of the text (an empty file and a file with
+/// only a line break are both one empty line).
 class SimpleTextDocument : public ITextDocument {
     Q_OBJECT
 public:
@@ -28,19 +33,20 @@ public:
 
     // --- Bulk operations ---
 
-    /// Replaces the entire document. Emits documentReset.
+    /// Replaces the entire document; no lines give one empty line.
+    /// Emits documentReset.
     void setLines(QStringList lines);
 
     /// Replaces the entire document, splitting on '\n'. Trailing '\n' does
     /// not produce an extra empty line. '\r\n' is normalised to '\n'.
-    /// Emits documentReset.
+    /// An empty text gives one empty line. Emits documentReset.
     void setText(const QString& text);
 
     /// Returns the document contents joined by '\n'. No trailing newline.
     QString toPlainText() const;
 
 private:
-    QStringList m_lines;
+    QStringList m_lines{QString()};
     mutable int m_maxLineLength = -1;
 
     void invalidateCache();

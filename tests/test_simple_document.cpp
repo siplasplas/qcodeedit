@@ -6,12 +6,12 @@
 class TestSimpleDocument : public QObject {
     Q_OBJECT
 private slots:
-    void emptyDocument_hasZeroLines();
+    void emptyDocument_hasOneEmptyLine();
     void setLines_populatesLinesAndEmitsReset();
     void lineAt_outOfRange_returnsEmpty();
     void setText_splitsOnLF();
     void setText_normalizesCRLF();
-    void setText_emptyString_givesZeroLines();
+    void setText_emptyString_givesOneEmptyLine();
     void setText_singleNewline_givesOneEmptyLine();
     void setText_trailingNewline_doesNotCreateExtraEmpty();
     void toPlainText_roundTrip();
@@ -38,9 +38,10 @@ private slots:
     void removeText_emitsLinesRemoved_forMultiLine();
 };
 
-void TestSimpleDocument::emptyDocument_hasZeroLines() {
+void TestSimpleDocument::emptyDocument_hasOneEmptyLine() {
     qce::SimpleTextDocument doc;
-    QCOMPARE(doc.lineCount(), 0);
+    QCOMPARE(doc.lineCount(), 1);
+    QCOMPARE(doc.lineAt(0), QString());
     QCOMPARE(doc.maxLineLength(), 0);
     QCOMPARE(doc.toPlainText(), QString());
 }
@@ -88,10 +89,14 @@ void TestSimpleDocument::setText_normalizesCRLF() {
     QCOMPARE(doc.lineAt(2), QStringLiteral("c"));
 }
 
-void TestSimpleDocument::setText_emptyString_givesZeroLines() {
+void TestSimpleDocument::setText_emptyString_givesOneEmptyLine() {
     qce::SimpleTextDocument doc;
+    doc.setText(QStringLiteral("abc"));
     doc.setText(QString());
-    QCOMPARE(doc.lineCount(), 0);
+    QCOMPARE(doc.lineCount(), 1);
+    QCOMPARE(doc.toPlainText(), QString());
+    doc.setLines({});
+    QCOMPARE(doc.lineCount(), 1);
 }
 
 void TestSimpleDocument::setText_singleNewline_givesOneEmptyLine() {

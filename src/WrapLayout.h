@@ -30,7 +30,12 @@ public:
                  const FoldState* foldState = nullptr);
 
     int totalRows() const { return m_rows.size(); }
-    const Row& rowAt(int visualRow) const { return m_rows[visualRow]; }
+    /// Row visualRow; an empty row when there is none (e.g. an empty document,
+    /// or before the viewport has a width).
+    const Row& rowAt(int visualRow) const {
+        static const Row none;
+        return visualRow >= 0 && visualRow < m_rows.size() ? m_rows[visualRow] : none;
+    }
 
     /// First visual row index for a given logical line.
     int firstRowOf(int logicalLine) const;

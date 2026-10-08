@@ -28,6 +28,9 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
   continuation rows of wrapped lines. Colours come from
   `CodeEdit::setGutterColors()` (Kate themes: `IconBorder`, `LineNumbers`,
   `Separator` in `KateTheme`) or are derived from the palette
+- Word wrap breaks lines where the Unicode line breaking rules allow it, as
+  Kate does: after spaces, but also e.g. between `](` and after `/` in URLs;
+  spaces at the end of a row hang there instead of starting the next row
 - Large files open at once: syntax highlighting of documents over 5000 lines
   runs lazily (visible lines first, the rest in the background), and fold
   regions are rebuilt from markers collected while highlighting

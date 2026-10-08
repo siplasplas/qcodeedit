@@ -11,6 +11,8 @@ private slots:
     void shortLine_singleRow();
     void longLine_wrapsAtWordBoundary();
     void longLine_hardBreakWhenNoSpace();
+    void longLine_breaksAtPunctuationLikeKate();
+    void trailingSpaces_hangAtRowEnd();
     void multiLine_correctRowCount();
     void emptyLine_singleRow();
     void rowForCursor_wrappedLine();
@@ -56,6 +58,33 @@ void TestWrapLayout::longLine_hardBreakWhenNoSpace() {
     QCOMPARE(wl.totalRows(), 2);
     QCOMPARE(wl.rowAt(0).endCol, 5);
     QCOMPARE(wl.rowAt(1).startCol, 5);
+}
+
+// Unicode line breaking (UAX #14), as in Kate: a row may end between "]("
+// and after "/", not only after spaces.
+void TestWrapLayout::longLine_breaksAtPunctuationLikeKate() {
+    SimpleTextDocument doc;
+    doc.setText(QStringLiteral("[Keep](https://keepachangelog.com/en/)"));
+    WrapLayout wl = buildLayout(doc, 10);
+    QVERIFY(wl.totalRows() >= 3);
+    QCOMPARE(wl.rowAt(0).endCol, 6);  // "[Keep]" | "(https://"
+    QCOMPARE(wl.rowAt(1).startCol, 6);
+    QCOMPARE(wl.rowAt(1).endCol, 15); // "(https://" | "keepachangelog.com/"
+    for (int r = 0; r < wl.totalRows(); ++r)
+        QVERIFY(wl.rowAt(r).endCol - wl.rowAt(r).startCol <= 10
+                || r == wl.totalRows() - 1);
+}
+
+void TestWrapLayout::trailingSpaces_hangAtRowEnd() {
+    SimpleTextDocument doc;
+    // "abcd  efgh", maxCols=4: the spaces stay on the first row instead of
+    // starting the second one.
+    doc.setText(QStringLiteral("abcd  efgh"));
+    WrapLayout wl = buildLayout(doc, 4);
+    QCOMPARE(wl.totalRows(), 2);
+    QCOMPARE(wl.rowAt(0).endCol, 6);
+    QCOMPARE(wl.rowAt(1).startCol, 6);
+    QCOMPARE(wl.rowAt(1).endCol, 10);
 }
 
 void TestWrapLayout::multiLine_correctRowCount() {

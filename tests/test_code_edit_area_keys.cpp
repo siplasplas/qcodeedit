@@ -451,6 +451,48 @@ private slots:
         QTest::keyClick(&area, Qt::Key_Delete, Qt::ControlModifier);
         QCOMPARE(doc.lineAt(0), QStringLiteral("betagamma"));
     }
+
+    // A character outside the BMP (an Egyptian hieroglyph, a surrogate pair)
+    // is one character for the caret and for editing. "ab" + two hieroglyphs
+    // + "cd": UTF-16 indices a=0 b=1 [2,3] [4,5] c=6 d=7.
+    void surrogatePair_isOneCharacterForCaretAndEditing() {
+        const QString line = QString::fromUcs4(U"ab\U00013032\U00013032cd");
+        SimpleTextDocument doc;
+        doc.setText(line);
+        CodeEditArea area;
+        area.setDocument(&doc);
+        activate(&area);
+
+        // A position inside a pair is moved to its start.
+        area.setCursorPosition({0, 3});
+        QCOMPARE(area.cursorPosition().column, 2);
+        QTest::keyClick(&area, Qt::Key_Right);
+        QCOMPARE(area.cursorPosition().column, 4);
+        QTest::keyClick(&area, Qt::Key_Left);
+        QCOMPARE(area.cursorPosition().column, 2);
+
+        // Typing between the hieroglyphs keeps both whole.
+        area.setCursorPosition({0, 4});
+        QTest::keyClicks(&area, QStringLiteral("x"));
+        QCOMPARE(doc.lineAt(0), QString::fromUcs4(U"ab\U00013032x\U00013032cd"));
+        QTest::keyClick(&area, Qt::Key_Backspace);
+        QCOMPARE(doc.lineAt(0), line);
+
+        // Delete and Backspace remove a whole hieroglyph.
+        QTest::keyClick(&area, Qt::Key_Delete);
+        QCOMPARE(doc.lineAt(0), QString::fromUcs4(U"ab\U00013032cd"));
+        QTest::keyClick(&area, Qt::Key_Backspace);
+        QCOMPARE(doc.lineAt(0), QStringLiteral("abcd"));
+        QCOMPARE(area.cursorPosition().column, 2);
+
+        // A click lands on a boundary: cell 3 is the second hieroglyph.
+        doc.setText(line);
+        const int cw = QFontMetrics(area.font()).horizontalAdvance(QLatin1Char('M'));
+        const int leftPadding = 4;
+        QTest::mouseClick(area.viewport(), Qt::LeftButton, Qt::NoModifier,
+                          QPoint(leftPadding + 3 * cw + cw / 4, 5));
+        QCOMPARE(area.cursorPosition().column, 4);
+    }
 };
 
 QTEST_MAIN(TestCodeEditAreaKeys)

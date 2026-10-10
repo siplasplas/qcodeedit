@@ -48,6 +48,10 @@ private slots:
     void moveWordLeft_skipsSpaceThenWord();
     void moveWordLeft_atColumnZero_wrapsToPreviousLine();
 
+    // Surrogate pairs (characters outside the BMP) are one character
+    void surrogatePair_leftRight_stepOverWholeCharacter();
+    void surrogatePair_clampAndVerticalMove_neverStopInside();
+
 private:
     qce::SimpleTextDocument m_doc;
 };
@@ -240,6 +244,38 @@ void TestCursorController::moveWordLeft_atColumnZero_wrapsToPreviousLine() {
     const TextCursor r = cc.moveWordLeft(TextCursor{1, 0});
     QCOMPARE(r.line, 0);
     QCOMPARE(r.column, 5);
+}
+
+// --- Surrogate pairs ----------------------------------------------------
+
+// "ab" + two Egyptian hieroglyphs (U+13032, a surrogate pair each) + "cd":
+// UTF-16 indices a=0 b=1 [2,3] [4,5] c=6 d=7.
+static const QString kPairLine = QString::fromUcs4(U"ab\U00013032\U00013032cd");
+
+void TestCursorController::surrogatePair_leftRight_stepOverWholeCharacter() {
+    qce::SimpleTextDocument doc;
+    doc.setLines({kPairLine});
+    CursorController cc(&doc);
+    QCOMPARE(cc.moveRight(TextCursor{0, 2}).column, 4);
+    QCOMPARE(cc.moveRight(TextCursor{0, 4}).column, 6);
+    QCOMPARE(cc.moveLeft(TextCursor{0, 6}).column, 4);
+    QCOMPARE(cc.moveLeft(TextCursor{0, 4}).column, 2);
+    // BMP characters still move by one.
+    QCOMPARE(cc.moveRight(TextCursor{0, 0}).column, 1);
+    QCOMPARE(cc.moveLeft(TextCursor{0, 8}).column, 7);
+}
+
+void TestCursorController::surrogatePair_clampAndVerticalMove_neverStopInside() {
+    qce::SimpleTextDocument doc;
+    doc.setLines({QStringLiteral("0123456789"), kPairLine});
+    CursorController cc(&doc);
+    // Inside the first pair → its start.
+    QCOMPARE(cc.clamp(TextCursor{1, 3}), (TextCursor{1, 2}));
+    QCOMPARE(cc.clamp(TextCursor{1, 5}), (TextCursor{1, 4}));
+    QCOMPARE(cc.clamp(TextCursor{1, 4}), (TextCursor{1, 4}));
+    // Moving down from column 5 of the plain line lands on a boundary.
+    QCOMPARE(cc.moveDown(TextCursor{0, 5}), (TextCursor{1, 4}));
+    QCOMPARE(cc.moveDown(TextCursor{0, 3}), (TextCursor{1, 2}));
 }
 
 QTEST_APPLESS_MAIN(TestCursorController)

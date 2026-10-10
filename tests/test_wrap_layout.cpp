@@ -18,6 +18,7 @@ private slots:
     void rowForCursor_wrappedLine();
     void firstRowOf_correct();
     void collapsedRegions_matchIsLineVisible();
+    void surrogatePair_neverSplitBetweenRows();
 };
 
 using qce::WrapLayout;
@@ -178,6 +179,23 @@ void TestWrapLayout::collapsedRegions_matchIsLineVisible() {
         }
         QCOMPARE(wl.totalRows(), row);
     }
+}
+
+// Three Egyptian hieroglyphs (U+13032, a surrogate pair each) between "ab"
+// and "cd": 7 cells in 10 UTF-16 units. A row never ends between the halves
+// of a pair, and a pair takes one cell of the row width.
+void TestWrapLayout::surrogatePair_neverSplitBetweenRows() {
+    SimpleTextDocument doc;
+    const QString line = QString::fromUcs4(U"ab\U00013032\U00013032\U00013032cd");
+    doc.setText(line);
+    WrapLayout wl = buildLayout(doc, 3);
+    QCOMPARE(wl.totalRows(), 3);
+    QCOMPARE(wl.rowAt(0).endCol, 4);   // "ab" + one hieroglyph: 3 cells
+    QCOMPARE(wl.rowAt(1).startCol, 4);
+    QCOMPARE(wl.rowAt(1).endCol, 9);   // two hieroglyphs + "c"
+    QCOMPARE(wl.rowAt(2).endCol, 10);
+    for (int r = 0; r < wl.totalRows(); ++r)
+        QVERIFY(!line.at(wl.rowAt(r).startCol).isLowSurrogate());
 }
 
 QTEST_APPLESS_MAIN(TestWrapLayout)

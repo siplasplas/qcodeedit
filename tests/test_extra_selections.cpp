@@ -235,9 +235,10 @@ private slots:
         area.setExtraSelections({{{0, 1}, {0, 4}, Qt::yellow, {}}});
         auto vp = area.viewportState();
         auto image = render(area);
-        // Tab is UTF-16 column 1; emoji occupies columns 2 and 3.
-        for (int col = 1; col < 6; ++col) QCOMPARE(cell(image, vp, col), QColor(Qt::yellow));
-        QVERIFY(cell(image, vp, 6) != QColor(Qt::yellow));
+        // Tab is UTF-16 column 1 (cells 1-3); the emoji is UTF-16 columns
+        // 2 and 3 but one cell (4).
+        for (int col = 1; col < 5; ++col) QCOMPARE(cell(image, vp, col), QColor(Qt::yellow));
+        QVERIFY(cell(image, vp, 5) != QColor(Qt::yellow));
         area.horizontalScrollBar()->setValue(2);
         vp = area.viewportState();
         image = render(area);
@@ -251,8 +252,10 @@ private slots:
         QVERIFY(vp.rows.size() > 1);
         for (int r = 0; r < vp.rows.size(); ++r) {
             const auto row = vp.rows[r];
+            const QString seg = doc.lineAt(0).mid(row.startCol);
             for (int col = row.startCol; col < row.endCol; ++col) {
-                const int visual = (col - row.startCol) + (row.startCol == 0 && col >= 2 ? 2 : 0);
+                if (doc.lineAt(0).at(col).isLowSurrogate()) continue;  // no cell of its own
+                const int visual = LineRenderer::visualColumn(seg, col - row.startCol, area.tabWidth());
                 if (col >= 4 && col < 28) QCOMPARE(cell(image, vp, visual, r), QColor(Qt::yellow));
             }
         }

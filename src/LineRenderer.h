@@ -98,6 +98,16 @@ public:
     /// Number of cells `text` (tabs already expanded) occupies: its code points.
     static int cellCount(const QString& text);
 
+    /// Draws `text` (tabs already expanded) with every code point at its
+    /// cell: x + cell * charWidth. A character outside the BMP comes from a
+    /// fallback font whose advance can differ from the cell width; drawn as
+    /// one run, it would shift the rest of the line off the caret and
+    /// selection grid (six Egyptian hieroglyphs of 9 px in 8 px cells push
+    /// the text after them by most of a cell). Text without such characters
+    /// is one drawText.
+    static void drawCells(QPainter& painter, int x, int baselineY, int charWidth,
+                          const QString& text);
+
 private:
     QFont m_font;
     int  m_tabWidth        = 4;

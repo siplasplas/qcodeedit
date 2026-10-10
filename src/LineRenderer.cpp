@@ -81,7 +81,7 @@ void LineRenderer::paint(QPainter& painter,
             }
             if (!row.foldPlaceholder.isEmpty()) {
                 const QString drawnSeg = line.mid(row.startCol, drawEnd - row.startCol);
-                const int segVisualLen = expandTabsAt(drawnSeg, 0).size();
+                const int segVisualLen = cellCount(expandTabsAt(drawnSeg, 0));
                 const int segEndX = kLeftPaddingPx + segVisualLen * vp.charWidth;
                 drawFoldPlaceholder(painter, row.foldPlaceholder,
                                     segEndX, topY, lineHeight);
@@ -191,6 +191,31 @@ int LineRenderer::cellCount(const QString& text) {
     return codepoints::codePointColumn(text, int(text.size()));
 }
 
+void LineRenderer::drawCells(QPainter& painter, int x, int baselineY, int charWidth,
+                             const QString& text) {
+    int runStart = 0;   // first index of the BMP run not drawn yet
+    int runCell  = 0;   // its cell
+    int cell     = 0;
+    for (int i = 0; i < text.size();) {
+        if (!codepoints::isPairAt(text, i)) {
+            ++i;
+            ++cell;
+            continue;
+        }
+        if (runStart < i) {
+            painter.drawText(x + runCell * charWidth, baselineY, text.mid(runStart, i - runStart));
+        }
+        painter.drawText(x + cell * charWidth, baselineY, text.mid(i, 2));
+        i += 2;
+        ++cell;
+        runStart = i;
+        runCell  = cell;
+    }
+    if (runStart < text.size()) {
+        painter.drawText(x + runCell * charWidth, baselineY, text.mid(runStart));
+    }
+}
+
 QString LineRenderer::expandTabsAt(const QString& chunk, int startVisual) const {
     if (!chunk.contains(QLatin1Char('\t'))) {
         return chunk;
@@ -227,7 +252,7 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
         const QString seg = line.mid(segStart, segEnd - segStart);
         const QString text = expandTabs(seg);
         if (!text.isEmpty()) {
-            painter.drawText(drawX, baselineY, text);
+            drawCells(painter, drawX, baselineY, charWidth, text);
         }
         return;
     }
@@ -305,7 +330,7 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
         painter.setPen(pen);
         painter.setFont(f);
 
-        painter.drawText(drawX + visual * charWidth, baselineY, expanded);
+        drawCells(painter, drawX + visual * charWidth, baselineY, charWidth, expanded);
 
         // Advance visual column past this chunk.
         for (int i = 0; i < chunk.size(); ++i) {

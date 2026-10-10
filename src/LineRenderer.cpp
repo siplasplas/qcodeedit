@@ -1,5 +1,6 @@
 #include "LineRenderer.h"
 
+#include <qce/CodePoints.h>
 #include <qce/ITextDocument.h>
 #include <qce/ViewportState.h>
 
@@ -157,7 +158,8 @@ void LineRenderer::paintWhitespaceMarkers(QPainter& painter,
     painter.setPen(wsColor);
 
     int visual = visualStart;
-    for (QChar ch : seg) {
+    for (int i = 0; i < seg.size(); ++i) {
+        const QChar ch = seg.at(i);
         if (ch == QLatin1Char(' ')) {
             painter.drawText(baseX + visual * charWidth, baselineY, kDot);
             ++visual;
@@ -165,7 +167,7 @@ void LineRenderer::paintWhitespaceMarkers(QPainter& painter,
             const int tabSpaces = m_tabWidth - (visual % m_tabWidth);
             painter.drawText(baseX + visual * charWidth, baselineY, kArrow);
             visual += tabSpaces;
-        } else {
+        } else if (!codepoints::continuesPair(seg, i)) {
             ++visual;
         }
     }
@@ -178,11 +180,15 @@ int LineRenderer::visualColumn(const QString& line, int charIndex, int tabWidth)
     for (int i = 0; i < limit; ++i) {
         if (line.at(i) == QLatin1Char('\t')) {
             visual = (visual / tabWidth + 1) * tabWidth;
-        } else {
-            ++visual;
+        } else if (!codepoints::continuesPair(line, i)) {
+            ++visual;  // a surrogate pair is one column
         }
     }
     return visual;
+}
+
+int LineRenderer::cellCount(const QString& text) {
+    return codepoints::codePointColumn(text, int(text.size()));
 }
 
 QString LineRenderer::expandTabsAt(const QString& chunk, int startVisual) const {
@@ -276,7 +282,7 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
             const TextAttribute& a = (*m_palette)[attrId];
             if (a.background.isValid() && lineHeight > 0) {
                 const QRect rect(drawX + visual * charWidth, topY + band.offset,
-                                 expanded.length() * charWidth, band.height);
+                                 cellCount(expanded) * charWidth, band.height);
                 for (const QRect& piece : QRegion(rect).subtracted(m_selectionRegion)) {
                     painter.fillRect(piece, a.background);
                 }
@@ -287,7 +293,7 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
             if (a.underline) f.setUnderline(true);
         }
         const QRect cell(drawX + visual * charWidth, topY + band.offset,
-                         expanded.length() * charWidth, band.height);
+                         cellCount(expanded) * charWidth, band.height);
         if (decoration) {
             if (decoration->background.isValid()) {
                 for (const QRect& piece : QRegion(cell).subtracted(m_selectionRegion)) {
@@ -302,10 +308,10 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
         painter.drawText(drawX + visual * charWidth, baselineY, expanded);
 
         // Advance visual column past this chunk.
-        for (QChar ch : chunk) {
-            if (ch == QLatin1Char('\t')) {
+        for (int i = 0; i < chunk.size(); ++i) {
+            if (chunk.at(i) == QLatin1Char('\t')) {
                 visual = (visual / m_tabWidth + 1) * m_tabWidth;
-            } else {
+            } else if (!codepoints::continuesPair(chunk, i)) {
                 ++visual;
             }
         }

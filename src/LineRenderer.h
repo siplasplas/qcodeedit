@@ -91,8 +91,12 @@ public:
 
     /// Visual column (number of displayed characters) at logical char index
     /// `charIndex` in `line`, given `tabWidth`. Tabs advance to the next tab
-    /// stop. Used by CodeEditArea to position the caret and selection rects.
+    /// stop; a surrogate pair (one character outside the BMP) is one column.
+    /// Used by CodeEditArea to position the caret and selection rects.
     static int visualColumn(const QString& line, int charIndex, int tabWidth);
+
+    /// Number of cells `text` (tabs already expanded) occupies: its code points.
+    static int cellCount(const QString& text);
 
 private:
     QFont m_font;

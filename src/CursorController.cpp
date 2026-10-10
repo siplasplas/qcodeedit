@@ -1,5 +1,6 @@
 #include "CursorController.h"
 
+#include <qce/CodePoints.h>
 #include <qce/ITextDocument.h>
 #include <qce/WordBoundary.h>
 
@@ -9,11 +10,21 @@ namespace qce {
 
 // --- Private helpers ----------------------------------------------------
 
-int CursorController::lineLength(int line) const {
+QString CursorController::lineText(int line) const {
     if (!m_doc || line < 0 || line >= m_doc->lineCount()) {
-        return 0;
+        return {};
     }
-    return m_doc->lineAt(line).size();
+    return m_doc->lineAt(line);
+}
+
+int CursorController::lineLength(int line) const {
+    return int(lineText(line).size());
+}
+
+int CursorController::columnOnLine(int line, int column) const {
+    const QString text = lineText(line);
+    // Not past the end, and not between the halves of a surrogate pair.
+    return codepoints::toBoundary(text, std::clamp(column, 0, int(text.size())));
 }
 
 int CursorController::lineCount() const {
@@ -25,7 +36,7 @@ int CursorController::lineCount() const {
 TextCursor CursorController::moveUp(TextCursor c, int lines) const {
     if (lines <= 0) return c;
     c.line = std::max(0, c.line - lines);
-    c.column = std::min(c.column, lineLength(c.line));
+    c.column = columnOnLine(c.line, c.column);
     return c;
 }
 
@@ -33,7 +44,7 @@ TextCursor CursorController::moveDown(TextCursor c, int lines) const {
     if (lines <= 0) return c;
     const int lastLine = std::max(0, lineCount() - 1);
     c.line = std::min(lastLine, c.line + lines);
-    c.column = std::min(c.column, lineLength(c.line));
+    c.column = columnOnLine(c.line, c.column);
     return c;
 }
 
@@ -49,7 +60,8 @@ TextCursor CursorController::movePageDown(TextCursor c, int pageLines) const {
 
 TextCursor CursorController::moveLeft(TextCursor c) const {
     if (c.column > 0) {
-        --c.column;
+        // One code point: a surrogate pair is one step.
+        c.column = codepoints::prevIndex(lineText(c.line), c.column);
         return c;
     }
     // At column 0: wrap to end of previous line if possible.
@@ -61,9 +73,9 @@ TextCursor CursorController::moveLeft(TextCursor c) const {
 }
 
 TextCursor CursorController::moveRight(TextCursor c) const {
-    const int len = lineLength(c.line);
-    if (c.column < len) {
-        ++c.column;
+    const QString text = lineText(c.line);
+    if (c.column < text.size()) {
+        c.column = codepoints::nextIndex(text, c.column);
         return c;
     }
     // At end of line: wrap to start of next line if possible.
@@ -138,7 +150,7 @@ TextCursor CursorController::clamp(TextCursor c) const {
         return TextCursor{0, 0};
     }
     c.line = std::clamp(c.line, 0, n - 1);
-    c.column = std::clamp(c.column, 0, lineLength(c.line));
+    c.column = columnOnLine(c.line, c.column);
     return c;
 }
 

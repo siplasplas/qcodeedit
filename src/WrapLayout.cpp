@@ -1,5 +1,6 @@
 #include "WrapLayout.h"
 
+#include <qce/CodePoints.h>
 #include <qce/FoldState.h>
 #include <qce/ITextDocument.h>
 
@@ -75,9 +76,11 @@ void WrapLayout::rebuild(const ITextDocument* doc,
 
             while (endCol < line.size()) {
                 const QChar ch = line.at(endCol);
+                // The second half of a surrogate pair takes no cell, so a
+                // row never ends between the halves.
                 const int cw = (ch == QLatin1Char('\t'))
                     ? (tabWidth - (visual % tabWidth))
-                    : 1;
+                    : (codepoints::continuesPair(line, endCol) ? 0 : 1);
                 if (visual + cw > availableVisualCols && endCol > col) {
                     break;
                 }

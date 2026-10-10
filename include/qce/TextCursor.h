@@ -4,9 +4,10 @@ namespace qce {
 
 /// Logical cursor position in a text document.
 ///
-/// Column is a QChar (UTF-16 code unit) index in v0.2; a later version may
-/// switch to grapheme-cluster indices for correct handling of combining
-/// characters and surrogate pairs.
+/// Column is a QChar (UTF-16 code unit) index. The editor keeps it on code
+/// point boundaries (a surrogate pair counts as one character for the caret
+/// and the visual columns, see qce/CodePoints.h); a later version may switch
+/// to grapheme-cluster indices for combining characters.
 ///
 /// Invariant: line >= 0, column >= 0.
 struct TextCursor {

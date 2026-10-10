@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(qcodeedit LANGUAGES CXX VERSION 1.12.0)
+project(qcodeedit LANGUAGES CXX VERSION 1.12.1)
 
 # --- Global options -----------------------------------------------------
 
@@ -72,6 +72,7 @@ add_library(qcodeedit STATIC
     include/qce/CodeEdit.h
     include/qce/ExtraSelection.h
     include/qce/TextCursor.h
+    include/qce/CodePoints.h
     include/qce/TextAttribute.h
     include/qce/StyleSpan.h
     include/qce/HighlightState.h
@@ -131,6 +132,7 @@ install(FILES
     include/qce/CodeEdit.h
     include/qce/ExtraSelection.h
     include/qce/TextCursor.h
+    include/qce/CodePoints.h
     include/qce/TextAttribute.h
     include/qce/StyleSpan.h
     include/qce/HighlightState.h

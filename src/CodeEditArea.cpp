@@ -1,5 +1,6 @@
 #include "qce/CodeEditArea.h"
 
+#include "qce/CodePoints.h"
 #include "qce/IFoldingProvider.h"
 #include "qce/IHighlighter.h"
 #include "qce/ITextDocument.h"
@@ -526,7 +527,9 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
             const TextCursor from = cc.moveWordLeft(m_cursor);
             if (from != m_cursor) executeRemove(from, m_cursor);
         } else if (m_cursor.column > 0) {
-            executeRemove({m_cursor.line, m_cursor.column - 1}, m_cursor);
+            // One code point (a surrogate pair as a whole).
+            const int from = codepoints::prevIndex(m_doc->lineAt(m_cursor.line), m_cursor.column);
+            executeRemove({m_cursor.line, from}, m_cursor);
         } else if (m_cursor.line > 0) {
             const int prevLen = m_doc->lineAt(m_cursor.line - 1).size();
             executeRemove({m_cursor.line - 1, prevLen}, m_cursor);
@@ -541,9 +544,10 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
             const TextCursor to = cc.moveWordRight(m_cursor);
             if (to != m_cursor) executeRemove(m_cursor, to);
         } else {
-            const int lineLen = m_doc->lineAt(m_cursor.line).size();
-            if (m_cursor.column < lineLen) {
-                executeRemove(m_cursor, {m_cursor.line, m_cursor.column + 1});
+            const QString lineText = m_doc->lineAt(m_cursor.line);
+            if (m_cursor.column < lineText.size()) {
+                // One code point (a surrogate pair as a whole).
+                executeRemove(m_cursor, {m_cursor.line, codepoints::nextIndex(lineText, m_cursor.column)});
             } else if (m_cursor.line < m_doc->lineCount() - 1) {
                 executeRemove(m_cursor, {m_cursor.line + 1, 0});
             }
@@ -1150,11 +1154,12 @@ TextCursor CodeEditArea::cursorFromPoint(const QPoint& pt) const {
         const QString seg = m_doc->lineAt(row.logicalLine)
                                 .mid(row.startCol, row.endCol - row.startCol);
         int visual = 0, segCol = 0;
-        for (; segCol < seg.size(); ++segCol) {
+        while (segCol < seg.size()) {
             const int cw = (seg.at(segCol) == QLatin1Char('\t'))
                 ? (tw - (visual % tw)) : 1;
             if (targetX * 2 < (2 * visual + cw) * vp.charWidth) break;
             visual += cw;
+            segCol = codepoints::nextIndex(seg, segCol);  // a surrogate pair is one cell
         }
         return m_cursorCtrl->clamp({row.logicalLine, row.startCol + segCol});
     }
@@ -1165,11 +1170,12 @@ TextCursor CodeEditArea::cursorFromPoint(const QPoint& pt) const {
     const int targetX = pt.x() - LineRenderer::kLeftPaddingPx + vp.contentOffsetX;
     const QString lineStr = m_doc->lineAt(lineNum);
     int visual = 0, col = 0;
-    for (; col < lineStr.size(); ++col) {
+    while (col < lineStr.size()) {
         const int cw = (lineStr.at(col) == QLatin1Char('\t'))
             ? (tw - (visual % tw)) : 1;
         if (targetX * 2 < (2 * visual + cw) * vp.charWidth) break;
         visual += cw;
+        col = codepoints::nextIndex(lineStr, col);  // a surrogate pair is one cell
     }
     return m_cursorCtrl->clamp({lineNum, col});
 }

@@ -183,11 +183,14 @@ doc->setText(QStringLiteral("hello\nworld"));
 auto* editor = new qce::CodeEdit(this);
 editor->setDocument(doc);
 
-// Status-bar wiring example:
+// Status-bar wiring example. The cursor column is a UTF-16 index; a
+// character outside the BMP (an emoji) is two of them but one column for
+// the user, so qce/CodePoints.h converts it:
 connect(editor->area(), &qce::CodeEditArea::cursorPositionChanged,
-        this, [this](qce::TextCursor pos) {
+        this, [this, doc](qce::TextCursor pos) {
+    const int column = qce::codepoints::codePointColumn(doc->lineAt(pos.line), pos.column);
     statusBar()->showMessage(
-        tr("Ln %1, Col %2").arg(pos.line + 1).arg(pos.column + 1));
+        tr("Ln %1, Col %2").arg(pos.line + 1).arg(column + 1));
 });
 ```
 

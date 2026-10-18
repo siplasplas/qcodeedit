@@ -179,6 +179,21 @@ private slots:
         second.refreshUserDictionary();
         QVERIFY(second.check(QStringLiteral("gicioriański")));
     }
+
+    // As the area's child (no parent given) the spelling is deleted after the
+    // area's own part; it must not touch the area then. Needs no dictionary.
+    void deletedWithItsArea() {
+        auto* area = new CodeEditArea;
+        auto* doc = new SimpleTextDocument(area);
+        area->setDocument(doc);
+        auto* spelling = new CodeEditSpelling(area);
+        QCOMPARE(spelling->parent(), area);
+        doc->setText(QStringLiteral("Ths is a txt"));
+        area->resize(300, 100);
+        area->show();
+        spelling->recheck();
+        delete area;
+    }
 };
 
 QTEST_MAIN(TestSpell)

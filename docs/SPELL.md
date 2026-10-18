@@ -108,6 +108,21 @@ if smaller). On a list of 96 real typing mistakes 91 were first (hunspell
 alone: 71) and the right word was always among those shown, 1.77 suggestions
 on average, one for half of the words, in about 25 ms each.
 
+Word frequency, when installed for the dictionary's language, puts common
+words before rare ones: `siplasplas/spell/freq/<language>.lemma.freq` in a
+data directory (`~/.local/share`, `/usr/local/share`, `/usr/share`), lines
+`stem<TAB>count` of the most frequent dictionary entries after a header
+`# N words in …, K known to …`, made by
+[wiki2corpus](https://github.com/nlp-and-learning/wiki2corpus)'s `wordfreq`.
+A suggestion's stem (hunspell's) adds 0.3 for each tenfold below 1000 per
+million words; one not in the file counts as 0.3 per million (very rare); a
+two-word suggestion takes its rarer word's. Only suggestions at most 0.4 worse
+than the best are then shown. "dialac" gives działać (not dialach, dialag),
+"reczy" rzeczy (not ręczy). With counts from film subtitles 94 of 97 typing
+mistakes got the right word first (93 without) and it was always shown, 1.28
+suggestions on average; counts from Wikipedia did worse, its nouns and third
+person beating what people type.
+
 A space missing or in the wrong place: `CodeEditSpelling::phraseCorrections()`
 joins the misspelled word with the word before or after it on its line (also
 a single letter) and splits the letters elsewhere into two right words

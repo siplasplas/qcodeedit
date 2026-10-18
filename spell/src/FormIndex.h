@@ -12,6 +12,7 @@
 // weighted edit distance. Checking whether a word is right stays hunspell's.
 
 #include <QFile>
+#include <QHash>
 #include <QString>
 #include <QStringList>
 
@@ -66,14 +67,49 @@ constexpr double kSuggestionLimit = 2.6;
 /// "dialac": dialach, dialag, działać), 1.77 suggestions on average, one for
 /// half of the words; with 1.2 and 8 it was 5.5.
 constexpr double kCloseToBest = 0.6;
+/// The same with word frequencies, which put the right word first more often:
+/// still all 96 right words shown, 1.28 suggestions on average.
+constexpr double kCloseToBestWithFrequency = 0.4;
 constexpr int kMaxShown = 3;
 
-/// Up to `maxCount` of the candidates, best first, only those close to the
-/// best (a threshold, not always maxCount); ties keep the order of
-/// `preferred` (e.g. hunspell's suggestions), then the shorter. The case
-/// follows `word` (Capitalized, ALL CAPS).
+/// Word frequency: the counts of dictionary entries (stems) in a corpus,
+/// <GenericDataLocation>/siplasplas/spell/freq/<language>.lemma.freq (lines
+/// "stem<TAB>count" after "# N words …, K known to …" lines; made by
+/// wiki2corpus's wordfreq). Only the most frequent entries are there; one
+/// that is not counts as very rare.
+QString frequencyPath(const QString& language);
+class FrequencyTable {
+public:
+    /// Empty (no file, or not readable) when nothing is known.
+    explicit FrequencyTable(const QString& path);
+    bool isEmpty() const { return m_counts.isEmpty(); }
+    /// Occurrences per million known words of the corpus; 0 when the stem is
+    /// not in the table.
+    double perMillion(const QString& stem) const;
+
+private:
+    QHash<QString, quint32> m_counts;
+    double m_known = 0;
+};
+
+/// Added to the score of a suggestion whose stem is this frequent (per
+/// million words): none from kCommonPerMillion up, kFrequencyWeight per
+/// tenfold rarer, a word not in the table (very rare) as kVeryRarePerMillion.
+/// On the 96 typing mistakes with counts from film subtitles: 93 right words
+/// first (92 without), e.g. "dialac" → działać, not dialach; "reczy" →
+/// rzeczy, not ręczy. Wikipedia's counts did worse (89): its nouns and third
+/// person beat what people type ("zmianiac" → zmianach before zmieniać).
+constexpr double kCommonPerMillion = 1000;
+constexpr double kVeryRarePerMillion = 0.3;
+constexpr double kFrequencyWeight = 0.3;
+double frequencyPenalty(double perMillion);
+
+/// Up to `maxCount` of the candidates, best first, only those at most
+/// `closeToBest` worse than the best (a threshold, not always maxCount); ties
+/// keep the order of `preferred` (e.g. hunspell's suggestions), then the
+/// shorter. The case follows `word` (Capitalized, ALL CAPS).
 QStringList rankSuggestions(const QString& word, std::vector<std::pair<double, QString>> candidates,
-                            int maxCount, const QStringList& preferred);
+                            int maxCount, const QStringList& preferred, double closeToBest = kCloseToBest);
 
 class FormIndex {
 public:

@@ -13,6 +13,7 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QLocale>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QStringDecoder>
@@ -87,6 +88,29 @@ struct Loaded {
             state->store(2);
         });
         return nullptr;
+    }
+
+    // How frequent the dictionary's entries are (see FormIndex.h), read the
+    // first time suggestions are wanted; empty without a file.
+    std::unique_ptr<detail::FrequencyTable> frequency;
+    const detail::FrequencyTable& frequencies() {
+        if (!frequency)
+            frequency = std::make_unique<detail::FrequencyTable>(detail::frequencyPath(languageOf(name)));
+        return *frequency;
+    }
+    // Occurrences per million of the word's stem (the most frequent of its
+    // stems); negative when the dictionary has no frequencies or does not
+    // know the word.
+    double perMillion(const QString& word) {
+        const detail::FrequencyTable& table = frequencies();
+        if (table.isEmpty()) return -1;
+        const std::string encoded = encode(word);
+        if (encoded.empty()) return -1;
+        const std::vector<std::string> stems = hunspell->stem(encoded);
+        if (stems.empty()) return -1;
+        double best = 0;
+        for (const std::string& stem : stems) best = std::max(best, table.perMillion(decode(stem)));
+        return best;
     }
 
     std::string encode(const QString& word) const {
@@ -342,7 +366,37 @@ QStringList SpellChecker::suggestions(const QString& word, int maxCount) const {
         const double dist = detail::score(word, suggestion, detail::kSuggestionLimit);
         if (dist <= detail::kSuggestionLimit) candidates.emplace_back(dist, suggestion);
     }
-    return detail::rankSuggestions(word, std::move(candidates), maxCount, hunspellOrder);
+    // Rare words behind common ones: a penalty by the frequency of the stem
+    // (none from the dictionaries without frequencies or not knowing the
+    // word); a candidate split into words ("dial ac") takes its rarest
+    // word's. Only the candidates that could still be shown are looked up.
+    bool withFrequency = false;
+    for (const auto& loaded : d->dictionaries) withFrequency = withFrequency || !loaded->frequencies().isEmpty();
+    if (withFrequency && !candidates.empty()) {
+        const auto wordPenalty = [this](const QString& part) {
+            double penalty = -1;
+            for (const auto& loaded : d->dictionaries) {
+                const double perMillion = loaded->perMillion(part);
+                if (perMillion < 0) continue;
+                const double p = detail::frequencyPenalty(perMillion);
+                penalty = penalty < 0 ? p : std::min(penalty, p);
+            }
+            return penalty;
+        };
+        static const QRegularExpression separator(QStringLiteral("[ -]"));
+        double best = candidates.front().first;
+        for (const auto& candidate : candidates) best = std::min(best, candidate.first);
+        const double reach = best + detail::kCloseToBest + detail::frequencyPenalty(0);
+        std::erase_if(candidates, [reach](const auto& candidate) { return candidate.first > reach; });
+        for (auto& [dist, candidate] : candidates) {
+            double penalty = 0;
+            for (const QString& part : candidate.split(separator, Qt::SkipEmptyParts))
+                penalty = std::max(penalty, wordPenalty(part));
+            dist += penalty;
+        }
+    }
+    return detail::rankSuggestions(word, std::move(candidates), maxCount, hunspellOrder,
+                                   withFrequency ? detail::kCloseToBestWithFrequency : detail::kCloseToBest);
 }
 
 QStringList SpellChecker::splitSuggestions(const QString& first, const QString& second, int maxCount) const {

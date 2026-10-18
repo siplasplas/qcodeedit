@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QHash>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
 #include <QStandardPaths>
@@ -11,6 +12,7 @@
 #include <QTextStream>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -473,8 +475,47 @@ std::vector<std::pair<double, QString>> FormIndex::candidates(const QString& wor
     return result;
 }
 
+QString frequencyPath(const QString& language) {
+    return QStandardPaths::locate(QStandardPaths::GenericDataLocation,
+                                  QStringLiteral("siplasplas/spell/freq/%1.lemma.freq").arg(language));
+}
+
+FrequencyTable::FrequencyTable(const QString& path) {
+    QFile file(path);
+    if (path.isEmpty() || !file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+    QTextStream in(&file);
+    double words = 0;
+    while (!in.atEnd()) {
+        const QString line = in.readLine();
+        if (line.startsWith(QLatin1Char('#'))) {
+            // "# 2460104 words in pl.txt, 2297785 known to pl_PL"
+            static const QRegularExpression known(QStringLiteral("(\\d+) known to"));
+            static const QRegularExpression all(QStringLiteral("^#\\s*(\\d+) words"));
+            if (const auto m = known.match(line); m.hasMatch()) m_known = m.captured(1).toDouble();
+            else if (const auto m = all.match(line); m.hasMatch()) words = m.captured(1).toDouble();
+            continue;
+        }
+        const qsizetype tab = line.indexOf(QLatin1Char('\t'));
+        if (tab <= 0) continue;
+        m_counts.insert(line.left(tab), line.mid(tab + 1).toUInt());
+    }
+    if (m_known <= 0) m_known = words;
+    if (m_known <= 0) m_counts.clear();
+}
+
+double FrequencyTable::perMillion(const QString& stem) const {
+    auto it = m_counts.constFind(stem);
+    if (it == m_counts.cend()) it = m_counts.constFind(stem.toLower());
+    return it == m_counts.cend() ? 0.0 : it.value() * 1e6 / m_known;
+}
+
+double frequencyPenalty(double perMillion) {
+    const double f = std::max(perMillion, kVeryRarePerMillion);
+    return f >= kCommonPerMillion ? 0.0 : kFrequencyWeight * std::log10(kCommonPerMillion / f);
+}
+
 QStringList rankSuggestions(const QString& word, std::vector<std::pair<double, QString>> candidates,
-                            int maxCount, const QStringList& preferred) {
+                            int maxCount, const QStringList& preferred, double closeToBest) {
     const auto rank = [&preferred](const QString& form) {
         const qsizetype i = preferred.indexOf(form);
         return i < 0 ? preferred.size() : i;
@@ -495,7 +536,7 @@ QStringList rankSuggestions(const QString& word, std::vector<std::pair<double, Q
         // (The small allowance keeps a candidate exactly kCloseToBest behind,
         // e.g. 0.3 + 0.6 summed as 0.9000001.)
         if (int(result.size()) >= std::min(maxCount, kMaxShown)
-                || dist > candidates.front().first + kCloseToBest + 1e-9)
+                || dist > candidates.front().first + closeToBest + 1e-9)
             break;
         QString form = candidate;
         if (allCaps) form = form.toUpper();

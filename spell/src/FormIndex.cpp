@@ -475,9 +475,18 @@ std::vector<std::pair<double, QString>> FormIndex::candidates(const QString& wor
     return result;
 }
 
+QString frequencyCacheDir() {
+    const QString cache = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation);
+    return QDir(cache).filePath(QStringLiteral("siplasplas/spell/freq"));
+}
+
 QString frequencyPath(const QString& language) {
-    return QStandardPaths::locate(QStandardPaths::GenericDataLocation,
-                                  QStringLiteral("siplasplas/spell/freq/%1.lemma.freq").arg(language));
+    const QString file = QStringLiteral("%1.lemma.freq").arg(language);
+    const QString installed =
+        QStandardPaths::locate(QStandardPaths::GenericDataLocation, QStringLiteral("siplasplas/spell/freq/") + file);
+    if (!installed.isEmpty()) return installed;
+    const QString downloaded = QDir(frequencyCacheDir()).filePath(file);
+    return QFileInfo::exists(downloaded) ? downloaded : QString();
 }
 
 FrequencyTable::FrequencyTable(const QString& path) {

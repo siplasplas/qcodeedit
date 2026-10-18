@@ -73,11 +73,14 @@ constexpr double kCloseToBestWithFrequency = 0.4;
 constexpr int kMaxShown = 3;
 
 /// Word frequency: the counts of dictionary entries (stems) in a corpus,
-/// <GenericDataLocation>/siplasplas/spell/freq/<language>.lemma.freq (lines
-/// "stem<TAB>count" after "# N words …, K known to …" lines; made by
-/// wiki2corpus's wordfreq). Only the most frequent entries are there; one
-/// that is not counts as very rare.
+/// <language>.lemma.freq (lines "stem<TAB>count" after "# N words …, K
+/// known to …" lines; made by wiki2corpus's wordfreq). Only the most frequent
+/// entries are there; one that is not counts as very rare. The file is looked
+/// for in <GenericDataLocation>/siplasplas/spell/freq (installed or put there
+/// by hand), then in frequencyCacheDir() (downloaded); empty when neither has it.
 QString frequencyPath(const QString& language);
+/// <GenericCacheLocation>/siplasplas/spell/freq.
+QString frequencyCacheDir();
 class FrequencyTable {
 public:
     /// Empty (no file, or not readable) when nothing is known.

@@ -110,7 +110,8 @@ on average, one for half of the words, in about 25 ms each.
 
 Word frequency, when installed for the dictionary's language, puts common
 words before rare ones: `siplasplas/spell/freq/<language>.lemma.freq` in a
-data directory (`~/.local/share`, `/usr/local/share`, `/usr/share`), lines
+data directory (`~/.local/share`, `/usr/local/share`, `/usr/share`) or else in
+`~/.cache` (where downloaded files will go), lines
 `stem<TAB>count` of the most frequent dictionary entries after a header
 `# N words in …, K known to …`, made by
 [wiki2corpus](https://github.com/nlp-and-learning/wiki2corpus)'s `wordfreq`.

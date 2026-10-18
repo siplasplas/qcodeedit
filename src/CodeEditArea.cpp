@@ -89,7 +89,9 @@ CodeEditArea::CodeEditArea(QWidget* parent)
     refreshViewportState();
 }
 
-CodeEditArea::~CodeEditArea() = default;
+CodeEditArea::~CodeEditArea() {
+    emit aboutToBeDestroyed();
+}
 
 // ------------------------------------------------------------------------
 // Public API

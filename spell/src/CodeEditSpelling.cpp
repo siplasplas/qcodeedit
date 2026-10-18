@@ -56,6 +56,12 @@ CodeEditSpelling::CodeEditSpelling(CodeEditArea* area, QObject* parent)
     m_timer->setInterval(kDelayMs);
     connect(m_timer, &QTimer::timeout, this, &CodeEditSpelling::recheck);
     connect(area, &CodeEditArea::viewportChanged, this, &CodeEditSpelling::scheduleCheck);
+    // As the area's child (the default) this object outlives the area's own
+    // part; it must not touch the area from then on.
+    connect(area, &CodeEditArea::aboutToBeDestroyed, this, [this]() {
+        m_timer->stop();
+        m_area = nullptr;
+    });
     scheduleCheck();
 }
 

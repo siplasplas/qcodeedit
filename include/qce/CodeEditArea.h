@@ -221,6 +221,11 @@ signals:
     /// may move to its place only after it. An edit replacing a selection
     /// emits it twice: for the removal and for the insertion.
     void textChanged();
+    /// Emitted first in the destructor, while the editor is still whole.
+    /// Its child objects are deleted only after the editor's own part, when
+    /// QObject::destroyed() comes, so a helper parented to the editor (e.g.
+    /// qce::spell::CodeEditSpelling) drops its pointer to it here.
+    void aboutToBeDestroyed();
     /// Background highlighting of a large document reached its end.
     void highlightingCompleted();
 

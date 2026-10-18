@@ -154,9 +154,7 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
         row->setText(WordColumn, item.word.word);
         row->setData(WordColumn, kSortRole, item.word.word);
         row->setData(LineColumn, kSortRole, double(item.word.start.line) * 1e6 + item.word.start.column);
-        // Without a score (no suggestion, or only a moved space): last.
-        row->setData(ScoreColumn, kSortRole, item.score >= 0 ? item.score : 1e9);
-        if (item.score >= 0) row->setText(ScoreColumn, QString::number(item.score, 'f', 2));
+        showScore(row, item.score);
         row->setTextAlignment(ScoreColumn, Qt::AlignRight | Qt::AlignVCenter);
         row->setText(LineColumn, QString::number(item.word.start.line + 1));
         row->setTextAlignment(LineColumn, Qt::AlignRight | Qt::AlignVCenter);
@@ -176,6 +174,11 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
         // asked for ("Picking a correction checks the word").
         connect(choice, &QComboBox::activated, this, [this, row]() {
             if (m_pickChecks->isChecked()) row->setCheckState(WordColumn, Qt::Checked);
+        });
+        // The score follows the correction shown.
+        connect(choice, &QComboBox::currentIndexChanged, this, [this, row, i](int index) {
+            const auto& choices = m_items[i].choices;
+            showScore(row, index >= 0 && index < choices.size() ? choices[index].score : -1);
         });
         m_list->setItemWidget(row, CorrectionColumn, choice);
     }
@@ -290,6 +293,12 @@ void SpellingReviewDialog::filter() {
     }
 }
 
+void SpellingReviewDialog::showScore(QTreeWidgetItem* row, double score) {
+    // Without a score (no suggestion, or a moved space): sorted last.
+    row->setData(ScoreColumn, kSortRole, score >= 0 ? score : 1e9);
+    row->setText(ScoreColumn, score >= 0 ? QString::number(score, 'f', 2) : QString());
+}
+
 void SpellingReviewDialog::copyRows(bool contextOnly) const {
     QList<QTreeWidgetItem*> rows = m_list->selectedItems();
     // In the order shown, not the order selected.
@@ -368,7 +377,8 @@ int reviewSpelling(CodeEditSpelling& spelling, CheckedAtFirst& checkedAtFirst, Q
         SpellingReviewItem item{word, doc->lineAt(word.start.line), {}, false, false};
         auto found = suggestions.find(word.word);
         if (found == suggestions.end()) found = suggestions.insert(word.word, spelling.scoredSuggestions(word.word, 3));
-        for (const auto& suggestion : found.value()) item.choices.append({word, suggestion.text, suggestion.text});
+        for (const auto& suggestion : found.value())
+            item.choices.append({word, suggestion.text, suggestion.text, suggestion.score});
         if (!found.value().isEmpty()) item.score = found.value().front().score;
         const auto phrases = spelling.phraseCorrections(word);
         for (const auto& phrase : phrases)

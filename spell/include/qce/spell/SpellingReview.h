@@ -11,6 +11,7 @@ class QCheckBox;
 class QComboBox;
 class QLabel;
 class QTreeWidget;
+class QTreeWidgetItem;
 class QWidget;
 
 namespace qce::spell {
@@ -33,17 +34,19 @@ struct SpellingReviewItem {
         Range range;          ///< the word, or the word with its neighbour for a moved space
         QString replacement;
         QString label;        ///< as listed ("mam yz → mamy z" for a moved space)
+        double score = -1;    ///< lower: closer; -1 for a moved space (no score)
     };
     Range word;
     QString lineText;
     QList<Choice> choices;    ///< best first; a moved space after the word's own suggestions
     bool confident = false;   ///< a single close suggestion and no moved space
     bool single = false;      ///< a single suggestion and no moved space, close or not
-    double score = -1;        ///< the first suggestion's score (lower: closer); -1 without one
+    double score = -1;        ///< the first choice's score (lower: closer); -1 without one
 };
 
 /// The misspelled words of a text or a selection, each with a correction to
-/// choose, its score (how far it is: the lower, the closer), line and
+/// choose, the chosen correction's score (how far it is: the lower, the
+/// closer), line and
 /// context, sorted as in the text, alphabetically or by score. Checked at
 /// first as CheckedAtFirst says (the user may change it). "Show" lists all
 /// words, only the checked ones (to look them over) or only the unchecked
@@ -79,6 +82,8 @@ private:
     /// score, line and the whole line of text separated by tabs, or only
     /// the line of text.
     void copyRows(bool contextOnly) const;
+    /// The score shown in a row (and its sort key); none for a negative one.
+    static void showScore(QTreeWidgetItem* row, double score);
 
     QList<SpellingReviewItem> m_items;
     QTreeWidget* m_list = nullptr;

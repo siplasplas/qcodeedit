@@ -5,6 +5,7 @@
 #include <qce/spell/UserDictionaryDialog.h>
 
 #include <QCheckBox>
+#include <QApplication>
 #include <QClipboard>
 #include <QComboBox>
 #include <QGuiApplication>
@@ -18,7 +19,10 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QProgressDialog>
+#include <QPainter>
 #include <QPushButton>
+#include <QStyledItemDelegate>
+#include <QTextDocument>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -57,15 +61,61 @@ const QStringList& checkedAtFirstNames() {
 }
 
 // The line around the word, shortened at both ends.
-QString context(const QString& line, int start, int end) {
+// Where the word is in the context text, for the delegate to draw it bold.
+constexpr int kBoldStartRole = Qt::UserRole + 2;
+constexpr int kBoldLengthRole = Qt::UserRole + 3;
+
+struct Context {
+    QString text;
+    int wordStart = 0;
+};
+
+Context context(const QString& line, int start, int end) {
     constexpr int kAround = 30;
     const int from = qMax(0, start - kAround);
     const int to = qMin(int(line.size()), end + kAround);
-    QString text = line.mid(from, to - from).simplified();
-    if (from > 0) text.prepend(QStringLiteral("…"));
-    if (to < line.size()) text.append(QStringLiteral("…"));
-    return text;
+    // Tabs as spaces, one for one, so that the word keeps its place.
+    Context result{line.mid(from, to - from).replace(QLatin1Char('\t'), QLatin1Char(' ')), start - from};
+    if (from > 0) {
+        result.text.prepend(QStringLiteral("…"));
+        ++result.wordStart;
+    }
+    if (to < line.size()) result.text.append(QStringLiteral("…"));
+    return result;
 }
+
+// The context with the word in bold: a text the view cannot style in part is
+// drawn here as rich text.
+class ContextDelegate : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        QStyleOptionViewItem opt(option);
+        initStyleOption(&opt, index);
+        const QString text = opt.text;
+        opt.text.clear();
+        QStyle* style = opt.widget ? opt.widget->style() : QApplication::style();
+        style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
+        const int start = qBound(0, index.data(kBoldStartRole).toInt(), int(text.size()));
+        const int length = qBound(0, index.data(kBoldLengthRole).toInt(), int(text.size()) - start);
+        const QPalette::ColorGroup group = !(opt.state & QStyle::State_Enabled) ? QPalette::Disabled
+            : (opt.state & QStyle::State_Active) ? QPalette::Active : QPalette::Inactive;
+        const QColor color = opt.palette.color(group, (opt.state & QStyle::State_Selected) ? QPalette::HighlightedText
+                                                                                           : QPalette::Text);
+        QTextDocument document;
+        document.setDefaultFont(opt.font);
+        document.setDocumentMargin(0);
+        document.setHtml(QStringLiteral("<span style=\"color:%1; white-space:pre\">%2<b>%3</b>%4</span>")
+                             .arg(color.name(), text.left(start).toHtmlEscaped(), text.mid(start, length).toHtmlEscaped(),
+                                  text.mid(start + length).toHtmlEscaped()));
+        const QRect area = style->subElementRect(QStyle::SE_ItemViewItemText, &opt, opt.widget);
+        painter->save();
+        painter->setClipRect(area);
+        painter->translate(area.left(), area.top() + (area.height() - document.size().height()) / 2);
+        document.drawContents(painter);
+        painter->restore();
+    }
+};
 
 // "mam yz → mamy z": a moved space with the words it changes.
 QString spaceCorrectionLabel(const QString& typed, const QString& replacement) {
@@ -144,6 +194,7 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
         menu.exec(m_list->viewport()->mapToGlobal(position));
     });
     m_list->setUniformRowHeights(true);
+    m_list->setItemDelegateForColumn(ContextColumn, new ContextDelegate(m_list));
     m_list->setHeaderLabels({tr("Word"), tr("Correction"), tr("Score"), tr("Line"), tr("Context")});
     m_list->headerItem()->setToolTip(ScoreColumn, tr("How far the word is from its first correction: the lower, the "
                                                      "closer (0.3 a missing diacritic, about 1 a typing slip, more "
@@ -159,7 +210,10 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
         row->setTextAlignment(ScoreColumn, Qt::AlignRight | Qt::AlignVCenter);
         row->setText(LineColumn, QString::number(item.word.start.line + 1));
         row->setTextAlignment(LineColumn, Qt::AlignRight | Qt::AlignVCenter);
-        row->setText(ContextColumn, context(item.lineText, item.word.start.column, item.word.end.column));
+        const Context shown = context(item.lineText, item.word.start.column, item.word.end.column);
+        row->setText(ContextColumn, shown.text);
+        row->setData(ContextColumn, kBoldStartRole, shown.wordStart);
+        row->setData(ContextColumn, kBoldLengthRole, item.word.end.column - item.word.start.column);
         row->setToolTip(ContextColumn, item.lineText);
         row->setData(WordColumn, Qt::UserRole, i);
         if (item.choices.isEmpty()) {

@@ -113,11 +113,12 @@ the best are shown (at most 0.6 worse), three at most (or the requested number
 if smaller), and none scoring more than 2.6 (with the frequency penalty
 below), so a word far from every dictionary word ("bookamrk" without an
 English dictionary) has no suggestion. `SpellChecker::scoredSuggestions()`
-gives the scores; `isConfident()` tells a single suggestion scoring at most 0.8
+gives the scores; `isConfident()` tells a single suggestion at most 0.8 away
+and scoring at most 1 with the frequency penalty,
 without a capital the typed word lacks: sure enough to apply without asking
 (correction while typing, checked at first in a review). On a list of 97 real
 typing mistakes 91 are first (hunspell alone: 71), 95 shown, 1.38 suggestions
-on average, 35 confident and all of those right, in about 25 ms each.
+on average, 39 confident and all of those right, in about 25 ms each.
 
 Word frequency, when installed for the dictionary's language, puts common
 words before rare ones: `siplasplas/spell/freq/<language>.lemma.freq` in a

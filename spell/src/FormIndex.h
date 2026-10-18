@@ -135,9 +135,14 @@ double frequencyPenalty(double perMillion);
 /// Suggestions scoring more (too far from the typed word, e.g. "bookamrk" →
 /// bookami) are not shown at all.
 constexpr double kShownLimit = 2.6;
-/// A single suggestion scoring at most this is sure enough to be applied
-/// without asking (correction while typing, checked at first in a review).
-constexpr double kConfidentScore = 0.8;
+/// A single suggestion at most this far (kConfidentDistance, without the
+/// frequency penalty) and scoring at most kConfidentScore is sure enough to
+/// be applied without asking (correction while typing, checked at first in a
+/// review). On the 97 typing mistakes 39 are then sure, all of them right;
+/// "agents" → agent (0.9: an s touching neither t nor the end) and "search"
+/// → serach (1: r and a both left hand) are only offered.
+constexpr double kConfidentDistance = 0.8;
+constexpr double kConfidentScore = 1.0;
 
 /// Up to `maxCount` of the candidates with their scores, best first, only
 /// those at most `closeToBest` worse than the best (a threshold, not always

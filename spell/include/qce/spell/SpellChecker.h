@@ -109,10 +109,12 @@ public:
     struct Suggestion {
         QString text;
         double score = 0;
+        double distance = 0;  ///< the score without the penalty for a rare word
     };
     QList<Suggestion> scoredSuggestions(const QString& word, int maxCount = 8) const;
     /// A single suggestion close enough to apply without asking (correction
-    /// while typing, checked at first in a review); a far one ("bookamrk" →
+    /// while typing, checked at first in a review): a distance up to 0.8 and
+    /// a score up to 1 ("poslku" → polsku, "bhyc" → być); a far one ("bookamrk" →
     /// bookami, "agents" → agent) is only offered, and so is a capital the
     /// typed word has not ("serach" → Serach, a name).
     static bool isConfident(const QString& word, const QList<Suggestion>& suggestions);

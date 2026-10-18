@@ -486,8 +486,10 @@ QList<SpellChecker::Suggestion> SpellChecker::scoredSuggestions(const QString& w
     }
     if (!indexed) {
         QList<Suggestion> result;
-        for (const QString& suggestion : hunspellOrder.mid(0, maxCount))
-            result.append({suggestion, detail::score(word, suggestion, detail::kSuggestionLimit)});
+        for (const QString& suggestion : hunspellOrder.mid(0, maxCount)) {
+            const double score = detail::score(word, suggestion, detail::kSuggestionLimit);
+            result.append({suggestion, score, score});
+        }
         return result;
     }
     // Hunspell's own (e.g. words of the user dictionary) count with our distance too.
@@ -502,6 +504,9 @@ QList<SpellChecker::Suggestion> SpellChecker::scoredSuggestions(const QString& w
     // (none from the dictionaries without frequencies or not knowing the
     // word); a candidate split into words ("dial ac") takes its rarest
     // word's. Only the candidates that could still be shown are looked up.
+    // The scores without the frequency penalty, for isConfident().
+    QHash<QString, double> distances;
+    for (const auto& [dist, candidate] : candidates) distances.insert(candidate.toLower(), dist);
     const bool withFrequency = hasFrequencies();
     if (withFrequency && !candidates.empty()) {
         const auto wordPenalty = [this](const QString& part) {
@@ -521,15 +526,17 @@ QList<SpellChecker::Suggestion> SpellChecker::scoredSuggestions(const QString& w
         }
     }
     QList<Suggestion> result;
-    for (auto& [score, text] : detail::rankSuggestions(word, std::move(candidates), maxCount, hunspellOrder,
+    for (const auto& [score, text] : detail::rankSuggestions(word, std::move(candidates), maxCount, hunspellOrder,
                                                         withFrequency ? detail::kCloseToBestWithFrequency
                                                                       : detail::kCloseToBest))
-        result.append({std::move(text), score});
+        result.append({text, score, distances.value(text.toLower(), score)});
     return result;
 }
 
 bool SpellChecker::isConfident(const QString& word, const QList<Suggestion>& suggestions) {
-    if (suggestions.size() != 1 || suggestions.front().score > detail::kConfidentScore + 1e-9) return false;
+    if (suggestions.size() != 1 || suggestions.front().distance > detail::kConfidentDistance + 1e-9
+            || suggestions.front().score > detail::kConfidentScore + 1e-9)
+        return false;
     // A capital the word has not (a proper name, "serach" → Serach) is asked.
     const QString& text = suggestions.front().text;
     return !(word == word.toLower() && text != text.toLower());

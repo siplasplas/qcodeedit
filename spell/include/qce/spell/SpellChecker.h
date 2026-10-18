@@ -45,6 +45,23 @@ QString packageHint(const QString& language);
 /// per line.
 QString userDictionaryPath(const QString& dictionaryName);
 
+/// Word frequencies put common words before rare ones in suggestions: the
+/// counts of a dictionary's stems, <language>.lemma.freq, installed in
+/// <GenericDataLocation>/siplasplas/spell/freq or made by
+/// buildWordFrequencies() in <GenericCacheLocation>/siplasplas/spell/freq.
+/// True when there is such a file for the language ("pl", "pl_PL").
+bool hasWordFrequencies(const QString& language);
+/// Makes the frequency file of the dictionary's language from a list of word
+/// forms with their counts, lines "word count" (e.g. FrequencyWords'
+/// <language>_50k.txt from film subtitles): each form counts for its stems
+/// (hunspell's; a form with several shares its count, one the dictionary
+/// does not know is left out), and only the most frequent stems making up
+/// 98 % of the counts are kept. Uses its own hunspell, so it may run in
+/// another thread; checkers take the new file in at their next suggestions.
+/// False, with `error` set, when the dictionary is not installed or a file
+/// cannot be read or written.
+bool buildWordFrequencies(const QString& dictionaryName, const QString& countsPath, QString* error = nullptr);
+
 /// Checks words against one or more dictionaries; a word is right when any
 /// of them accepts it. Dictionaries are loaded once and shared by all
 /// checkers of the program, with the shared user dictionary added to them.

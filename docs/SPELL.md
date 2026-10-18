@@ -115,8 +115,15 @@ words before rare ones: `siplasplas/spell/freq/<language>.lemma.freq` in a
 data directory (`~/.local/share`, `/usr/local/share`, `/usr/share`) or else in
 `~/.cache` (where downloaded files will go), lines
 `stem<TAB>count` of the most frequent dictionary entries after a header
-`# N words in …, K known to …`, made by
-[wiki2corpus](https://github.com/nlp-and-learning/wiki2corpus)'s `wordfreq`.
+`# N words in …, K known to …`. `buildWordFrequencies()` makes it in
+`~/.cache` from a list of word forms with counts, e.g.
+[FrequencyWords](https://github.com/hermitdave/FrequencyWords)'
+`content/2018/<language>/<language>_50k.txt` from film subtitles (CC-BY-SA
+4.0; 676 KB for Polish, 0.3 s), with the installed dictionary's stems; an
+application downloads the list when the user agrees. The full list
+(`_full.txt`, 19 MB) gave the same results.
+[wiki2corpus](https://github.com/nlp-and-learning/wiki2corpus)'s `wordfreq`
+makes such files too, also from a text corpus.
 A suggestion's stem (hunspell's) adds 0.3 for each tenfold below 1000 per
 million words; one not in the file counts as 0.3 per million (very rare); a
 two-word suggestion takes its rarer word's. Only suggestions at most 0.4 worse

@@ -92,10 +92,19 @@ struct Loaded {
 
     // How frequent the dictionary's entries are (see FormIndex.h), read the
     // first time suggestions are wanted; empty without a file.
+    // Read again when the file appears or changes (e.g. made by
+    // buildWordFrequencies()).
     std::unique_ptr<detail::FrequencyTable> frequency;
+    QString frequencyFile;
+    QDateTime frequencyModified;
     const detail::FrequencyTable& frequencies() {
-        if (!frequency)
-            frequency = std::make_unique<detail::FrequencyTable>(detail::frequencyPath(languageOf(name)));
+        const QString path = detail::frequencyPath(languageOf(name));
+        const QDateTime modified = path.isEmpty() ? QDateTime() : QFileInfo(path).lastModified();
+        if (!frequency || path != frequencyFile || modified != frequencyModified) {
+            frequency = std::make_unique<detail::FrequencyTable>(path);
+            frequencyFile = path;
+            frequencyModified = modified;
+        }
         return *frequency;
     }
     // Occurrences per million of the word's stem (the most frequent of its
@@ -282,6 +291,84 @@ QString userDictionaryPath(const QString& dictionaryName) {
     const QString base = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
     if (base.isEmpty()) return {};
     return base + QStringLiteral("/siplasplas/spell/") + languageOf(dictionaryName) + QStringLiteral(".dic");
+}
+
+bool hasWordFrequencies(const QString& language) {
+    return !detail::frequencyPath(languageOf(language)).isEmpty();
+}
+
+bool buildWordFrequencies(const QString& dictionaryName, const QString& countsPath, QString* error) {
+    const auto fail = [error](const QString& message) {
+        if (error) *error = message;
+        return false;
+    };
+    const QList<Dictionary> dictionaries = installedDictionaries();
+    const auto dictionary = std::find_if(dictionaries.cbegin(), dictionaries.cend(),
+                                         [&](const Dictionary& d) { return d.name == dictionaryName; });
+    if (dictionary == dictionaries.cend())
+        return fail(QStringLiteral("The dictionary %1 is not installed").arg(dictionaryName));
+    QFile in(countsPath);
+    if (!in.open(QIODevice::ReadOnly | QIODevice::Text))
+        return fail(QStringLiteral("Cannot read %1").arg(countsPath));
+
+    // A private hunspell (the shared ones belong to the GUI thread).
+    Loaded loaded;
+    loaded.hunspell = std::make_unique<Hunspell>(QFile::encodeName(dictionary->affPath).constData(),
+                                                 QFile::encodeName(dictionary->dicPath).constData());
+    loaded.encoding = qtEncodingName(loaded.hunspell->get_dict_encoding());
+    loaded.utf8 = loaded.encoding.compare(QLatin1String("UTF-8"), Qt::CaseInsensitive) == 0;
+
+    QHash<QString, double> stems;
+    qint64 words = 0, known = 0;
+    QTextStream stream(&in);
+    while (!stream.atEnd()) {
+        // "word count": the count is the last field.
+        const QString line = stream.readLine().trimmed();
+        const qsizetype space = line.lastIndexOf(QLatin1Char(' '));
+        if (space <= 0) continue;
+        const qint64 count = line.mid(space + 1).toLongLong();
+        const QString word = line.left(space).trimmed();
+        if (count <= 0 || word.isEmpty()) continue;
+        words += count;
+        const std::string encoded = loaded.encode(word);
+        if (encoded.empty()) continue;
+        const std::vector<std::string> found = loaded.hunspell->stem(encoded);
+        if (found.empty()) continue;
+        known += count;
+        for (const std::string& stem : found) stems[loaded.decode(stem)] += double(count) / double(found.size());
+    }
+    if (known == 0) return fail(QStringLiteral("No word of %1 is in %2").arg(countsPath, dictionaryName));
+
+    std::vector<std::pair<qint64, QString>> rows;
+    rows.reserve(size_t(stems.size()));
+    qint64 total = 0;
+    for (auto it = stems.cbegin(); it != stems.cend(); ++it) {
+        const qint64 count = std::max<qint64>(qRound64(it.value()), 1);
+        rows.emplace_back(count, it.key());
+        total += count;
+    }
+    std::sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) {
+        return a.first != b.first ? a.first > b.first : a.second < b.second;
+    });
+    // The most frequent stems only; the rest counts as very rare.
+    constexpr double kKeptShare = 0.98;
+    size_t kept = 0;
+    for (qint64 sum = 0; kept < rows.size() && double(sum) < kKeptShare * double(total); ++kept)
+        sum += rows[kept].first;
+
+    const QString path =
+        QDir(detail::frequencyCacheDir()).filePath(QStringLiteral("%1.lemma.freq").arg(languageOf(dictionaryName)));
+    QDir().mkpath(detail::frequencyCacheDir());
+    QSaveFile out(path);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Text)) return fail(QStringLiteral("Cannot write %1").arg(path));
+    QTextStream text(&out);
+    text.setEncoding(QStringConverter::Utf8);
+    text << "# " << words << " words in " << QFileInfo(countsPath).fileName() << ", " << known << " known to "
+         << dictionaryName << '\n';
+    for (size_t i = 0; i < kept; ++i) text << rows[i].second << '\t' << rows[i].first << '\n';
+    text.flush();
+    if (!out.commit()) return fail(QStringLiteral("Cannot write %1").arg(path));
+    return true;
 }
 
 struct SpellChecker::Private {

@@ -122,6 +122,11 @@ Options:
   [cpg](https://github.com/siplasplas/cpg) library. Needs ICU and zlib; an
   installed cpg 1.2.0 is used, otherwise it is fetched. See
   [docs/ENCODING.md](docs/ENCODING.md).
+- `QCE_BUILD_SPELL=ON` (default) — builds `qcodeedit-spell` (spell checking
+  with hunspell: wavy underlines in comments, strings and plain text,
+  suggestions, a user dictionary shared by all programs). Needs hunspell's
+  development files (`libhunspell-dev`); skipped without them. See
+  [docs/SPELL.md](docs/SPELL.md).
 
 ## Install
 
@@ -145,10 +150,12 @@ lib/libqcodeedit.a                         — core static library
 lib/libqcodeedit-kate.a                    — companion static library
 lib/libqcodeedit-katedata.a                — downloader static library
 lib/libqcodeedit-encoding.a                — encodings static library
+lib/libqcodeedit-spell.a                   — spell checking static library
 lib/cmake/qcodeedit/                       — find_package(qcodeedit)
 lib/cmake/qcodeedit-kate/                  — find_package(qcodeedit-kate)
 lib/cmake/qcodeedit-katedata/              — find_package(qcodeedit-katedata)
 lib/cmake/qcodeedit-encoding/              — find_package(qcodeedit-encoding)
+lib/cmake/qcodeedit-spell/                 — find_package(qcodeedit-spell)
 ```
 
 ## Consuming

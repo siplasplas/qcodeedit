@@ -446,6 +446,29 @@ private slots:
         QCOMPARE(area.cursorPosition(), (TextCursor{0, 11}));
     }
 
+    void doubleClick_selectsTheWord() {
+        SimpleTextDocument doc;
+        doc.setText(QStringLiteral("obj.method(x)  zażółć"));
+        CodeEditArea area;
+        area.setDocument(&doc);
+        activate(&area);
+        const auto vp = area.viewportState();
+        const auto clickAt = [&](int col) {
+            const QPoint point(4 + col * vp.charWidth + vp.charWidth / 2, vp.lineHeight / 2);
+            QTest::mouseDClick(area.viewport(), Qt::LeftButton, Qt::NoModifier, point);
+            return QPair<TextCursor, TextCursor>(area.selectionStart(), area.selectionEnd());
+        };
+        using Range = QPair<TextCursor, TextCursor>;
+        QCOMPARE(clickAt(5), (Range{{0, 4}, {0, 10}}));    // method
+        QCOMPARE(clickAt(1), (Range{{0, 0}, {0, 3}}));     // obj
+        QCOMPARE(clickAt(3), (Range{{0, 3}, {0, 4}}));     // the dot
+        QCOMPARE(clickAt(17), (Range{{0, 15}, {0, 21}}));  // zażółć
+        QCOMPARE(area.cursorPosition(), (TextCursor{0, 21}));
+        // Between words: nothing is selected.
+        clickAt(13);
+        QVERIFY(!area.hasSelection());
+    }
+
     void ctrlBackspace_deletesPreviousWord() {
         SimpleTextDocument doc;
         doc.setText(QStringLiteral("one two_3  \nnext"));

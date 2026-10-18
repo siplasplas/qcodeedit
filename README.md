@@ -34,7 +34,8 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
 - One word definition (`qce/WordBoundary.h`): letters, digits, combining
   marks and `_` form words, other characters are punctuation. Ctrl+Left/Right
   stop at words and punctuation runs (`obj` `.` `method` `(`),
-  Ctrl+Backspace/Delete delete to the same stops, and
+  Ctrl+Backspace/Delete delete to the same stops, a double click selects the
+  word (or punctuation run) under the mouse, and
   `qce::words::isWholeWord()` / `wholeWordPattern()` give applications the
   matching whole-word test for search
 - Large files open at once: syntax highlighting of documents over 5000 lines

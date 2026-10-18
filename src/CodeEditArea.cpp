@@ -4,6 +4,7 @@
 #include "qce/IFoldingProvider.h"
 #include "qce/IHighlighter.h"
 #include "qce/ITextDocument.h"
+#include "qce/WordBoundary.h"
 #include "CaretPainter.h"
 #include "CursorController.h"
 #include "EditCommands.h"
@@ -839,6 +840,38 @@ void CodeEditArea::mousePressEvent(QMouseEvent* e) {
         return;
     }
     QAbstractScrollArea::mousePressEvent(e);
+}
+
+// A double click selects the word under the mouse (letters, digits, '_'; see
+// words::isWordCharAt), or the run of other characters there.
+void CodeEditArea::mouseDoubleClickEvent(QMouseEvent* e) {
+    if (e->button() != Qt::LeftButton || !m_doc) {
+        QAbstractScrollArea::mouseDoubleClickEvent(e);
+        return;
+    }
+    m_mouseSelecting = false;
+    const TextCursor pos = cursorFromPoint(e->pos());
+    const QString& line = m_doc->lineAt(pos.line);
+    int start = pos.column, end = pos.column;
+    // The character clicked on (the cursor goes to the nearest boundary, so
+    // a click on a character's right half gives the column after it); at the
+    // end of the line the one before it.
+    const int half = qMax(1, m_viewportState.charWidth / 2);
+    const TextCursor left = cursorFromPoint(e->pos() - QPoint(half, 0));
+    int at = left.line == pos.line && left.column < pos.column ? pos.column - 1 : pos.column;
+    at = qMin(at, int(line.size()) - 1);
+    if (at >= 0 && !line[at].isSpace()) {
+        const bool word = words::isWordCharAt(line, at);
+        const auto same = [&](int i) {
+            return !line[i].isSpace() && words::isWordCharAt(line, i) == word;
+        };
+        start = at;
+        end = at + 1;
+        while (start > 0 && same(start - 1)) --start;
+        while (end < line.size() && same(end)) ++end;
+    }
+    setSelection({pos.line, start}, {pos.line, end});
+    e->accept();
 }
 
 void CodeEditArea::mouseMoveEvent(QMouseEvent* e) {

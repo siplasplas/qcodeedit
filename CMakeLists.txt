@@ -12,6 +12,8 @@ option(QCE_BUILD_ENCODING
        "Build qcodeedit-encoding (code pages and UTF; needs cpg, ICU, zlib)" ON)
 option(QCE_BUILD_SPELL
        "Build qcodeedit-spell (spell checking; needs hunspell, skipped without it)" ON)
+option(QCE_BUILD_DIFF
+       "Build qcodeedit-diff (setText changes only the differing lines; needs DiffMerge's libdiffcore)" ON)
 
 include(GNUInstallDirs)
 
@@ -94,6 +96,7 @@ add_library(qcodeedit STATIC
     include/qce/Rail.h
     include/qce/LeftRail.h
     include/qce/RightRail.h
+    include/qce/LineDiff.h
 )
 
 # src/ is a private include directory so library .cpp files can include
@@ -152,6 +155,7 @@ install(FILES
     include/qce/Rail.h
     include/qce/LeftRail.h
     include/qce/RightRail.h
+    include/qce/LineDiff.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/qce
 )
 install(FILES
@@ -198,6 +202,10 @@ endif()
 
 if(QCE_BUILD_SPELL)
     add_subdirectory(spell)
+endif()
+
+if(QCE_BUILD_DIFF)
+    add_subdirectory(diff)
 endif()
 
 if(QCE_BUILD_DEMO)

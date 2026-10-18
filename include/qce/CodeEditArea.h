@@ -252,8 +252,15 @@ private slots:
     void onLinesInserted(int startLine, int count);
     void onLinesRemoved(int startLine, int count);
     void onLinesChanged(int startLine, int count);
+    void onTextReplacementStarted();
+    void onLinesReplaced(int first, const QStringList& removed, const QStringList& inserted);
+    void onTextReplacementFinished();
 
 private:
+    // A new text set by changing the lines that differ: what it changed, and
+    // where the cursor, the anchor and the top line of the view go.
+    struct Replacement;
+    std::unique_ptr<Replacement> m_replacement;
     ITextDocument* m_doc = nullptr;
     ViewportState  m_viewportState;
     TextCursor     m_cursor;

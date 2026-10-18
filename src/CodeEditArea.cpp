@@ -54,6 +54,13 @@ QFont fitToCharGrid(QFont font) {
 // Construction
 // ------------------------------------------------------------------------
 
+struct CodeEditArea::Replacement {
+    QVector<ReplaceLinesCommand::Run> runs;
+    TextCursor cursorBefore, anchorBefore;
+    TextCursor cursor, anchor;
+    int topLine = 0;
+};
+
 CodeEditArea::CodeEditArea(QWidget* parent)
     : QAbstractScrollArea(parent),
       m_renderer(std::make_unique<LineRenderer>()),
@@ -1091,6 +1098,56 @@ void CodeEditArea::onLinesChanged(int startLine, int) {
     emit textChanged();
 }
 
+namespace {
+// Where a position goes when `removed` lines from `first` become `inserted`
+// lines: below the run it moves with the line count; in the run it stays on
+// the line at the same place, or after a removal goes to the line after it.
+TextCursor mapThroughRun(TextCursor pos, int first, int removed, int inserted) {
+    if (pos.line < first) return pos;
+    if (pos.line >= first + removed) return {pos.line + inserted - removed, pos.column};
+    if (inserted == 0) return {first, 0};
+    return {first + qMin(pos.line - first, inserted - 1), pos.column};
+}
+}
+
+void CodeEditArea::onTextReplacementStarted() {
+    m_replacement = std::make_unique<Replacement>();
+    m_replacement->cursorBefore = m_cursor;
+    m_replacement->anchorBefore = m_anchor;
+    m_replacement->cursor = m_cursor;
+    m_replacement->anchor = m_anchor;
+    m_replacement->topLine = m_viewportState.firstVisibleLine;
+}
+
+void CodeEditArea::onLinesReplaced(int first, const QStringList& removed, const QStringList& inserted) {
+    if (!m_replacement) return;
+    Replacement& r = *m_replacement;
+    r.cursor = mapThroughRun(r.cursor, first, removed.size(), inserted.size());
+    r.anchor = mapThroughRun(r.anchor, first, removed.size(), inserted.size());
+    r.topLine = mapThroughRun({r.topLine, 0}, first, removed.size(), inserted.size()).line;
+    r.runs.append({first, removed, inserted});
+}
+
+// The document has changed already; the command only records it for undo.
+void CodeEditArea::onTextReplacementFinished() {
+    if (!m_replacement) return;
+    const std::unique_ptr<Replacement> r = std::move(m_replacement);
+    cancelPreedit(true);
+    m_cursor = m_cursorCtrl->clamp(r->cursor);
+    m_anchor = m_cursorCtrl->clamp(r->anchor);
+    m_undoStack->push(new ReplaceLinesCommand(m_doc, r->runs, r->cursorBefore, r->anchorBefore,
+                                              m_cursor, m_anchor, &m_cursor, &m_anchor));
+    // The same text stays at the top of the view.
+    const int topLine = qBound(0, r->topLine, qMax(0, m_doc->lineCount() - 1));
+    verticalScrollBar()->setValue(m_wordWrap ? m_wrapLayout->firstRowOf(topLine) : topLine);
+    m_caretPainter->resetBlink();
+    ensureCursorVisible(m_cursor);
+    viewport()->update();
+    updateInputMethod();
+    emit cursorPositionChanged(m_cursor);
+    emit selectionChanged();
+}
+
 int CodeEditArea::takePendingRehighlight(int startLine) {
     const int from = m_pendingRehighlightFrom < 0
         ? startLine : qMin(m_pendingRehighlightFrom, startLine);
@@ -1218,6 +1275,12 @@ void CodeEditArea::rebindDocumentSignals(ITextDocument* newDoc) {
                 this, &CodeEditArea::onLinesRemoved);
         connect(newDoc, &ITextDocument::linesChanged,
                 this, &CodeEditArea::onLinesChanged);
+        connect(newDoc, &ITextDocument::textReplacementStarted,
+                this, &CodeEditArea::onTextReplacementStarted);
+        connect(newDoc, &ITextDocument::linesReplaced,
+                this, &CodeEditArea::onLinesReplaced);
+        connect(newDoc, &ITextDocument::textReplacementFinished,
+                this, &CodeEditArea::onTextReplacementFinished);
     }
 }
 

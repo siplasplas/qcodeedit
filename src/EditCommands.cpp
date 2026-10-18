@@ -86,4 +86,42 @@ void RemoveCommand::undo() {
     *m_viewAnchor = m_cursorBefore;
 }
 
+// --- ReplaceLinesCommand -------------------------------------------------
+
+ReplaceLinesCommand::ReplaceLinesCommand(ITextDocument* doc, QVector<Run> runs,
+                                         TextCursor cursorBefore, TextCursor anchorBefore,
+                                         TextCursor cursorAfter, TextCursor anchorAfter,
+                                         TextCursor* viewCursor, TextCursor* viewAnchor)
+    : m_doc(doc),
+      m_runs(std::move(runs)),
+      m_cursorBefore(cursorBefore),
+      m_anchorBefore(anchorBefore),
+      m_cursorAfter(cursorAfter),
+      m_anchorAfter(anchorAfter),
+      m_viewCursor(viewCursor),
+      m_viewAnchor(viewAnchor) {}
+
+void ReplaceLinesCommand::redo() {
+    if (m_done) {
+        // Pushed after the document changed.
+        m_done = false;
+        return;
+    }
+    for (const Run& run : m_runs) {
+        m_doc->replaceLines(run.first, run.removed.size(), run.inserted);
+    }
+    *m_viewCursor = m_cursorAfter;
+    *m_viewAnchor = m_anchorAfter;
+}
+
+void ReplaceLinesCommand::undo() {
+    // The run made last is the topmost; its line numbers hold in the new
+    // text, and those of the next one once it is undone.
+    for (auto it = m_runs.crbegin(); it != m_runs.crend(); ++it) {
+        m_doc->replaceLines(it->first, it->inserted.size(), it->removed);
+    }
+    *m_viewCursor = m_cursorBefore;
+    *m_viewAnchor = m_anchorBefore;
+}
+
 } // namespace qce

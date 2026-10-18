@@ -4,6 +4,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 namespace qce {
 
@@ -48,11 +49,24 @@ public:
     /// for "save with cleanup" workflows. Emits linesChanged per modified line.
     void stripTrailingWhitespace();
 
+    /// Replaces `count` lines from `first` with `lines` (either may be
+    /// empty) through insertText() and removeText(). Lines past the end are
+    /// appended. Not undoable by itself.
+    void replaceLines(int first, int count, const QStringList& lines);
+
 signals:
     void linesInserted(int startLine, int count);
     void linesRemoved(int startLine, int count);
     void linesChanged(int startLine, int count);
     void documentReset();
+
+    /// A new text that changes only the lines that differ (see LineDiff.h):
+    /// textReplacementStarted(), then linesReplaced() for each run of lines,
+    /// from the last one up, after the edit signals of its change, then
+    /// textReplacementFinished(). `first` is the run's first line.
+    void textReplacementStarted();
+    void linesReplaced(int first, const QStringList& removed, const QStringList& inserted);
+    void textReplacementFinished();
 };
 
 } // namespace qce

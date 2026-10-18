@@ -39,7 +39,10 @@ public:
 
     /// Replaces the entire document, splitting on '\n'. Trailing '\n' does
     /// not produce an extra empty line. '\r\n' is normalised to '\n'.
-    /// An empty text gives one empty line. Emits documentReset.
+    /// An empty text gives one empty line. Emits documentReset, or, with a
+    /// line comparison set (qce::setLineDiff(), e.g. by qcodeedit-diff),
+    /// changes only the lines that differ, which a CodeEditArea showing the
+    /// document records as one undo step (nothing when the text is equal).
     void setText(const QString& text);
 
     /// Returns the document contents joined by '\n'. No trailing newline.

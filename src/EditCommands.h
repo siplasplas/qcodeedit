@@ -4,6 +4,8 @@
 
 #include <QUndoCommand>
 #include <QString>
+#include <QStringList>
+#include <QVector>
 
 namespace qce {
 
@@ -57,6 +59,34 @@ private:
     TextCursor m_cursorBefore;
     TextCursor* m_viewCursor;
     TextCursor* m_viewAnchor;
+};
+
+/// A new text set by changing only the lines that differ
+/// (SimpleTextDocument::setText() with a line comparison). Created after the
+/// document has already changed: the first redo() does nothing.
+class ReplaceLinesCommand : public QUndoCommand {
+public:
+    struct Run {
+        int first = 0;
+        QStringList removed;
+        QStringList inserted;
+    };
+    /// `runs` in the order they were made (from the last one up).
+    ReplaceLinesCommand(ITextDocument* doc, QVector<Run> runs,
+                        TextCursor cursorBefore, TextCursor anchorBefore,
+                        TextCursor cursorAfter, TextCursor anchorAfter,
+                        TextCursor* viewCursor, TextCursor* viewAnchor);
+
+    void redo() override;
+    void undo() override;
+
+private:
+    ITextDocument* m_doc;
+    QVector<Run> m_runs;
+    TextCursor m_cursorBefore, m_anchorBefore, m_cursorAfter, m_anchorAfter;
+    TextCursor* m_viewCursor;
+    TextCursor* m_viewAnchor;
+    bool m_done = true;
 };
 
 } // namespace qce

@@ -127,6 +127,15 @@ Options:
   suggestions, a user dictionary shared by all programs). Needs hunspell's
   development files (`libhunspell-dev`); skipped without them. See
   [docs/SPELL.md](docs/SPELL.md).
+- `QCE_BUILD_DIFF=ON` (default) — builds `qcodeedit-diff`: in a program
+  linked with it, `SimpleTextDocument::setText()` changes only the lines that
+  differ (found by DiffMerge's libdiffcore), so a new text, e.g. a file
+  changed on disk and read again, is one undo step that keeps the earlier
+  undo history, and the cursor, the selection and the top of the view follow
+  the text they were in. Linking `qcodeedit::diff` is enough; the program
+  calls nothing (a program that loads a new file clears the undo history
+  itself, as before). An installed DiffMerge 1.6 is used; otherwise
+  libdiffcore's sources are fetched and built into the library.
 
 ## Install
 
@@ -151,11 +160,14 @@ lib/libqcodeedit-kate.a                    — companion static library
 lib/libqcodeedit-katedata.a                — downloader static library
 lib/libqcodeedit-encoding.a                — encodings static library
 lib/libqcodeedit-spell.a                   — spell checking static library
+lib/libqcodeedit-diff.a                    — setText by differing lines
+share/qcodeedit-diff/AutoInstall.cpp       — built into programs linking it
 lib/cmake/qcodeedit/                       — find_package(qcodeedit)
 lib/cmake/qcodeedit-kate/                  — find_package(qcodeedit-kate)
 lib/cmake/qcodeedit-katedata/              — find_package(qcodeedit-katedata)
 lib/cmake/qcodeedit-encoding/              — find_package(qcodeedit-encoding)
 lib/cmake/qcodeedit-spell/                 — find_package(qcodeedit-spell)
+lib/cmake/qcodeedit-diff/                  — find_package(qcodeedit-diff)
 ```
 
 ## Consuming
@@ -184,6 +196,10 @@ target_link_libraries(my_app PRIVATE qcodeedit::katedata)
 # Optional: code pages and UTF with detection (cpg, ICU, zlib).
 find_package(qcodeedit-encoding REQUIRED)
 target_link_libraries(my_app PRIVATE qcodeedit::encoding)
+
+# Optional: setText() changes only the differing lines, as one undo step.
+find_package(qcodeedit-diff REQUIRED)
+target_link_libraries(my_app PRIVATE qcodeedit::diff)
 ```
 
 ```cpp

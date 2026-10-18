@@ -1,8 +1,18 @@
 #include "qce/SimpleTextDocument.h"
+#include "qce/LineDiff.h"
 
 #include <algorithm>
 
 namespace qce {
+
+namespace {
+// A plain function pointer: set from static initializers of other
+// libraries, so it must be constant-initialized.
+LineDiffFn g_lineDiff = nullptr;
+}
+
+void setLineDiff(LineDiffFn fn) { g_lineDiff = fn; }
+LineDiffFn lineDiff() { return g_lineDiff; }
 
 SimpleTextDocument::SimpleTextDocument(QObject* parent)
     : ITextDocument(parent) {}
@@ -128,7 +138,26 @@ void SimpleTextDocument::setText(const QString& text) {
     if (!lines.isEmpty() && lines.last().isEmpty()) {
         lines.removeLast();
     }
-    setLines(std::move(lines));
+    if (lines.isEmpty()) {
+        lines.append(QString());
+    }
+    const LineDiffFn diff = lineDiff();
+    if (!diff) {
+        setLines(std::move(lines));
+        return;
+    }
+    // Only the lines that differ change, from the last change up, so that
+    // the line numbers of the changes still to make stay valid.
+    const QVector<LineChange> changes = diff(m_lines, lines);
+    if (changes.isEmpty()) return;
+    emit textReplacementStarted();
+    for (auto it = changes.crbegin(); it != changes.crend(); ++it) {
+        const QStringList removed = m_lines.mid(it->oldStart, it->oldCount);
+        const QStringList inserted = lines.mid(it->newStart, it->newCount);
+        replaceLines(it->oldStart, it->oldCount, inserted);
+        emit linesReplaced(it->oldStart, removed, inserted);
+    }
+    emit textReplacementFinished();
 }
 
 QString SimpleTextDocument::toPlainText() const {

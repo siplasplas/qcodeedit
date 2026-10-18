@@ -49,7 +49,9 @@ struct SpellingReviewItem {
 /// ones (left to decide), applied when chosen, so a word checked or
 /// unchecked meanwhile stays in sight. With `spelling`, "Add to Dictionary" and "Ignore" take the
 /// selected word out of the list, every occurrence of it ("careta" written on
-/// purpose). Correct accepts; chosenReplacements() gives the checked words.
+/// purpose). Ctrl+C or the context menu copies the selected rows, separated
+/// by tabs, or their lines of text. Correct accepts; chosenReplacements()
+/// gives the checked words.
 class SpellingReviewDialog : public QDialog {
     Q_OBJECT
 public:
@@ -70,6 +72,10 @@ private:
     /// Adds the selected word to the dictionary (or ignores it) and removes
     /// its rows.
     void acceptWord(bool addToDictionary);
+    /// The selected rows to the clipboard, one a line: word, correction,
+    /// score, line and the whole line of text separated by tabs, or only
+    /// the line of text.
+    void copyRows(bool contextOnly) const;
 
     QList<SpellingReviewItem> m_items;
     QTreeWidget* m_list = nullptr;

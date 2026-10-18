@@ -3,7 +3,11 @@
 #include <qce/CodeEditArea.h>
 #include <qce/ITextDocument.h>
 
+#include <QClipboard>
 #include <QComboBox>
+#include <QGuiApplication>
+#include <QMenu>
+#include <QShortcut>
 #include <QDialogButtonBox>
 #include <QElapsedTimer>
 #include <QHBoxLayout>
@@ -15,6 +19,8 @@
 #include <QPushButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace qce::spell {
 
@@ -120,6 +126,21 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
 
     m_list = new QTreeWidget(this);
     m_list->setRootIsDecorated(false);
+    m_list->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    // Copying rows, e.g. to keep a word and its context: Ctrl+C or the
+    // context menu.
+    auto* copy = new QShortcut(QKeySequence::Copy, m_list, nullptr, nullptr, Qt::WidgetShortcut);
+    connect(copy, &QShortcut::activated, this, [this]() { copyRows(false); });
+    m_list->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_list, &QWidget::customContextMenuRequested, this, [this](const QPoint& position) {
+        if (m_list->selectedItems().isEmpty()) return;
+        QMenu menu(this);
+        QAction* rows = menu.addAction(tr("&Copy Rows"), this, [this]() { copyRows(false); });
+        rows->setShortcut(QKeySequence::Copy);
+        rows->setToolTip(tr("Word, correction, score, line and the whole line of text, separated by tabs"));
+        menu.addAction(tr("Copy Con&text"), this, [this]() { copyRows(true); });
+        menu.exec(m_list->viewport()->mapToGlobal(position));
+    });
     m_list->setUniformRowHeights(true);
     m_list->setHeaderLabels({tr("Word"), tr("Correction"), tr("Score"), tr("Line"), tr("Context")});
     m_list->headerItem()->setToolTip(ScoreColumn, tr("How far the word is from its first correction: the lower, the "
@@ -260,6 +281,28 @@ void SpellingReviewDialog::filter() {
         const bool checked = row->checkState(WordColumn) == Qt::Checked;
         row->setHidden((show == 1 && !checked) || (show == 2 && checked));
     }
+}
+
+void SpellingReviewDialog::copyRows(bool contextOnly) const {
+    QList<QTreeWidgetItem*> rows = m_list->selectedItems();
+    // In the order shown, not the order selected.
+    std::sort(rows.begin(), rows.end(), [this](QTreeWidgetItem* a, QTreeWidgetItem* b) {
+        return m_list->indexOfTopLevelItem(a) < m_list->indexOfTopLevelItem(b);
+    });
+    QStringList lines;
+    for (QTreeWidgetItem* row : rows) {
+        if (row->isHidden()) continue;
+        const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
+        if (contextOnly) {
+            lines << item.lineText;
+            continue;
+        }
+        const auto* choice = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn));
+        lines << QStringList{row->text(WordColumn), choice ? choice->currentText() : QString(), row->text(ScoreColumn),
+                             row->text(LineColumn), item.lineText}
+                     .join(QLatin1Char('\t'));
+    }
+    if (!lines.isEmpty()) QGuiApplication::clipboard()->setText(lines.join(QLatin1Char('\n')) + QLatin1Char('\n'));
 }
 
 void SpellingReviewDialog::acceptWord(bool addToDictionary) {

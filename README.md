@@ -55,7 +55,11 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
   line breaks are split into lines too, mixed line breaks are reported, and
   `detectLanguageAsync()` guesses the text's language in the background.
   Since 1.11.0 `decode()` takes a language hint that limits legacy code pages
-  to that language's, and `availableLanguages()` lists cpg's languages (see
+  to that language's, and `availableLanguages()` lists cpg's languages. Since
+  1.14.0 `detectEncoding()` tells whether detection is confident and, when it
+  is not, gives the plausible encodings with percentages, `previewEncodings()`
+  shows the lines where they differ, and legacy files can be limited to
+  several languages; the choice itself is the application's UI (see
   [docs/ENCODING.md](docs/ENCODING.md))
 
 ## Design

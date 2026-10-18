@@ -119,9 +119,12 @@ data directory (`~/.local/share`, `/usr/local/share`, `/usr/share`) or else in
 `~/.cache` from a list of word forms with counts, e.g.
 [FrequencyWords](https://github.com/hermitdave/FrequencyWords)'
 `content/2018/<language>/<language>_50k.txt` from film subtitles (CC-BY-SA
-4.0; 676 KB for Polish, 0.3 s), with the installed dictionary's stems; an
-application downloads the list when the user agrees. The full list
-(`_full.txt`, 19 MB) gave the same results.
+4.0; 676 KB for Polish, 0.3 s), with the installed dictionary's stems. The
+full list (`_full.txt`, 19 MB) gave the same results. `qcodeedit-spelldata`'s
+`WordFrequencyDownloader` fetches the list for a dictionary and makes the file
+in a worker thread (about 1.5 s); the application asks the user first. Without
+the file suggestions work as before, only rare words come up more often
+("dialac": dialach, dialag, działać).
 [wiki2corpus](https://github.com/nlp-and-learning/wiki2corpus)'s `wordfreq`
 makes such files too, also from a text corpus.
 A suggestion's stem (hunspell's) adds 0.3 for each tenfold below 1000 per

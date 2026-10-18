@@ -127,6 +127,11 @@ Options:
   suggestions, a user dictionary shared by all programs). Needs hunspell's
   development files (`libhunspell-dev`); skipped without them. See
   [docs/SPELL.md](docs/SPELL.md).
+- `QCE_BUILD_SPELL_DOWNLOADER=ON` (default) — builds `qcodeedit-spelldata`:
+  downloads a list of the most frequent word forms of a language
+  (FrequencyWords, from film subtitles, under 1 MB) when the application
+  asks, and turns it into the stem counts that put common words before rare
+  ones in suggestions. Needs Qt Network and Qt Concurrent.
 - `QCE_BUILD_DIFF=ON` (default) — builds `qcodeedit-diff`: in a program
   linked with it, `SimpleTextDocument::setText()` changes only the lines that
   differ (found by DiffMerge's libdiffcore), so a new text, e.g. a file
@@ -160,6 +165,7 @@ lib/libqcodeedit-kate.a                    — companion static library
 lib/libqcodeedit-katedata.a                — downloader static library
 lib/libqcodeedit-encoding.a                — encodings static library
 lib/libqcodeedit-spell.a                   — spell checking static library
+lib/libqcodeedit-spelldata.a               — word frequency downloader
 lib/libqcodeedit-diff.a                    — setText by differing lines
 share/qcodeedit-diff/AutoInstall.cpp       — built into programs linking it
 lib/cmake/qcodeedit/                       — find_package(qcodeedit)
@@ -167,6 +173,7 @@ lib/cmake/qcodeedit-kate/                  — find_package(qcodeedit-kate)
 lib/cmake/qcodeedit-katedata/              — find_package(qcodeedit-katedata)
 lib/cmake/qcodeedit-encoding/              — find_package(qcodeedit-encoding)
 lib/cmake/qcodeedit-spell/                 — find_package(qcodeedit-spell)
+lib/cmake/qcodeedit-spelldata/             — find_package(qcodeedit-spelldata)
 lib/cmake/qcodeedit-diff/                  — find_package(qcodeedit-diff)
 ```
 

@@ -86,6 +86,16 @@ if(TARGET qcodeedit::katedata)
     add_test(NAME test_kate_data_downloader COMMAND test_kate_data_downloader)
 endif()
 
+# Word frequency downloader — offline, against file:// URLs only.
+if(TARGET qcodeedit::spelldata)
+    add_executable(test_spell_data_downloader test_spell_data_downloader.cpp)
+    target_link_libraries(test_spell_data_downloader PRIVATE
+        qcodeedit::spelldata
+        Qt6::Test
+    )
+    add_test(NAME test_spell_data_downloader COMMAND test_spell_data_downloader)
+endif()
+
 # Dynamic rule support (Kate's dynamic="true" %n expansion).
 add_executable(test_dynamic_rules test_dynamic_rules.cpp)
 target_link_libraries(test_dynamic_rules PRIVATE

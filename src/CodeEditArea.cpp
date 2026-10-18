@@ -1359,10 +1359,13 @@ TextCursor CodeEditArea::cursorFromPoint(const QPoint& pt) const {
 void CodeEditArea::ensureCursorVisible(TextCursor pos, int extraColumns) {
     QScrollBar* vBar = verticalScrollBar();
 
+    // Only rows shown whole count: the last visible row of the viewport state
+    // includes one cut off at the bottom (it is painted), and a cursor there
+    // would stay half hidden, e.g. after Enter on the last row.
     if (m_wordWrap) {
         const int row   = visualRowOf(pos);
         const int first = m_viewportState.firstVisibleRow;
-        const int last  = m_viewportState.lastVisibleRow;
+        const int last  = first + pageLineCount() - 1;
         if (row < first) {
             vBar->setValue(row);
         } else if (row > last) {
@@ -1372,7 +1375,7 @@ void CodeEditArea::ensureCursorVisible(TextCursor pos, int extraColumns) {
     }
 
     const int first = m_viewportState.firstVisibleLine;
-    const int last  = m_viewportState.lastVisibleLine;
+    const int last  = first + pageLineCount() - 1;
     if (pos.line < first) {
         vBar->setValue(pos.line);
     } else if (pos.line > last) {

@@ -19,6 +19,7 @@
 #include <functional>
 #include <memory>
 
+class QMenu;
 class QTimer;
 class QUndoStack;
 
@@ -123,6 +124,19 @@ public:
     /// Exposes the undo stack for external wiring (e.g. menu enable/disable).
     QUndoStack* undoStack() const { return m_undoStack; }
 
+    // --- Editing ---
+    /// Insert `text` at the cursor, replacing the selection, as one undo step
+    /// (the insert filter is not applied). Does nothing in a read-only view.
+    void insertText(const QString& text);
+    /// Clipboard actions as Ctrl+X, Ctrl+C and Ctrl+V do them.
+    void cut();
+    void copy();
+    void paste();
+    /// Undo, Redo, Cut, Copy, Paste, Delete and Select All, enabled as they
+    /// apply; the caller owns the menu and may add its own actions, e.g. in a
+    /// handler of customContextMenuRequested.
+    QMenu* createStandardContextMenu(QWidget* parent = nullptr);
+
     // --- Configuration ---
     void setTabWidth(int spaces);
     int  tabWidth() const;
@@ -201,6 +215,12 @@ signals:
     void viewportChanged(const ViewportState& state);
     void cursorPositionChanged(TextCursor pos);
     void selectionChanged();
+    /// The text changed: an edit, undo or redo, or a change made directly in
+    /// the document (setText() as well). Emitted once the layout has caught up
+    /// with it, so e.g. visualRowCount() is current; the cursor of an edit
+    /// may move to its place only after it. An edit replacing a selection
+    /// emits it twice: for the removal and for the insertion.
+    void textChanged();
     /// Background highlighting of a large document reached its end.
     void highlightingCompleted();
 

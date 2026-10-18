@@ -18,6 +18,7 @@
 #include <QFontMetricsF>
 #include <QGuiApplication>
 #include <QKeyEvent>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QPainter>
@@ -328,6 +329,56 @@ void CodeEditArea::redo() {
 
 bool CodeEditArea::canUndo() const { return m_undoStack->canUndo(); }
 bool CodeEditArea::canRedo() const { return m_undoStack->canRedo(); }
+
+// --- Editing ------------------------------------------------------------
+
+void CodeEditArea::insertText(const QString& text) {
+    if (text.isEmpty() && !hasSelection()) return;
+    executeInsert(text);
+}
+
+void CodeEditArea::cut() {
+    if (!hasSelection()) return;
+    if (m_readOnly) { showReadOnlyHint(); return; }
+    QGuiApplication::clipboard()->setText(selectedText());
+    executeRemoveSelection();
+}
+
+void CodeEditArea::copy() {
+    if (hasSelection()) QGuiApplication::clipboard()->setText(selectedText());
+}
+
+void CodeEditArea::paste() {
+    QString text = QGuiApplication::clipboard()->text();
+    // The filter (e.g. an encoding check) may change or cancel it; a
+    // read-only view only shows its hint.
+    const bool accepted = m_readOnly || !m_insertFilter || m_insertFilter(text);
+    if (accepted && !text.isEmpty()) {
+        executeInsert(text);
+    }
+}
+
+QMenu* CodeEditArea::createStandardContextMenu(QWidget* parent) {
+    auto* menu = new QMenu(parent ? parent : this);
+    const bool editable = m_doc && !m_readOnly;
+    menu->addAction(tr("&Undo"), QKeySequence::Undo, this, &CodeEditArea::undo)
+        ->setEnabled(editable && canUndo());
+    menu->addAction(tr("&Redo"), QKeySequence::Redo, this, &CodeEditArea::redo)
+        ->setEnabled(editable && canRedo());
+    menu->addSeparator();
+    menu->addAction(tr("Cu&t"), QKeySequence::Cut, this, &CodeEditArea::cut)
+        ->setEnabled(editable && hasSelection());
+    menu->addAction(tr("&Copy"), QKeySequence::Copy, this, &CodeEditArea::copy)
+        ->setEnabled(hasSelection());
+    menu->addAction(tr("&Paste"), QKeySequence::Paste, this, &CodeEditArea::paste)
+        ->setEnabled(editable && !QGuiApplication::clipboard()->text().isEmpty());
+    menu->addAction(tr("Delete"), this, &CodeEditArea::executeRemoveSelection)
+        ->setEnabled(editable && hasSelection());
+    menu->addSeparator();
+    menu->addAction(tr("Select &All"), QKeySequence::SelectAll, this, &CodeEditArea::selectAll)
+        ->setEnabled(m_doc != nullptr);
+    return menu;
+}
 
 // --- Configuration ------------------------------------------------------
 
@@ -665,28 +716,21 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
 
     case Qt::Key_C:
         if (cmd && hasSelection()) {
-            QGuiApplication::clipboard()->setText(selectedText());
+            copy();
             break;
         }
         goto handle_printable;
 
     case Qt::Key_X:
         if (cmd && hasSelection()) {
-            QGuiApplication::clipboard()->setText(selectedText());
-            executeRemoveSelection();
+            cut();
             break;
         }
         goto handle_printable;
 
     case Qt::Key_V:
         if (cmd) {
-            QString text = QGuiApplication::clipboard()->text();
-            // The filter (e.g. an encoding check) may change or cancel it;
-            // a read-only view only shows its hint.
-            const bool accepted = m_readOnly || !m_insertFilter || m_insertFilter(text);
-            if (accepted && !text.isEmpty()) {
-                executeInsert(text);
-            }
+            paste();
             break;
         }
         goto handle_printable;
@@ -968,6 +1012,7 @@ void CodeEditArea::onDocumentReset() {
     viewport()->update();
     emit cursorPositionChanged(m_cursor);
     emit selectionChanged();
+    emit textChanged();
 }
 
 void CodeEditArea::onLinesInserted(int startLine, int count) {
@@ -995,6 +1040,7 @@ void CodeEditArea::onLinesInserted(int startLine, int count) {
     updateScrollBarRanges();
     refreshViewportState();
     viewport()->update();
+    emit textChanged();
 }
 
 void CodeEditArea::onLinesRemoved(int startLine, int count) {
@@ -1018,6 +1064,7 @@ void CodeEditArea::onLinesRemoved(int startLine, int count) {
     updateScrollBarRanges();
     refreshViewportState();
     viewport()->update();
+    emit textChanged();
 }
 
 void CodeEditArea::onLinesChanged(int startLine, int) {
@@ -1039,6 +1086,7 @@ void CodeEditArea::onLinesChanged(int startLine, int) {
     rebuildWrapLayout();
     refreshViewportState();
     viewport()->update();
+    emit textChanged();
 }
 
 int CodeEditArea::takePendingRehighlight(int startLine) {

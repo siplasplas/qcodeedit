@@ -20,9 +20,13 @@ namespace qce::spell {
 
 /// Spell checking of a qcodeedit editor: underlines misspelled words with a
 /// wavy line (in CodeEditArea::SpellingLayer), checking the visible lines
-/// shortly after edits and scrolling, and only the parts that may be checked
-/// (CodeEditArea::spellCheckRanges(): comments, strings and documentation in
-/// code, all of plain text). Gives the application what its context menu
+/// right after edits and shortly after scrolling, and only the parts that may
+/// be checked (CodeEditArea::spellCheckRanges(): comments, strings and
+/// documentation in code, all of plain text). The word being typed is
+/// checked once a space or punctuation ends it or the cursor leaves it. When
+/// most words are wrong (at least 5 checked) the text is taken to be in
+/// another language and nothing is underlined, e.g. before the application
+/// has detected the language of a new or pasted text. Gives the application what its context menu
 /// needs: the misspelled word under the cursor, suggestions, replacing the
 /// word as one undo step, adding to the dictionary and ignoring.
 class CodeEditSpelling : public QObject {
@@ -72,6 +76,7 @@ signals:
 
 private:
     void scheduleCheck();
+    void onCursorMoved(TextCursor position);
 
     QPointer<CodeEditArea> m_area;
     QPointer<ITextDocument> m_document;  // whose changes trigger a check
@@ -79,6 +84,15 @@ private:
     QTimer* m_timer = nullptr;
     QColor m_color{Qt::red};
     bool m_enabled = true;
+    // The text changed since the last check.
+    bool m_edited = false;
+    // The word being typed (the one at the cursor after an edit), not
+    // underlined until the cursor leaves it; line -1 when none.
+    struct TypedWord {
+        int line = -1;
+        int start = 0;
+        int end = 0;
+    } m_typedWord;
 };
 
 } // namespace qce::spell

@@ -145,6 +145,9 @@ private slots:
         const Language polish = detectLanguage(kPolishCp1250);
         QCOMPARE(polish.code, QStringLiteral("pl"));
         QCOMPARE(polish.name, QStringLiteral("Polish"));
+        QVERIFY(polish.confidence > 0.5 && polish.confidence <= 1.0);
+        QCOMPARE(languageName(QStringLiteral("pl")), QStringLiteral("Polish"));
+        QVERIFY(languageName(QStringLiteral("no-such-language")).isEmpty());
         QCOMPARE(detectLanguage(kPolish.toUtf8()).code, QStringLiteral("pl"));
         QVERIFY(detectLanguage(QByteArray()).code.isEmpty());
 

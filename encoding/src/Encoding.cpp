@@ -349,6 +349,16 @@ QList<Language> availableLanguages() {
     return result;
 }
 
+QString languageName(const QString& code) {
+    if (code.isEmpty()) return {};
+    std::lock_guard lock(cpg().mutex);
+    Cpg& c = cpg();
+    c.loadDetection();
+    if (!c.languages) return {};
+    const auto* language = c.languages->getByIsoCode(toStd(code));
+    return language ? QString::fromStdString(language->name) : QString();
+}
+
 Language detectLanguage(const QByteArray& bytes) {
     Language result;
     if (bytes.isEmpty()) return result;
@@ -364,6 +374,7 @@ Language detectLanguage(const QByteArray& bytes) {
             result.code = QString::fromStdString(candidate.language);
             if (const auto* language = c.languages->getByIsoCode(candidate.language))
                 result.name = QString::fromStdString(language->name);
+            result.confidence = candidate.languageConfidence;
             break;
         }
     } catch (const std::exception&) {

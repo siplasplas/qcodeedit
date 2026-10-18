@@ -116,16 +116,25 @@ DecodeResult decode(const QByteArray& bytes, const QString& encoding,
 struct Language {
     QString code; ///< cpg language key, e.g. "pl", "en", "cz"; empty when unknown
     QString name; ///< e.g. "Polish"
+    /// Calibrated probability of the language (0..1); 0 when unknown, and in
+    /// availableLanguages().
+    double confidence = 0;
 };
 
 /// Languages cpg knows (code and name), sorted by name; empty without its
 /// detection data. For letting the user pick the language of legacy files.
 QList<Language> availableLanguages();
 
+/// The display name of a cpg language key ("pl" -> "Polish"); empty when
+/// unknown or without detection data.
+QString languageName(const QString& code);
+
 /// Guesses the language of file bytes (any encoding). Takes some
 /// milliseconds per 100 KB (plus loading the models once), so an editor
-/// runs it with detectLanguageAsync() after showing the file. Source code
-/// mostly gives "en" (comments and identifiers).
+/// runs it with detectLanguageAsync() after showing the file. The language
+/// is judged from the words around non-ASCII characters, so source code
+/// with Polish comments gives "pl"; pure ASCII text gives what its words
+/// suggest (often "en" for source code).
 Language detectLanguage(const QByteArray& bytes);
 
 /// Runs detectLanguage() in a worker thread and calls `done` in `context`'s

@@ -48,6 +48,14 @@ public:
     void setEnabled(bool enabled);
     bool isEnabled() const { return m_enabled; }
 
+    /// Off by default. On: a misspelled word with a single correction (one
+    /// suggestion, or a moved space ending at it: "mam yz" → "mamy z") is
+    /// corrected when a space or punctuation is typed right after it; not in
+    /// pasted text, not a word right in another installed language. The
+    /// correction is its own undo step: undo brings back the word as typed.
+    void setCorrectWhileTyping(bool correct);
+    bool correctsWhileTyping() const { return m_correctWhileTyping; }
+
     void setUnderlineColor(const QColor& color);
     QColor underlineColor() const { return m_color; }
 
@@ -94,8 +102,14 @@ public:
 signals:
     /// A check of the visible lines finished.
     void checked();
+    /// A word was corrected while typing (e.g. for the status bar).
+    void corrected(const QString& typed, const QString& correction);
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    void correctTypedWord(TextCursor at, QChar typed);
     void scheduleCheck();
     void onCursorMoved(TextCursor position);
 
@@ -110,6 +124,7 @@ private:
     QTimer* m_timer = nullptr;
     QColor m_color{Qt::red};
     bool m_enabled = true;
+    bool m_correctWhileTyping = false;
     // The text changed since the last check.
     bool m_edited = false;
     // The word being typed (the one at the cursor after an edit), not

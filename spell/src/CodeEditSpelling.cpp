@@ -4,6 +4,7 @@
 #include <qce/ITextDocument.h>
 #include <qce/ViewportState.h>
 
+#include <QKeyEvent>
 #include <QTimer>
 #include <QUndoCommand>
 #include <QUndoStack>
@@ -22,19 +23,28 @@ constexpr int kDelayMs = 150;
 // language, and nothing is underlined.
 constexpr int kLanguageWords = 5;
 
-// Replaces a range as one undo step and leaves the cursor after the new text.
+// Replaces a range as one undo step and leaves the cursor after the new text,
+// or (`keepCursor`, a correction while typing) where it was, moved with the
+// text after the range.
 class ReplaceWordCommand : public QUndoCommand {
 public:
-    ReplaceWordCommand(CodeEditArea* area, TextCursor start, TextCursor end, QString replacement)
+    ReplaceWordCommand(CodeEditArea* area, TextCursor start, TextCursor end, QString replacement,
+                       bool keepCursor = false)
         : m_area(area), m_doc(area->document()), m_start(start), m_end(end),
-          m_replacement(std::move(replacement)), m_cursor(area->cursorPosition()) {
+          m_replacement(std::move(replacement)), m_cursor(area->cursorPosition()), m_keepCursor(keepCursor) {
         setText(QObject::tr("Correct Spelling"));
     }
     void redo() override {
         if (!m_doc || !m_area) return;
         m_original = m_doc->removeText(m_start, m_end);
         m_newEnd = m_doc->insertText(m_start, m_replacement);
-        m_area->setSelection(m_newEnd, m_newEnd);
+        TextCursor cursor = m_newEnd;
+        if (m_keepCursor) {
+            cursor = m_cursor;
+            if (cursor.line == m_end.line && m_end <= cursor)
+                cursor = {m_newEnd.line, m_newEnd.column + (cursor.column - m_end.column)};
+        }
+        m_area->setSelection(cursor, cursor);
     }
     void undo() override {
         if (!m_doc || !m_area) return;
@@ -49,7 +59,16 @@ private:
     TextCursor m_start, m_end, m_newEnd;
     QString m_replacement, m_original;
     TextCursor m_cursor;
+    bool m_keepCursor = false;
 };
+
+// A typed character that ends a word: a space or punctuation, not one that
+// may be inside a word (apostrophe, hyphen, underscore).
+bool endsWord(QChar c) {
+    if (c.isSpace()) return true;
+    if (c == QLatin1Char('\'') || c == QChar(0x2019) || c == QLatin1Char('-') || c == QLatin1Char('_')) return false;
+    return c.isPunct();
+}
 
 } // namespace
 
@@ -67,7 +86,54 @@ CodeEditSpelling::CodeEditSpelling(CodeEditArea* area, QObject* parent)
         m_timer->stop();
         m_area = nullptr;
     });
+    // Typed keys, for correcting while typing.
+    area->installEventFilter(this);
     scheduleCheck();
+}
+
+void CodeEditSpelling::setCorrectWhileTyping(bool correct) {
+    m_correctWhileTyping = correct;
+}
+
+// A space or punctuation typed (not pasted) right after a word: the word is
+// corrected once the key has been handled, if it has a single correction.
+bool CodeEditSpelling::eventFilter(QObject* watched, QEvent* event) {
+    if (event->type() == QEvent::KeyPress && watched == m_area && m_correctWhileTyping && m_enabled
+            && !m_area->readOnly() && !m_area->hasSelection()) {
+        const auto* key = static_cast<QKeyEvent*>(event);
+        const QString text = key->text();
+        if (text.size() == 1 && endsWord(text[0])
+                && !(key->modifiers() & (Qt::ControlModifier | Qt::MetaModifier))) {
+            const TextCursor at = m_area->cursorPosition();
+            QMetaObject::invokeMethod(this, [this, at, typed = text[0]]() { correctTypedWord(at, typed); },
+                                      Qt::QueuedConnection);
+        }
+    }
+    return QObject::eventFilter(watched, event);
+}
+
+void CodeEditSpelling::correctTypedWord(TextCursor at, QChar typed) {
+    if (!m_area || !m_area->document() || !m_checker.isReady()) return;
+    ITextDocument* doc = m_area->document();
+    // The key went in where expected, and nothing else since.
+    if (at.line >= doc->lineCount() || m_area->cursorPosition() != TextCursor{at.line, at.column + 1}) return;
+    const QString line = doc->lineAt(at.line);
+    if (at.column >= line.size() || line[at.column] != typed) return;
+    const auto word = misspelledWordAt(at);
+    if (!word || word->end.column != at.column) return;
+    // A word of another installed language is meant, not mistyped.
+    if (inOtherLanguage(word->word)) return;
+    // Only a single correction: a moved space ending at the word ("mam yz" →
+    // "mamy z") or one suggestion.
+    QList<PhraseCorrection> choices;
+    for (const auto& phrase : phraseCorrections(*word, 2))
+        if (phrase.range.end <= word->end) choices.append(phrase);
+    for (const QString& suggestion : m_checker.suggestions(word->word, 2)) choices.append({*word, suggestion});
+    if (choices.size() != 1) return;
+    const PhraseCorrection& correction = choices.front();
+    m_area->undoStack()->push(new ReplaceWordCommand(m_area, correction.range.start, correction.range.end,
+                                                     correction.replacement, true));
+    emit corrected(correction.range.word, correction.replacement);
 }
 
 CodeEditSpelling::~CodeEditSpelling() {

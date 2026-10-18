@@ -155,3 +155,10 @@ lists every misspelled word of a range (also lines never shown; unlike the
 underlines, even when most of them are right in another language), and
 `replaceWords()` replaces several words or phrases, each with its correction,
 as one undo step.
+
+`setCorrectWhileTyping(true)` (off by default) corrects a misspelled word with a
+single correction when a space or punctuation is typed right after it: one
+suggestion, or a moved space ending at the word. Pasted text is not corrected
+(only typed keys count), nor a word right in another installed language. The
+correction is its own undo step, so undo brings back the word as typed;
+`corrected()` reports it, e.g. for a status bar.

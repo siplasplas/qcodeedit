@@ -49,7 +49,8 @@ struct SpellingReviewItem {
 /// words, only the checked ones (to look them over) or only the unchecked
 /// ones (left to decide), applied when chosen, so a word checked or
 /// unchecked meanwhile stays in sight. Only the check boxes decide which
-/// words are corrected, unless "Picking a correction checks the word" is on. With `spelling`, "Add to Dictionary" and "Ignore" take the
+/// words are corrected, unless "Picking a correction checks the word" is on:
+/// then picking one, also the one shown, checks the word. With `spelling`, "Add to Dictionary" and "Ignore" take the
 /// selected word out of the list, every occurrence of it ("careta" written on
 /// purpose). Ctrl+C or the context menu copies the selected rows, separated
 /// by tabs, or their lines of text. Correct accepts; chosenReplacements()

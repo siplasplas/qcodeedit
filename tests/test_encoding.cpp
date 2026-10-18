@@ -203,6 +203,72 @@ private slots:
         QCOMPARE(detect(QByteArray()), QStringLiteral("utf8"));
     }
 
+    void longCp1250TextIsConfident() {
+        const EncodingDetection d = detectEncoding(kPolishCp1250);
+        QVERIFY(d.confident);
+        QCOMPARE(d.options.size(), 1);
+        QCOMPARE(d.options.front().encoding, QStringLiteral("cp1250"));
+        QCOMPARE(d.options.front().language, QStringLiteral("pl"));
+        QVERIFY(d.options.front().confidence >= 0.95);
+    }
+
+    void utf8AsciiAndEmptyAreConfident() {
+        for (const QByteArray& bytes : {kPolish.toUtf8(), QByteArray("plain ascii\n"), QByteArray()}) {
+            const EncodingDetection d = detectEncoding(bytes);
+            QVERIFY(d.confident);
+            QCOMPARE(d.options.size(), 1);
+            QCOMPARE(d.options.front().encoding, QStringLiteral("utf8"));
+        }
+        // UTF-16 with a byte order mark is certain too.
+        QByteArray utf16("\xFF\xFE");
+        for (const QChar c : kPolish) utf16 += char(c.unicode() & 0xFF), utf16 += char(c.unicode() >> 8);
+        const EncodingDetection d = detectEncoding(utf16);
+        QVERIFY(d.confident);
+        QCOMPARE(d.options.size(), 1);
+        QVERIFY(d.options.front().encoding.startsWith(QLatin1String("utf16")));
+    }
+
+    // One Polish letter among source lines is little evidence: several options.
+    void fewNationalLettersAreUncertain() {
+        QByteArray source;
+        for (int i = 0; i < 20; ++i)
+            source += "  Form" + QByteArray::number(i) + ".Left := " + QByteArray::number(i * 8) + ";\n";
+        source += "  OpenDial.Caption:='Wska\xBF program do symulacji';\n";
+        const EncodingDetection d = detectEncoding(source);
+        QVERIFY(!d.confident);
+        QVERIFY(d.options.size() > 1);
+        double sum = 0;
+        bool hasCp1250 = false;
+        for (qsizetype i = 0; i < d.options.size(); ++i) {
+            if (i > 0) QVERIFY(d.options[i - 1].confidence >= d.options[i].confidence);
+            sum += d.options[i].confidence;
+            hasCp1250 = hasCp1250 || d.options[i].encoding == QLatin1String("cp1250");
+        }
+        QVERIFY(hasCp1250);
+        QVERIFY(sum >= 0.95 - 1e-9);
+    }
+
+    void languagesRestrictTheOptions() {
+        const EncodingDetection d = detectEncoding(kPolishCp1250, {QStringLiteral("pl"), QStringLiteral("cz")});
+        QVERIFY(!d.options.isEmpty());
+        for (const EncodingOption& option : d.options)
+            QVERIFY(option.language == QLatin1String("pl") || option.language == QLatin1String("cz"));
+        QCOMPARE(detect(kPolishCp1250, QStringList{QStringLiteral("pl"), QStringLiteral("cz")}),
+                 QStringLiteral("cp1250"));
+    }
+
+    void decodeReportsDetectionOnlyWhenDetecting() {
+        const DecodeResult detected = decode(kPolishCp1250);
+        QVERIFY(detected.ok);
+        QVERIFY(!detected.detection.options.isEmpty());
+        QCOMPARE(detected.detection.options.front().encoding, detected.format.encoding);
+        const DecodeResult given = decode(kPolishCp1250, QStringLiteral("cp1250"));
+        QVERIFY(given.ok);
+        QVERIFY(given.detection.options.isEmpty());
+        const DecodeResult listed = decode(kPolishCp1250, QString(), QStringList{QStringLiteral("pl")});
+        QCOMPARE(listed.format.encoding, QStringLiteral("cp1250"));
+    }
+
     void utf8BomIsRemembered() {
         const DecodeResult r = decode(QByteArray("\xEF\xBB\xBFzażółć\n"), QStringLiteral("utf8"));
         QVERIFY(r.ok);

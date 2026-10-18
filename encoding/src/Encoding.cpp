@@ -143,40 +143,112 @@ void setDetectionData(const QString& languagesFile, const QString& modelsDir) {
     c.languages.reset();
 }
 
-QString detect(const QByteArray& bytes, const QString& language) {
-    if (bytes.isEmpty() || isAscii(bytes)) return QStringLiteral("utf8");
+EncodingDetection detectEncoding(const QByteArray& bytes, const QStringList& languages,
+                                 double threshold) {
+    EncodingDetection result;
+    if (bytes.isEmpty() || isAscii(bytes)) {
+        result.options.append({QStringLiteral("utf8"), QString(), 1.0});
+        result.confident = true;
+        return result;
+    }
 
     std::lock_guard lock(cpg().mutex);
     Cpg& c = cpg();
     c.loadDetection();
-    if (c.detector) {
-        const std::string_view view(bytes.constData(), size_t(bytes.size()));
+    const std::string_view view(bytes.constData(), size_t(bytes.size()));
+    auto option = [&c](const DetectionResult& r) {
+        return EncodingOption{QString::fromStdString(r.codepage), QString::fromStdString(r.language),
+                              r.confidence};
+    };
+
+    if (c.detector && c.model) {
         std::vector<DetectionResult> candidates;
         try {
-            if (!language.isEmpty())
-                candidates = c.detector->detectCodepage(toStd(language), view);
-            else if (c.model)
+            if (languages.isEmpty()) {
                 candidates = c.detector->detectCodepage(view);
-            else // without models: alphabet coverage for the system language
-                candidates = c.detector->detectCodepage(
-                    toStd(QLocale::system().name().section(QLatin1Char('_'), 0, 0)), view);
+            } else if (languages.size() == 1) {
+                candidates = c.detector->detectCodepage(toStd(languages.front()), view);
+            } else {
+                std::vector<std::string> isos;
+                for (const QString& language : languages) isos.push_back(toStd(language));
+                candidates = c.detector->detectCodepageAmong(isos, view);
+            }
         } catch (const std::exception&) {
             candidates.clear();
         }
-        // The first candidate that decodes the whole input wins.
-        for (const DetectionResult& candidate : candidates) {
-            const QString name = QString::fromStdString(candidate.codepage);
-            if (toUtf8Locked(name, bytes).success) return name;
+        // UTF recognised by ICU (e.g. with a BOM) comes without a calibrated
+        // confidence; it is certain.
+        if (!candidates.empty() && candidates.front().confidence <= 0
+                && isUnicode(QString::fromStdString(candidates.front().codepage))
+                && toUtf8Locked(QString::fromStdString(candidates.front().codepage), bytes).success) {
+            EncodingOption utf = option(candidates.front());
+            utf.confidence = 1.0;
+            result.options.append(utf);
+            result.confident = true;
+            return result;
+        }
+        // cpg guarantees that its options decode the input; checked anyway.
+        for (const DetectionResult& r : Detector::plausible(candidates, threshold)) {
+            if (toUtf8Locked(QString::fromStdString(r.codepage), bytes).success)
+                result.options.append(option(r));
+        }
+        if (!result.options.isEmpty()) {
+            result.confident = result.options.size() == 1
+                && result.options.front().confidence >= threshold;
+            return result;
         }
     }
-    if (toUtf8Locked(QStringLiteral("utf8"), bytes).success) return QStringLiteral("utf8");
-    return c.fallback;
+
+    // Without models (or with nothing decodable): the first code page that
+    // decodes the input, by alphabet coverage for the first language or the
+    // system language, else UTF-8, else the fallback. Without models there
+    // is no evidence to ask about, so it counts as confident.
+    if (c.detector) {
+        std::vector<DetectionResult> candidates;
+        try {
+            const QString language = languages.isEmpty()
+                ? QLocale::system().name().section(QLatin1Char('_'), 0, 0) : languages.front();
+            candidates = c.detector->detectCodepage(toStd(language), view);
+        } catch (const std::exception&) {
+            candidates.clear();
+        }
+        for (const DetectionResult& r : candidates) {
+            if (toUtf8Locked(QString::fromStdString(r.codepage), bytes).success) {
+                result.options.append({QString::fromStdString(r.codepage), QString(), 0});
+                break;
+            }
+        }
+    }
+    if (result.options.isEmpty()) {
+        const bool utf8 = toUtf8Locked(QStringLiteral("utf8"), bytes).success;
+        result.options.append({utf8 ? QStringLiteral("utf8") : c.fallback, QString(), 0});
+    }
+    result.confident = !c.model;
+    return result;
+}
+
+QString detect(const QByteArray& bytes, const QStringList& languages) {
+    return detectEncoding(bytes, languages).options.front().encoding;
+}
+
+QString detect(const QByteArray& bytes, const QString& language) {
+    return detect(bytes, language.isEmpty() ? QStringList() : QStringList{language});
 }
 
 DecodeResult decodeExact(const QByteArray& bytes, const QString& encoding,
                          const QString& language) {
+    return decodeExact(bytes, encoding, language.isEmpty() ? QStringList() : QStringList{language});
+}
+
+DecodeResult decodeExact(const QByteArray& bytes, const QString& encoding,
+                         const QStringList& languages) {
     DecodeResult result;
-    result.format.encoding = encoding.isEmpty() ? detect(bytes, language) : encoding;
+    if (encoding.isEmpty()) {
+        result.detection = detectEncoding(bytes, languages);
+        result.format.encoding = result.detection.options.front().encoding;
+    } else {
+        result.format.encoding = encoding;
+    }
 
     // A BOM is cut off here and remembered; ICU would drop it silently.
     const QByteArray bom = bomFor(result.format.encoding);
@@ -219,7 +291,12 @@ DecodeResult decodeExact(const QByteArray& bytes, const QString& encoding,
 
 DecodeResult decode(const QByteArray& bytes, const QString& encoding,
                     const QString& language) {
-    DecodeResult result = decodeExact(bytes, encoding, language);
+    return decode(bytes, encoding, language.isEmpty() ? QStringList() : QStringList{language});
+}
+
+DecodeResult decode(const QByteArray& bytes, const QString& encoding,
+                    const QStringList& languages) {
+    DecodeResult result = decodeExact(bytes, encoding, languages);
     // "\n" line breaks only. The final line break stays in the text:
     // SimpleTextDocument::setText() drops it, and encode() adds it back.
     if (result.ok) {

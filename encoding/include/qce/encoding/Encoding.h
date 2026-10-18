@@ -29,6 +29,49 @@ struct FileFormat {
     bool mixedLineBreaks = false;
 };
 
+/// One way to decode a file, as detection proposes it.
+struct EncodingOption {
+    QString encoding;      ///< cpg name: cp1250, utf8, ...
+    QString language;      ///< cpg language key ("pl", "cz", ...); may be empty
+    /// Calibrated probability that this decoding is right (0..1). Encodings
+    /// that decode the file identically share it (cp1250 and iso-8859-2
+    /// without the bytes where they differ). 0 when unknown (no models).
+    double confidence = 0;
+};
+
+/// The plausible decodings of a file, best first.
+struct EncodingDetection {
+    /// The confident winner alone, or the smallest set of distinct decodings
+    /// whose confidence adds up to the threshold. Never empty from
+    /// detectEncoding().
+    QList<EncodingOption> options;
+    /// One option whose confidence reaches the threshold: the file can be
+    /// opened (or converted) without asking. Otherwise an editor opens it
+    /// with options.front() and lets the user choose; a batch tool refuses.
+    bool confident = false;
+};
+
+/// Detects the encoding of `bytes` with the alternatives worth considering.
+///
+/// - Empty input and pure ASCII: one option "utf8", confident (every
+///   encoding gives the same text).
+/// - UTF with a BOM is recognised; valid UTF-8 without a BOM competes with
+///   the legacy code pages, since a few multi-byte sequences are little
+///   evidence.
+/// - Legacy code pages are ranked by cpg's language models over all
+///   languages, or only `languages` when given (e.g. {"pl", "cz"}).
+/// - Every option decodes the whole input.
+/// - Without detection models there is no evidence to ask the user about:
+///   the first code page that decodes the input (by alphabet coverage for
+///   the first of `languages`, or the system language), else "utf8", else
+///   fallbackEncoding(), is reported as one confident option with
+///   confidence 0.
+///
+/// `threshold` is the calibrated probability a winner needs to be confident;
+/// 0.95 is cpg's default (about 99.9 % of confident winners are right).
+EncodingDetection detectEncoding(const QByteArray& bytes, const QStringList& languages = {},
+                                 double threshold = 0.95);
+
 struct DecodeResult {
     bool ok = false;
     /// The content with "\n" line breaks and without BOM, for
@@ -37,15 +80,21 @@ struct DecodeResult {
     QString text;
     FileFormat format;
     QString error;   ///< set when !ok
+    /// How the encoding was chosen when it was detected (format.encoding is
+    /// detection.options.front()); empty options when it was given.
+    EncodingDetection detection;
 };
 
-/// Decodes file bytes. With an empty `encoding` it is detected (see detect()),
-/// legacy code pages only among those of `language` when given (e.g. "pl":
-/// cp1250, iso-8859-2, cp852, ...), which is faster and avoids guessing a
-/// wrong language from a few words. UTF is recognised regardless.
-/// LF, CRLF and CR line breaks all become "\n".
+/// Decodes file bytes. With an empty `encoding` it is detected (see
+/// detectEncoding()), legacy code pages only among those of `language` when
+/// given (e.g. "pl": cp1250, iso-8859-2, cp852, ...), which is faster and
+/// avoids guessing a wrong language from a few words. UTF is recognised
+/// regardless. LF, CRLF and CR line breaks all become "\n".
 DecodeResult decode(const QByteArray& bytes, const QString& encoding = {},
                     const QString& language = {});
+/// decode() with several languages (e.g. {"pl", "cz"}); empty = all.
+DecodeResult decode(const QByteArray& bytes, const QString& encoding,
+                    const QStringList& languages);
 
 /// Natural language of a text, by cpg's language models.
 struct Language {
@@ -68,11 +117,11 @@ Language detectLanguage(const QByteArray& bytes);
 void detectLanguageAsync(const QByteArray& bytes, QObject* context,
                          std::function<void(const Language&)> done);
 
-/// Detects the encoding of `bytes`. UTF-8/16/32 are recognised by ICU; legacy
-/// code pages are ranked by cpg's language models, over all languages or
-/// only `language` (e.g. "pl") when given. Pure ASCII and valid UTF-8 give
-/// "utf8". Falls back to fallbackEncoding() when nothing fits.
+/// The most likely encoding of `bytes`: detectEncoding(bytes, {language})
+/// .options.front().encoding (all languages when `language` is empty).
 QString detect(const QByteArray& bytes, const QString& language = {});
+/// detect() with several languages; empty = all.
+QString detect(const QByteArray& bytes, const QStringList& languages);
 
 struct EncodeResult {
     bool ok = false;
@@ -94,6 +143,9 @@ EncodeResult encode(const QString& text, const FileFormat& format,
 /// (format.bom). The line-break fields of format describe the content.
 DecodeResult decodeExact(const QByteArray& bytes, const QString& encoding = {},
                          const QString& language = {});
+/// decodeExact() with several languages; empty = all.
+DecodeResult decodeExact(const QByteArray& bytes, const QString& encoding,
+                         const QStringList& languages);
 
 /// Counterpart of decodeExact(): `text` is written as it is, with a BOM in
 /// front when `bom` is set. Unrepresentable characters as in encode().

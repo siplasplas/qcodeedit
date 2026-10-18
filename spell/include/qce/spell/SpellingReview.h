@@ -55,7 +55,10 @@ struct SpellingReviewItem {
 /// words are corrected, unless "Picking a correction checks the word" is on:
 /// then picking one, also the one shown, checks the word. With `spelling`, "Add to Dictionary" and "Ignore" take the
 /// selected word out of the list, every occurrence of it ("careta" written on
-/// purpose). Ctrl+C or the context menu copies the selected rows, separated
+/// purpose); "Remember Correction" keeps the selected word's chosen
+/// correction as the user's own (score 0 from now on, every row of it
+/// checked); "User Dictionary" shows the user's words and corrections. Ctrl+C
+/// or the context menu copies the selected rows, separated
 /// by tabs, or their lines of text. Correct accepts; chosenReplacements()
 /// gives the checked words.
 class SpellingReviewDialog : public QDialog {
@@ -78,6 +81,10 @@ private:
     /// Adds the selected word to the dictionary (or ignores it) and removes
     /// its rows.
     void acceptWord(bool addToDictionary);
+    /// Keeps the selected word's chosen correction as the user's own
+    /// (SpellChecker::addCorrection()): every row of the word gets it, score
+    /// 0, checked.
+    void rememberCorrection();
     /// The selected rows to the clipboard, one a line: word, correction,
     /// score, line and the whole line of text separated by tabs, or only
     /// the line of text.

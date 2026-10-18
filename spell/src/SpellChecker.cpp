@@ -73,6 +73,11 @@ struct Loaded {
     QString userPath;
     QDateTime userModified;
     QSet<QString> userWords;
+    // The user's own corrections (typed word -> correction), shared by all
+    // programs like the user dictionary; read again when the file changes.
+    QString correctionsPath;
+    QDateTime correctionsModified;
+    QHash<QString, QString> corrections;
     // All word forms by class, for suggestions (see FormIndex.h): the cache
     // file, built in the background the first time; 0 not started, 1
     // building, 2 done (the file may still be missing: dictionary not
@@ -174,6 +179,45 @@ struct Loaded {
         }
         return added;
     }
+    void refreshCorrections() {
+        const QFileInfo info(correctionsPath);
+        const QDateTime modified = info.exists() ? info.lastModified() : QDateTime();
+        if (modified == correctionsModified) return;
+        correctionsModified = modified;
+        corrections.clear();
+        QFile file(correctionsPath);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+        QTextStream in(&file);
+        while (!in.atEnd()) {
+            const QString line = in.readLine();
+            const qsizetype tab = line.indexOf(QLatin1Char('\t'));
+            if (tab <= 0) continue;
+            const QString typed = line.left(tab).trimmed(), correction = line.mid(tab + 1).trimmed();
+            if (!typed.isEmpty() && !correction.isEmpty()) corrections.insert(typed, correction);
+        }
+    }
+    void saveCorrections() {
+        QDir().mkpath(QFileInfo(correctionsPath).absolutePath());
+        QSaveFile file(correctionsPath);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+        QStringList typed = corrections.keys();
+        typed.sort(Qt::CaseInsensitive);
+        QTextStream out(&file);
+        for (const QString& word : typed) out << word << '\t' << corrections.value(word) << '\n';
+        out.flush();
+        if (file.commit()) correctionsModified = QFileInfo(correctionsPath).lastModified();
+    }
+    void saveUserWords() {
+        QDir().mkpath(QFileInfo(userPath).absolutePath());
+        QSaveFile file(userPath);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+        QStringList words(userWords.cbegin(), userWords.cend());
+        words.sort(Qt::CaseInsensitive);
+        QTextStream out(&file);
+        for (const QString& word : words) out << word << '\n';
+        out.flush();
+        if (file.commit()) userModified = QFileInfo(userPath).lastModified();
+    }
 };
 
 struct Registry {
@@ -195,6 +239,8 @@ struct Registry {
             result->utf8 = result->encoding.compare(QLatin1String("UTF-8"), Qt::CaseInsensitive) == 0;
             result->userPath = userDictionaryPath(name);
             result->refreshUserWords();
+            result->correctionsPath = userCorrectionsPath(name);
+            result->refreshCorrections();
             break;
         }
         loaded.insert(name, result);
@@ -307,6 +353,12 @@ QString packageHint(const QString& language) {
         {QStringLiteral("pt"), QStringLiteral("hunspell-pt-pt")}, {QStringLiteral("sv"), QStringLiteral("hunspell-sv")},
         {QStringLiteral("nb"), QStringLiteral("hunspell-no")}, {QStringLiteral("nn"), QStringLiteral("hunspell-no")}};
     return packages.value(code, QStringLiteral("hunspell-") + code);
+}
+
+QString userCorrectionsPath(const QString& dictionaryName) {
+    const QString base = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    if (base.isEmpty()) return {};
+    return base + QStringLiteral("/siplasplas/spell/") + languageOf(dictionaryName) + QStringLiteral(".corrections");
 }
 
 QString userDictionaryPath(const QString& dictionaryName) {
@@ -470,6 +522,12 @@ QStringList SpellChecker::suggestions(const QString& word, int maxCount) const {
 }
 
 QList<SpellChecker::Suggestion> SpellChecker::scoredSuggestions(const QString& word, int maxCount) const {
+    // A correction of the user's own: the only one, sure (score 0).
+    for (const auto& loaded : d->dictionaries) {
+        loaded->refreshCorrections();
+        if (auto it = loaded->corrections.constFind(word); it != loaded->corrections.cend())
+            return {{it.value(), 0, 0}};
+    }
     std::vector<std::pair<double, QString>> candidates;
     bool indexed = false;
     for (const auto& loaded : d->dictionaries) {
@@ -609,6 +667,52 @@ void SpellChecker::addToDictionary(const QString& word) {
     }
     loaded->hunspell->add(loaded->encode(word));
     ++registry().generation;
+}
+
+QStringList SpellChecker::userWords() const {
+    if (d->dictionaries.isEmpty()) return {};
+    const auto& loaded = d->dictionaries.front();
+    loaded->refreshUserWords();
+    QStringList words(loaded->userWords.cbegin(), loaded->userWords.cend());
+    words.sort(Qt::CaseInsensitive);
+    return words;
+}
+
+void SpellChecker::removeFromDictionary(const QString& word) {
+    if (d->dictionaries.isEmpty()) return;
+    const std::shared_ptr<Loaded>& loaded = d->dictionaries.front();
+    if (!loaded->userWords.remove(word)) return;
+    loaded->saveUserWords();
+    loaded->hunspell->remove(loaded->encode(word));
+    ++registry().generation;
+}
+
+QList<QPair<QString, QString>> SpellChecker::userCorrections() const {
+    QList<QPair<QString, QString>> result;
+    if (d->dictionaries.isEmpty()) return result;
+    const auto& loaded = d->dictionaries.front();
+    loaded->refreshCorrections();
+    for (auto it = loaded->corrections.cbegin(); it != loaded->corrections.cend(); ++it)
+        result.append({it.key(), it.value()});
+    std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
+        return a.first.compare(b.first, Qt::CaseInsensitive) < 0;
+    });
+    return result;
+}
+
+void SpellChecker::addCorrection(const QString& typed, const QString& correction) {
+    if (d->dictionaries.isEmpty() || typed.trimmed().isEmpty() || correction.trimmed().isEmpty()) return;
+    const std::shared_ptr<Loaded>& loaded = d->dictionaries.front();
+    loaded->refreshCorrections();
+    loaded->corrections.insert(typed.trimmed(), correction.trimmed());
+    loaded->saveCorrections();
+}
+
+void SpellChecker::removeCorrection(const QString& typed) {
+    if (d->dictionaries.isEmpty()) return;
+    const std::shared_ptr<Loaded>& loaded = d->dictionaries.front();
+    loaded->refreshCorrections();
+    if (loaded->corrections.remove(typed)) loaded->saveCorrections();
 }
 
 void SpellChecker::refreshUserDictionary() {

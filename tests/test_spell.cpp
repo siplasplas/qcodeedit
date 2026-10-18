@@ -182,6 +182,37 @@ private slots:
         QVERIFY(second.check(QStringLiteral("gicioriański")));
     }
 
+    // The user's own corrections are the only, sure suggestion of their word;
+    // words and corrections can be removed again.
+    void userCorrectionsAndRemovals() {
+        if (!installed(QStringLiteral("pl"))) QSKIP("No Polish dictionary (hunspell-pl)");
+        SpellChecker checker;
+        checker.setLanguages({QStringLiteral("pl")});
+        QVERIFY(!checker.check(QStringLiteral("Paypall")));
+        checker.addCorrection(QStringLiteral("Paypall"), QStringLiteral("PayPal"));
+        QCOMPARE(checker.userCorrections(),
+                 (QList<QPair<QString, QString>>{{QStringLiteral("Paypall"), QStringLiteral("PayPal")}}));
+        QVERIFY(QFile::exists(userCorrectionsPath(QStringLiteral("pl_PL"))));
+        SpellChecker other;  // another program reads the shared file
+        other.setLanguages({QStringLiteral("pl")});
+        const auto suggestions = other.scoredSuggestions(QStringLiteral("Paypall"));
+        QCOMPARE(suggestions.size(), 1);
+        QCOMPARE(suggestions[0].text, QStringLiteral("PayPal"));
+        QCOMPARE(suggestions[0].score, 0.0);
+        QVERIFY(SpellChecker::isConfident(QStringLiteral("Paypall"), suggestions));
+        checker.removeCorrection(QStringLiteral("Paypall"));
+        QVERIFY(checker.userCorrections().isEmpty());
+        QVERIFY(other.suggestions(QStringLiteral("Paypall")) != QStringList{QStringLiteral("PayPal")}
+                || other.scoredSuggestions(QStringLiteral("Paypall")).value(0).score > 0);
+
+        checker.addToDictionary(QStringLiteral("qceslowko"));
+        QVERIFY(checker.check(QStringLiteral("qceslowko")));
+        QVERIFY(checker.userWords().contains(QStringLiteral("qceslowko")));
+        checker.removeFromDictionary(QStringLiteral("qceslowko"));
+        QVERIFY(!checker.userWords().contains(QStringLiteral("qceslowko")));
+        QVERIFY(!checker.check(QStringLiteral("qceslowko")));
+    }
+
     // A list of forms with counts becomes stem counts in the cache, and common
     // words then come before rare ones ("dialac": działać, not dialach).
     void wordFrequenciesFromFormCounts() {

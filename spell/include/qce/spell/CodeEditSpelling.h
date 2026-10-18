@@ -40,6 +40,9 @@ public:
 
     /// The editor it checks (null once it is gone).
     CodeEditArea* area() const;
+    /// Its checker, e.g. for the user dictionary and corrections; call
+    /// recheck() after changing them.
+    SpellChecker& checker() { return m_checker; }
 
     /// Dictionaries or language codes, e.g. {"pl"} or {"en", "pl"}.
     void setLanguages(const QStringList& languages);

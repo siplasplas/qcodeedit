@@ -2,6 +2,7 @@
 
 #include <qce/CodeEditArea.h>
 #include <qce/ITextDocument.h>
+#include <qce/spell/UserDictionaryDialog.h>
 
 #include <QCheckBox>
 #include <QClipboard>
@@ -202,9 +203,43 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     connect(m_show, &QComboBox::activated, this, &SpellingReviewDialog::filter);
 
     auto* status = new QHBoxLayout;
+    // What to do with the selected word, and the user's own dictionary.
+    auto* wordActions = new QHBoxLayout;
+    if (m_spelling) {
+        auto* add = new QPushButton(tr("Add to &Dictionary"), this);
+        add->setToolTip(tr("The selected word is right: into the user dictionary, all its rows out of the list"));
+        auto* ignore = new QPushButton(tr("&Ignore"), this);
+        ignore->setToolTip(tr("The selected word is right here: left as it is, all its rows out of the list"));
+        auto* remember = new QPushButton(tr("&Remember Correction"), this);
+        remember->setToolTip(tr("The selected word's correction is the one to use: it becomes the word's only "
+                                "correction, score 0, here and from now on (also while typing)"));
+        auto* userDictionary = new QPushButton(tr("&User Dictionary..."), this);
+        userDictionary->setToolTip(tr("Your own words and corrections, to look over or remove"));
+        for (QPushButton* button : {add, ignore, remember, userDictionary}) {
+            button->setAutoDefault(false);
+            wordActions->addWidget(button);
+        }
+        connect(add, &QPushButton::clicked, this, [this]() { acceptWord(true); });
+        connect(ignore, &QPushButton::clicked, this, [this]() { acceptWord(false); });
+        connect(remember, &QPushButton::clicked, this, &SpellingReviewDialog::rememberCorrection);
+        connect(userDictionary, &QPushButton::clicked, this, [this]() {
+            UserDictionaryDialog(m_spelling->checker(), this).exec();
+            m_spelling->recheck();
+        });
+        const auto updateButtons = [this, add, ignore, remember]() {
+            QTreeWidgetItem* current = m_list->currentItem();
+            add->setEnabled(current);
+            ignore->setEnabled(current);
+            remember->setEnabled(current && m_list->itemWidget(current, CorrectionColumn));
+        };
+        connect(m_list, &QTreeWidget::currentItemChanged, this, updateButtons);
+        updateButtons();
+    }
+    wordActions->addStretch();
     m_pickChecks = new QCheckBox(tr("&Picking a correction checks the word"), this);
     m_pickChecks->setToolTip(tr("Off: only the check box decides which words are corrected"));
-    layout->addWidget(m_pickChecks);
+    wordActions->addWidget(m_pickChecks);
+    layout->addLayout(wordActions);
     m_summary = new QLabel(this);
     status->addWidget(m_summary);
     status->addStretch();
@@ -222,21 +257,6 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
             if (row->flags() & Qt::ItemIsUserCheckable) row->setCheckState(WordColumn, state);
         }
     };
-    if (m_spelling) {
-        auto* add = buttons->addButton(tr("Add to &Dictionary"), QDialogButtonBox::ActionRole);
-        add->setToolTip(tr("The selected word is right: into the user dictionary, all its rows out of the list"));
-        auto* ignore = buttons->addButton(tr("&Ignore"), QDialogButtonBox::ActionRole);
-        ignore->setToolTip(tr("The selected word is right here: left as it is, all its rows out of the list"));
-        connect(add, &QPushButton::clicked, this, [this]() { acceptWord(true); });
-        connect(ignore, &QPushButton::clicked, this, [this]() { acceptWord(false); });
-        const auto updateButtons = [this, add, ignore]() {
-            const bool selected = m_list->currentItem() != nullptr;
-            add->setEnabled(selected);
-            ignore->setEnabled(selected);
-        };
-        connect(m_list, &QTreeWidget::currentItemChanged, this, updateButtons);
-        updateButtons();
-    }
     connect(all, &QPushButton::clicked, this, [checkAll]() { checkAll(Qt::Checked); });
     connect(none, &QPushButton::clicked, this, [checkAll]() { checkAll(Qt::Unchecked); });
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -319,6 +339,38 @@ void SpellingReviewDialog::copyRows(bool contextOnly) const {
                      .join(QLatin1Char('\t'));
     }
     if (!lines.isEmpty()) QGuiApplication::clipboard()->setText(lines.join(QLatin1Char('\n')) + QLatin1Char('\n'));
+}
+
+void SpellingReviewDialog::rememberCorrection() {
+    QTreeWidgetItem* current = m_list->currentItem();
+    if (!current || !m_spelling) return;
+    const SpellingReviewItem& item = m_items[current->data(WordColumn, Qt::UserRole).toInt()];
+    const auto* box = qobject_cast<QComboBox*>(m_list->itemWidget(current, CorrectionColumn));
+    if (!box || box->currentIndex() < 0 || box->currentIndex() >= item.choices.size()) return;
+    const SpellingReviewItem::Choice chosen = item.choices[box->currentIndex()];
+    // A moved space changes two words: not a correction of this one.
+    if (!(chosen.range.start == item.word.start && chosen.range.end == item.word.end)) return;
+    const QString word = item.word.word;
+    m_spelling->checker().addCorrection(word, chosen.replacement);
+    // Every row of the word: that correction, score 0, checked.
+    for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* row = m_list->topLevelItem(i);
+        if (row->text(WordColumn) != word) continue;
+        SpellingReviewItem& same = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
+        auto* sameBox = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn));
+        if (!sameBox) continue;
+        int index = -1;
+        for (int k = 0; k < same.choices.size(); ++k)
+            if (same.choices[k].replacement == chosen.replacement && same.choices[k].range.start == same.word.start)
+                index = k;
+        if (index < 0) continue;
+        same.choices[index].score = 0;
+        same.confident = same.single = true;
+        sameBox->setCurrentIndex(index);
+        showScore(row, 0);
+        row->setCheckState(WordColumn, Qt::Checked);
+    }
+    updateSummary();
 }
 
 void SpellingReviewDialog::acceptWord(bool addToDictionary) {

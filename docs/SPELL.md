@@ -182,8 +182,13 @@ single suggestion, or every word; the application keeps the user's choice),
 long finding the corrections took; Ctrl+C or the context menu copies the
 selected rows, separated by tabs, or their lines of text. "Add to
 Dictionary" and "Ignore" take the selected word out of the list, every row of
-it (an English word or a coined one written on purpose). The checked words are
-replaced as one undo step.
+it (an English word or a coined one written on purpose); "Remember Correction"
+keeps the selected word's chosen correction as the user's own
+(`SpellChecker::addCorrection()`, `~/.local/share/siplasplas/spell/<language>.corrections`,
+shared by programs): from then on it is the word's only suggestion, score 0, so
+sure, also while typing. "User Dictionary" (`UserDictionaryDialog`) shows the
+user's words and corrections and removes them. The checked words are replaced
+as one undo step.
 
 `setCorrectWhileTyping(true)` (off by default) corrects a misspelled word when
 a space or punctuation is typed right after it, if its single suggestion is

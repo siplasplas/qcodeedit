@@ -44,6 +44,10 @@ QString packageHint(const QString& language);
 /// file): <GenericDataLocation>/siplasplas/spell/<language>.dic, one word
 /// per line.
 QString userDictionaryPath(const QString& dictionaryName);
+/// The user's own corrections of a language, shared by all programs:
+/// <GenericDataLocation>/siplasplas/spell/<language>.corrections, lines
+/// "typed<TAB>correction".
+QString userCorrectionsPath(const QString& dictionaryName);
 
 /// Downloaded lists of word forms with their counts, shared by all programs
 /// (e.g. also for detecting a text's language): FrequencyWords'
@@ -138,6 +142,17 @@ public:
     /// Adds the word to the shared user dictionary of the first dictionary in
     /// use (and to that dictionary now, in every checker of the program).
     void addToDictionary(const QString& word);
+    /// The words of the user dictionary of the first dictionary in use, and
+    /// removing one (from that dictionary now, too).
+    QStringList userWords() const;
+    void removeFromDictionary(const QString& word);
+    /// The user's own corrections (userCorrectionsPath() of the first
+    /// dictionary in use): a word with one is offered only that correction,
+    /// with score 0, so it is sure (e.g. "Paypal" → PayPal, also corrected
+    /// while typing). Adding one replaces an earlier one of the word.
+    QList<QPair<QString, QString>> userCorrections() const;
+    void addCorrection(const QString& typed, const QString& correction);
+    void removeCorrection(const QString& typed);
     /// Accepts the word in this checker only (e.g. one document, for the session).
     void ignore(const QString& word);
     /// Takes in words another program added to the shared user dictionary

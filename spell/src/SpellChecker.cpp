@@ -345,6 +345,24 @@ QStringList SpellChecker::suggestions(const QString& word, int maxCount) const {
     return detail::rankSuggestions(word, std::move(candidates), maxCount, hunspellOrder);
 }
 
+QStringList SpellChecker::splitSuggestions(const QString& first, const QString& second, int maxCount) const {
+    const QString joined = first + second;
+    const int original = int(first.size());
+    std::vector<std::pair<int, QString>> found;
+    for (int split = 1; split < joined.size(); ++split) {
+        if (split == original) continue;  // the words as typed
+        const QString left = joined.left(split), right = joined.mid(split);
+        if (check(left) && check(right)) found.emplace_back(std::abs(split - original), left + QLatin1Char(' ') + right);
+    }
+    std::stable_sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    QStringList result;
+    for (const auto& [moved, phrase] : found) {
+        if (int(result.size()) >= maxCount) break;
+        result << phrase;
+    }
+    return result;
+}
+
 bool SpellChecker::suggestionIndexReady() const {
     for (const auto& loaded : d->dictionaries) {
         loaded->formIndex();

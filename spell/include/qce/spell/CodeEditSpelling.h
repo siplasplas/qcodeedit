@@ -65,6 +65,17 @@ public:
     }
     /// Replaces a misspelled word as one undo step.
     void replaceWord(const Misspelling& misspelling, const QString& replacement);
+    /// Corrections of a space missing or in the wrong place: the misspelled
+    /// word joined with the word before or after it on its line (also one
+    /// letter long) and split into two right words ("n aoknie" → "na
+    /// oknie", "mam yz" → "mamy z"). Each covers both words, in `word` the
+    /// text it replaces; pass it to replaceWord() with its suggestion. At
+    /// most `maxCount`, the space moved least first.
+    struct PhraseCorrection {
+        Misspelling range;
+        QString replacement;
+    };
+    QList<PhraseCorrection> phraseCorrections(const Misspelling& misspelling, int maxCount = 3) const;
     /// Adds the word to the shared user dictionary and checks again.
     void addToDictionary(const QString& word);
     /// Accepts the word in this editor (for the session) and checks again.

@@ -206,6 +206,43 @@ void CodeEditSpelling::replaceWord(const Misspelling& misspelling, const QString
     m_area->undoStack()->push(new ReplaceWordCommand(m_area, misspelling.start, misspelling.end, replacement));
 }
 
+QList<CodeEditSpelling::PhraseCorrection> CodeEditSpelling::phraseCorrections(const Misspelling& misspelling,
+                                                                              int maxCount) const {
+    QList<PhraseCorrection> result;
+    if (!m_area || !m_area->document() || !m_enabled || !m_checker.isReady()) return result;
+    const int line = misspelling.start.line;
+    const QString text = m_area->document()->lineAt(line);
+    const auto isLetter = [](QChar c) { return c.isLetter() || c.isMark(); };
+    // The neighbouring word: letters after one run of spaces.
+    struct Neighbour { int start = -1, end = -1; };
+    Neighbour before, after;
+    int gapStart = misspelling.start.column;
+    while (gapStart > 0 && text[gapStart - 1] == QLatin1Char(' ')) --gapStart;
+    if (gapStart < misspelling.start.column && gapStart > 0 && isLetter(text[gapStart - 1])) {
+        before.end = gapStart;
+        before.start = gapStart;
+        while (before.start > 0 && isLetter(text[before.start - 1])) --before.start;
+    }
+    int gapEnd = misspelling.end.column;
+    while (gapEnd < text.size() && text[gapEnd] == QLatin1Char(' ')) ++gapEnd;
+    if (gapEnd > misspelling.end.column && gapEnd < text.size() && isLetter(text[gapEnd])) {
+        after.start = gapEnd;
+        after.end = gapEnd;
+        while (after.end < text.size() && isLetter(text[after.end])) ++after.end;
+    }
+    const auto add = [&](int start, int end, const QString& first, const QString& second) {
+        for (const QString& phrase : m_checker.splitSuggestions(first, second, maxCount)) {
+            if (int(result.size()) >= maxCount) return;
+            result.append({{{line, start}, {line, end}, text.mid(start, end - start)}, phrase});
+        }
+    };
+    if (before.start >= 0)
+        add(before.start, misspelling.end.column, text.mid(before.start, before.end - before.start), misspelling.word);
+    if (after.start >= 0)
+        add(misspelling.start.column, after.end, misspelling.word, text.mid(after.start, after.end - after.start));
+    return result;
+}
+
 // One dictionary for each installed language not in use, loaded the first
 // time it is needed and again when the languages in use change.
 bool CodeEditSpelling::inOtherLanguage(const QString& word) {

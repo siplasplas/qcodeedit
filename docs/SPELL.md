@@ -107,3 +107,12 @@ the best are shown (at most 0.6 worse), three at most (or the requested number
 if smaller). On a list of 96 real typing mistakes 91 were first (hunspell
 alone: 71) and the right word was always among those shown, 1.77 suggestions
 on average, one for half of the words, in about 25 ms each.
+
+A space missing or in the wrong place: `CodeEditSpelling::phraseCorrections()`
+joins the misspelled word with the word before or after it on its line (also
+a single letter) and splits the letters elsewhere into two right words
+(`SpellChecker::splitSuggestions()`): "n aoknie" → "na oknie", "mam yz" →
+"mamy z". Each correction covers both words and is applied with
+`replaceWord()` as one undo step; the space moved least comes first. A split
+that also needs a correction ("daj eodległosc" → "daje odległość") is not
+found yet.

@@ -79,6 +79,11 @@ public:
     /// The suggestion files of the dictionaries in use are ready (or not
     /// possible for them); starts building them when needed.
     bool suggestionIndexReady() const;
+    /// Two words typed with a space missing or in the wrong place: the
+    /// letters of `first` and `second` joined and split elsewhere into two
+    /// right words, "w1 w2", the space moved least first (e.g. "n", "aoknie"
+    /// → "na oknie"; "mam", "yz" → "mamy z"); at most `maxCount`.
+    QStringList splitSuggestions(const QString& first, const QString& second, int maxCount = 3) const;
 
     /// Adds the word to the shared user dictionary of the first dictionary in
     /// use (and to that dictionary now, in every checker of the program).

@@ -5,6 +5,7 @@
 #include <QDialog>
 #include <QList>
 #include <QPair>
+#include <QPointer>
 #include <QString>
 
 #include <functional>
@@ -77,6 +78,11 @@ public:
     /// How long finding the corrections took, shown with the time a word.
     void setSearchTime(qint64 milliseconds);
 
+signals:
+    /// openSpellingReview()'s window closed: how many words were corrected,
+    /// and the user's last choice of what is checked at first.
+    void reviewFinished(int corrected, qce::spell::CheckedAtFirst checkedAtFirst);
+
 private:
     void updateSummary();
     void checkAtFirst();
@@ -107,7 +113,7 @@ private:
     QComboBox* m_show = nullptr;
     QCheckBox* m_pickChecks = nullptr;
     QLabel* m_searchTime = nullptr;
-    CodeEditSpelling* m_spelling = nullptr;
+    QPointer<CodeEditSpelling> m_spelling;
     std::function<void()> m_updateButtons;
     bool m_bulkChange = false;  ///< many rows change: the summary waits
 };
@@ -120,5 +126,13 @@ private:
 /// box when there is no misspelled word or checking is off. Returns the
 /// number of corrected words.
 int reviewSpelling(CodeEditSpelling& spelling, CheckedAtFirst& checkedAtFirst, QWidget* parent);
+
+/// The same in a window that is not modal: the rest of the program goes on
+/// while it is open, and the editor whose text is reviewed is read-only until
+/// it closes (its earlier state then comes back). Correct replaces the
+/// checked words still where they were found; reviewFinished() tells the
+/// outcome. Returns the window (deleted when closed; parent it to what owns
+/// `spelling`), or null when there was nothing to review (the user was told).
+SpellingReviewDialog* openSpellingReview(CodeEditSpelling& spelling, CheckedAtFirst checkedAtFirst, QWidget* parent);
 
 } // namespace qce::spell

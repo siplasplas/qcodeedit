@@ -170,7 +170,9 @@ lists every misspelled word of a range (also lines never shown; unlike the
 underlines, even when most of them are right in another language), and
 `replaceWords()` replaces several words or phrases, each with its correction,
 as one undo step.
-`qce/spell/SpellingReview.h` puts this together for applications:
+`qce/spell/SpellingReview.h` puts this together for applications (`openSpellingReview()`
+opens the window not modal, the editor read-only while it is open; `reviewSpelling()`
+waits for it):
 `reviewSpelling(spelling, checkedAtFirst, parent)` finds the corrections of
 the selection's misspelled words (or the whole text's) and shows
 `SpellingReviewDialog`: each word with its corrections, the chosen one's score

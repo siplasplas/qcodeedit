@@ -22,6 +22,7 @@
 #include <QMessageBox>
 #include <QProgressDialog>
 #include <QPainter>
+#include <QPointer>
 #include <QPushButton>
 #include <QScopedValueRollback>
 #include <QStyledItemDelegate>
@@ -30,6 +31,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <optional>
 
 namespace qce::spell {
 
@@ -513,29 +515,42 @@ void SpellingReviewDialog::updateSummary() {
     m_summary->setText(tr("%1 of %2 words to correct").arg(checked).arg(m_list->topLevelItemCount()));
 }
 
-int reviewSpelling(CodeEditSpelling& spelling, CheckedAtFirst& checkedAtFirst, QWidget* parent) {
+namespace {
+
+struct Review {
+    QList<SpellingReviewItem> items;
+    bool inSelection = false;
+    qint64 milliseconds = 0;
+};
+
+// The misspelled words of the selection (or the whole text) with their
+// corrections; none, after telling the user why, when there is nothing to
+// review or the search was cancelled.
+std::optional<Review> collectReview(CodeEditSpelling& spelling, QWidget* parent) {
     CodeEditArea* area = spelling.area();
-    if (!area || !area->document() || area->readOnly()) return 0;
+    if (!area || !area->document() || area->readOnly()) return std::nullopt;
     const QString title = SpellingReviewDialog::tr("Review Spelling");
     if (!spelling.isEnabled() || !spelling.isReady()) {
         QMessageBox::information(parent, title,
                                  SpellingReviewDialog::tr("Spell checking is off or has no dictionary for this text."));
-        return 0;
+        return std::nullopt;
     }
     ITextDocument* doc = area->document();
-    const bool inSelection = area->hasSelection();
+    Review review;
+    review.inSelection = area->hasSelection();
     const int lastLine = doc->lineCount() - 1;
-    const TextCursor from = inSelection ? area->selectionStart() : TextCursor{0, 0};
-    const TextCursor to = inSelection ? area->selectionEnd() : TextCursor{lastLine, int(doc->lineAt(lastLine).size())};
+    const TextCursor from = review.inSelection ? area->selectionStart() : TextCursor{0, 0};
+    const TextCursor to = review.inSelection ? area->selectionEnd()
+                                             : TextCursor{lastLine, int(doc->lineAt(lastLine).size())};
     const auto words = spelling.misspelledWords(from, to);
     if (words.isEmpty()) {
         QMessageBox::information(parent, title,
-                                 inSelection ? SpellingReviewDialog::tr("No misspelled words in the selection.")
-                                             : SpellingReviewDialog::tr("No misspelled words."));
-        return 0;
+                                 review.inSelection ? SpellingReviewDialog::tr("No misspelled words in the selection.")
+                                                    : SpellingReviewDialog::tr("No misspelled words."));
+        return std::nullopt;
     }
     // Suggestions take milliseconds a word: once per distinct word, with
-    // progress for long texts.
+    // progress for long texts (blocking only the editor's window).
     QProgressDialog progress(SpellingReviewDialog::tr("Looking for corrections…"), SpellingReviewDialog::tr("Cancel"),
                              0, int(words.size()), parent);
     progress.setWindowModality(Qt::WindowModal);
@@ -543,10 +558,9 @@ int reviewSpelling(CodeEditSpelling& spelling, CheckedAtFirst& checkedAtFirst, Q
     QElapsedTimer searching;
     searching.start();
     QHash<QString, QList<SpellChecker::Suggestion>> suggestions;
-    QList<SpellingReviewItem> items;
     for (int i = 0; i < words.size(); ++i) {
         progress.setValue(i);
-        if (progress.wasCanceled()) return 0;
+        if (progress.wasCanceled()) return std::nullopt;
         const auto& word = words[i];
         SpellingReviewItem item{word, doc->lineAt(word.start.line), {}, false, false};
         auto found = suggestions.find(word.word);
@@ -559,17 +573,66 @@ int reviewSpelling(CodeEditSpelling& spelling, CheckedAtFirst& checkedAtFirst, Q
             item.choices.append({phrase.range, phrase.replacement, spaceCorrectionLabel(phrase.range.word, phrase.replacement)});
         item.single = phrases.isEmpty() && found.value().size() == 1;
         item.confident = item.single && SpellChecker::isConfident(word.word, found.value());
-        items.append(item);
+        review.items.append(item);
     }
     progress.setValue(int(words.size()));
-    SpellingReviewDialog dialog(items, inSelection, checkedAtFirst, parent, &spelling);
-    dialog.setSearchTime(searching.elapsed());
+    review.milliseconds = searching.elapsed();
+    return review;
+}
+
+// The replacements whose text is still where it was found (the document may
+// have been read again from disk meanwhile).
+QList<QPair<SpellingReviewItem::Range, QString>> stillThere(const ITextDocument* doc,
+                                                           const QList<QPair<SpellingReviewItem::Range, QString>>& chosen) {
+    QList<QPair<SpellingReviewItem::Range, QString>> result;
+    for (const auto& replacement : chosen) {
+        const auto& range = replacement.first;
+        if (range.start.line != range.end.line || range.start.line >= doc->lineCount()) continue;
+        const QString line = doc->lineAt(range.start.line);
+        if (line.mid(range.start.column, range.end.column - range.start.column) == range.word) result.append(replacement);
+    }
+    return result;
+}
+
+} // namespace
+
+int reviewSpelling(CodeEditSpelling& spelling, CheckedAtFirst& checkedAtFirst, QWidget* parent) {
+    const auto review = collectReview(spelling, parent);
+    if (!review) return 0;
+    SpellingReviewDialog dialog(review->items, review->inSelection, checkedAtFirst, parent, &spelling);
+    dialog.setSearchTime(review->milliseconds);
     const bool accepted = dialog.exec() == QDialog::Accepted;
     checkedAtFirst = dialog.checkedAtFirst();
-    if (!accepted) return 0;
-    const auto chosen = dialog.chosenReplacements();
+    if (!accepted || !spelling.area() || !spelling.area()->document()) return 0;
+    const auto chosen = stillThere(spelling.area()->document(), dialog.chosenReplacements());
     if (!chosen.isEmpty()) spelling.replaceWords(chosen);
     return int(chosen.size());
+}
+
+SpellingReviewDialog* openSpellingReview(CodeEditSpelling& spelling, CheckedAtFirst checkedAtFirst, QWidget* parent) {
+    const auto review = collectReview(spelling, parent);
+    if (!review) return nullptr;
+    auto* dialog = new SpellingReviewDialog(review->items, review->inSelection, checkedAtFirst, parent, &spelling);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setModal(false);
+    dialog->setSearchTime(review->milliseconds);
+    // The text stays as it was found while the window is open.
+    QPointer<CodeEditArea> area = spelling.area();
+    const bool wasReadOnly = area->readOnly();
+    area->setReadOnly(true);
+    QPointer<CodeEditSpelling> checked(&spelling);
+    QObject::connect(dialog, &QDialog::finished, dialog, [dialog, area, checked, wasReadOnly](int result) {
+        if (area) area->setReadOnly(wasReadOnly);
+        int corrected = 0;
+        if (result == QDialog::Accepted && area && area->document() && checked) {
+            const auto chosen = stillThere(area->document(), dialog->chosenReplacements());
+            if (!chosen.isEmpty()) checked->replaceWords(chosen);
+            corrected = int(chosen.size());
+        }
+        emit dialog->reviewFinished(corrected, dialog->checkedAtFirst());
+    });
+    dialog->show();
+    return dialog;
 }
 
 } // namespace qce::spell

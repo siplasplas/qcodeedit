@@ -17,8 +17,10 @@ add_library(qcodeedit-spell STATIC
     src/CodeEditSpelling.cpp
     src/FormIndex.cpp
     src/FormIndex.h
+    src/SpellingReview.cpp
     include/qce/spell/SpellChecker.h
     include/qce/spell/CodeEditSpelling.h
+    include/qce/spell/SpellingReview.h
 )
 
 target_include_directories(qcodeedit-spell
@@ -45,6 +47,7 @@ install(TARGETS qcodeedit-spell
 install(FILES
     include/qce/spell/SpellChecker.h
     include/qce/spell/CodeEditSpelling.h
+    include/qce/spell/SpellingReview.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/qce/spell
 )
 install(EXPORT qcodeedit-spellTargets

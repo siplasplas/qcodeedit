@@ -91,6 +91,10 @@ CodeEditSpelling::CodeEditSpelling(CodeEditArea* area, QObject* parent)
     scheduleCheck();
 }
 
+CodeEditArea* CodeEditSpelling::area() const {
+    return m_area;
+}
+
 void CodeEditSpelling::setCorrectWhileTyping(bool correct) {
     m_correctWhileTyping = correct;
 }

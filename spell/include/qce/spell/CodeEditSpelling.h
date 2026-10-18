@@ -38,6 +38,9 @@ public:
     explicit CodeEditSpelling(CodeEditArea* area, QObject* parent = nullptr);
     ~CodeEditSpelling() override;
 
+    /// The editor it checks (null once it is gone).
+    CodeEditArea* area() const;
+
     /// Dictionaries or language codes, e.g. {"pl"} or {"en", "pl"}.
     void setLanguages(const QStringList& languages);
     QStringList dictionaries() const { return m_checker.dictionaries(); }

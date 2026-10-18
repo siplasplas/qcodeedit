@@ -170,6 +170,14 @@ lists every misspelled word of a range (also lines never shown; unlike the
 underlines, even when most of them are right in another language), and
 `replaceWords()` replaces several words or phrases, each with its correction,
 as one undo step.
+`qce/spell/SpellingReview.h` puts this together for applications:
+`reviewSpelling(spelling, checkedAtFirst, parent)` finds the corrections of
+the selection's misspelled words (or the whole text's) and shows
+`SpellingReviewDialog`: each word with its corrections, line and context,
+checked at first as `CheckedAtFirst` says (sure corrections, words with a
+single suggestion, or every word; the application keeps the user's choice),
+"Show only checked words", and how long finding the corrections took; the
+checked words are replaced as one undo step.
 
 `setCorrectWhileTyping(true)` (off by default) corrects a misspelled word when
 a space or punctuation is typed right after it, if its single suggestion is

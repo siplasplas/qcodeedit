@@ -241,6 +241,7 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     m_list->sortItems(LineColumn, Qt::AscendingOrder);
     connect(sort, &QComboBox::activated, this, [this, sort]() {
         m_list->sortItems(sort->currentData().toInt(), Qt::AscendingOrder);
+        showCurrent();
     });
     layout->addWidget(m_list, 1);
     checkAtFirst();
@@ -376,6 +377,13 @@ void SpellingReviewDialog::filter() {
         const bool suggested = m_list->itemWidget(row, CorrectionColumn) != nullptr;
         row->setHidden((show == 1 && !checked) || (show == 2 && checked) || (show == 3 && suggested));
     }
+    showCurrent();
+}
+
+// The selected row stays in sight after sorting or filtering (if shown).
+void SpellingReviewDialog::showCurrent() {
+    QTreeWidgetItem* current = m_list->currentItem();
+    if (current && !current->isHidden()) m_list->scrollToItem(current, QAbstractItemView::PositionAtCenter);
 }
 
 void SpellingReviewDialog::addChoiceBox(QTreeWidgetItem* row, int index) {

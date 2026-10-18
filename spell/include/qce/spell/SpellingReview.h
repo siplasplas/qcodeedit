@@ -87,6 +87,7 @@ private:
     void updateSummary();
     void checkAtFirst();
     void filter();
+    void showCurrent();
     /// Adds the selected word to the dictionary (or ignores it) and removes
     /// its rows.
     void acceptWord(bool addToDictionary);

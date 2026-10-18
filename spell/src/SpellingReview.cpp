@@ -28,6 +28,9 @@ namespace {
 
 enum Column { WordColumn, CorrectionColumn, ScoreColumn, LineColumn, ContextColumn };
 
+// The correction a row's box had before the user picked one.
+const char* const kChosenProperty = "qceChosen";
+
 // Sort keys of a row, in Qt::UserRole + 1 of these columns.
 constexpr int kSortRole = Qt::UserRole + 1;
 
@@ -171,8 +174,13 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
         row->setCheckState(WordColumn, Qt::Unchecked);
         auto* choice = new QComboBox(m_list);
         for (const auto& correction : item.choices) choice->addItem(correction.label);
-        // Picking a correction means correcting the word.
-        connect(choice, &QComboBox::activated, this, [row]() { row->setCheckState(WordColumn, Qt::Checked); });
+        // Picking another correction means correcting the word; opening the
+        // list only to look, or picking the same one again, does not.
+        choice->setProperty(kChosenProperty, 0);
+        connect(choice, &QComboBox::activated, this, [row, choice](int index) {
+            if (index != choice->property(kChosenProperty).toInt()) row->setCheckState(WordColumn, Qt::Checked);
+            choice->setProperty(kChosenProperty, index);
+        });
         m_list->setItemWidget(row, CorrectionColumn, choice);
     }
     m_list->resizeColumnToContents(WordColumn);
@@ -269,8 +277,10 @@ void SpellingReviewDialog::checkAtFirst() {
         const bool check = mode == CheckedAtFirst::Every || (mode == CheckedAtFirst::Single && item.single)
             || item.confident;
         row->setCheckState(WordColumn, check ? Qt::Checked : Qt::Unchecked);
-        if (auto* choice = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn)))
+        if (auto* choice = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn))) {
             choice->setCurrentIndex(0);
+            choice->setProperty(kChosenProperty, 0);
+        }
     }
 }
 

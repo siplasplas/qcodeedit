@@ -7,6 +7,8 @@
 #include <QPair>
 #include <QString>
 
+#include <functional>
+
 class QCheckBox;
 class QComboBox;
 class QLabel;
@@ -51,13 +53,14 @@ struct SpellingReviewItem {
 /// first as CheckedAtFirst says (the user may change it). "Show" lists all
 /// words, only the checked ones (to look them over) or only the unchecked
 /// ones (left to decide), applied when chosen, so a word checked or
-/// unchecked meanwhile stays in sight. Only the check boxes decide which
+/// unchecked meanwhile stays in sight; or only the words without suggestions. Only the check boxes decide which
 /// words are corrected, unless "Picking a correction checks the word" is on:
 /// then picking one, also the one shown, checks the word. With `spelling`, "Add to Dictionary" and "Ignore" take the
 /// selected word out of the list, every occurrence of it ("careta" written on
 /// purpose); "Remember Correction" keeps the selected word's chosen
 /// correction as the user's own (score 0 from now on, every row of it
-/// checked); "User Dictionary" shows the user's words and corrections. Ctrl+C
+/// checked); "Own Correction" asks for the user's own one and keeps it the
+/// same way, also for a word without suggestions; "User Dictionary" shows the user's words and corrections. Ctrl+C
 /// or the context menu copies the selected rows, separated
 /// by tabs, or their lines of text. Correct accepts; chosenReplacements()
 /// gives the checked words.
@@ -85,6 +88,11 @@ private:
     /// (SpellChecker::addCorrection()): every row of the word gets it, score
     /// 0, checked.
     void rememberCorrection();
+    /// Asks for the user's own correction of the selected word and keeps it
+    /// like rememberCorrection(), also for a word without suggestions.
+    void ownCorrection();
+    /// The box of a row's corrections (m_items[index].choices).
+    void addChoiceBox(QTreeWidgetItem* row, int index);
     /// The selected rows to the clipboard, one a line: word, correction,
     /// score, line and the whole line of text separated by tabs, or only
     /// the line of text.
@@ -100,6 +108,7 @@ private:
     QCheckBox* m_pickChecks = nullptr;
     QLabel* m_searchTime = nullptr;
     CodeEditSpelling* m_spelling = nullptr;
+    std::function<void()> m_updateButtons;
 };
 
 /// Reviews the misspelled words of the selection of the spelling's editor, or

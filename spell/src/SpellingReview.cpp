@@ -16,6 +16,8 @@
 #include <QHBoxLayout>
 #include <QHash>
 #include <QHeaderView>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QLabel>
 #include <QMessageBox>
 #include <QProgressDialog>
@@ -170,8 +172,10 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     m_show->addItem(tr("All words"));
     m_show->addItem(tr("Checked words"));
     m_show->addItem(tr("Unchecked words"));
+    m_show->addItem(tr("Words without suggestions"));
     m_show->setToolTip(tr("Checked: to look over the corrections that will be made; unchecked: those left to "
-                          "decide (several suggestions, or not sure)"));
+                          "decide (several suggestions, or not sure); without suggestions: to add them to the "
+                          "dictionary or give them your own correction"));
     showLabel->setBuddy(m_show);
     options->addWidget(m_show);
     layout->addLayout(options);
@@ -217,25 +221,15 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
         row->setToolTip(ContextColumn, item.lineText);
         row->setData(WordColumn, Qt::UserRole, i);
         if (item.choices.isEmpty()) {
-            // Items are user-checkable by default: not this one.
+            // Selectable (to add it to the dictionary or give it a correction)
+            // but nothing to check; items are user-checkable by default.
             row->setText(CorrectionColumn, tr("No suggestions"));
-            row->setFlags(row->flags() & ~(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable));
+            row->setForeground(CorrectionColumn, palette().brush(QPalette::Disabled, QPalette::Text));
+            row->setFlags(row->flags() & ~Qt::ItemIsUserCheckable);
             continue;
         }
         row->setCheckState(WordColumn, Qt::Unchecked);
-        auto* choice = new QComboBox(m_list);
-        for (const auto& correction : item.choices) choice->addItem(correction.label);
-        // Picking a correction, also the one shown, checks the word only when
-        // asked for ("Picking a correction checks the word").
-        connect(choice, &QComboBox::activated, this, [this, row]() {
-            if (m_pickChecks->isChecked()) row->setCheckState(WordColumn, Qt::Checked);
-        });
-        // The score follows the correction shown.
-        connect(choice, &QComboBox::currentIndexChanged, this, [this, row, i](int index) {
-            const auto& choices = m_items[i].choices;
-            showScore(row, index >= 0 && index < choices.size() ? choices[index].score : -1);
-        });
-        m_list->setItemWidget(row, CorrectionColumn, choice);
+        addChoiceBox(row, i);
     }
     m_list->resizeColumnToContents(WordColumn);
     m_list->setColumnWidth(CorrectionColumn, qMax(160, m_list->columnWidth(WordColumn) + 40));
@@ -267,27 +261,32 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
         auto* remember = new QPushButton(tr("&Remember Correction"), this);
         remember->setToolTip(tr("The selected word's correction is the one to use: it becomes the word's only "
                                 "correction, score 0, here and from now on (also while typing)"));
+        auto* own = new QPushButton(tr("&Own Correction..."), this);
+        own->setToolTip(tr("Your own correction of the selected word, also one without suggestions: remembered "
+                           "as its only correction, score 0"));
         auto* userDictionary = new QPushButton(tr("&User Dictionary..."), this);
         userDictionary->setToolTip(tr("Your own words and corrections, to look over or remove"));
-        for (QPushButton* button : {add, ignore, remember, userDictionary}) {
+        for (QPushButton* button : {add, ignore, remember, own, userDictionary}) {
             button->setAutoDefault(false);
             wordActions->addWidget(button);
         }
         connect(add, &QPushButton::clicked, this, [this]() { acceptWord(true); });
         connect(ignore, &QPushButton::clicked, this, [this]() { acceptWord(false); });
         connect(remember, &QPushButton::clicked, this, &SpellingReviewDialog::rememberCorrection);
+        connect(own, &QPushButton::clicked, this, &SpellingReviewDialog::ownCorrection);
         connect(userDictionary, &QPushButton::clicked, this, [this]() {
             UserDictionaryDialog(m_spelling->checker(), this).exec();
             m_spelling->recheck();
         });
-        const auto updateButtons = [this, add, ignore, remember]() {
+        m_updateButtons = [this, add, ignore, remember, own]() {
             QTreeWidgetItem* current = m_list->currentItem();
             add->setEnabled(current);
             ignore->setEnabled(current);
+            own->setEnabled(current);
             remember->setEnabled(current && m_list->itemWidget(current, CorrectionColumn));
         };
-        connect(m_list, &QTreeWidget::currentItemChanged, this, updateButtons);
-        updateButtons();
+        connect(m_list, &QTreeWidget::currentItemChanged, this, m_updateButtons);
+        m_updateButtons();
     }
     wordActions->addStretch();
     m_pickChecks = new QCheckBox(tr("&Picking a correction checks the word"), this);
@@ -359,12 +358,65 @@ void SpellingReviewDialog::checkAtFirst() {
 }
 
 void SpellingReviewDialog::filter() {
-    const int show = m_show->currentIndex();  // all, checked, unchecked
+    const int show = m_show->currentIndex();  // all, checked, unchecked, without suggestions
     for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
         QTreeWidgetItem* row = m_list->topLevelItem(i);
         const bool checked = row->checkState(WordColumn) == Qt::Checked;
-        row->setHidden((show == 1 && !checked) || (show == 2 && checked));
+        const bool suggested = m_list->itemWidget(row, CorrectionColumn) != nullptr;
+        row->setHidden((show == 1 && !checked) || (show == 2 && checked) || (show == 3 && suggested));
     }
+}
+
+void SpellingReviewDialog::addChoiceBox(QTreeWidgetItem* row, int index) {
+    auto* choice = new QComboBox(m_list);
+    for (const auto& correction : m_items[index].choices) choice->addItem(correction.label);
+    // Picking a correction, also the one shown, checks the word only when
+    // asked for ("Picking a correction checks the word").
+    connect(choice, &QComboBox::activated, this, [this, row]() {
+        if (m_pickChecks->isChecked()) row->setCheckState(WordColumn, Qt::Checked);
+    });
+    // The score follows the correction shown.
+    connect(choice, &QComboBox::currentIndexChanged, this, [this, row, index](int shown) {
+        const auto& choices = m_items[index].choices;
+        showScore(row, shown >= 0 && shown < choices.size() ? choices[shown].score : -1);
+    });
+    m_list->setItemWidget(row, CorrectionColumn, choice);
+}
+
+void SpellingReviewDialog::ownCorrection() {
+    QTreeWidgetItem* current = m_list->currentItem();
+    if (!current || !m_spelling) return;
+    const QString word = current->text(WordColumn);
+    const auto* box = qobject_cast<QComboBox*>(m_list->itemWidget(current, CorrectionColumn));
+    bool given = false;
+    const QString correction = QInputDialog::getText(this, tr("Own Correction"),
+                                                     tr("Correct \"%1\" to (remembered: the word's only "
+                                                        "correction from now on, score 0):").arg(word),
+                                                     QLineEdit::Normal, box ? box->currentText() : word, &given)
+                                   .trimmed();
+    if (!given || correction.isEmpty() || correction == word) return;
+    m_spelling->checker().addCorrection(word, correction);
+    // Every row of the word: that correction first, score 0, checked.
+    for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* row = m_list->topLevelItem(i);
+        if (row->text(WordColumn) != word) continue;
+        const int index = row->data(WordColumn, Qt::UserRole).toInt();
+        SpellingReviewItem& item = m_items[index];
+        item.choices.prepend({item.word, correction, correction, 0});
+        item.confident = item.single = true;
+        if (auto* sameBox = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn))) {
+            sameBox->insertItem(0, correction);
+            sameBox->setCurrentIndex(0);
+        } else {
+            row->setText(CorrectionColumn, QString());
+            row->setFlags(row->flags() | Qt::ItemIsUserCheckable);
+            addChoiceBox(row, index);
+        }
+        showScore(row, 0);
+        row->setCheckState(WordColumn, Qt::Checked);
+    }
+    updateSummary();
+    if (m_updateButtons) m_updateButtons();
 }
 
 void SpellingReviewDialog::showScore(QTreeWidgetItem* row, double score) {

@@ -133,6 +133,11 @@ public:
     void setTabCaptured(bool captured);
     bool tabCaptured() const { return m_tabCaptured; }
 
+    /// Grey hint shown while the document is empty (e.g. "Type a message");
+    /// empty = none.
+    void setPlaceholderText(const QString& text);
+    QString placeholderText() const { return m_placeholderText; }
+
     /// The rows the text takes as drawn: wrapped rows with word wrap, lines
     /// without it (collapsed folds excluded); at least 1. E.g. for a field that
     /// grows with its text.
@@ -227,6 +232,7 @@ private:
     QColor m_selectionColor{QStringLiteral("#A6D2FF")};
     LineBackgroundFn m_lineBgProvider;
     QColor m_currentLineColor;
+    QString m_placeholderText;
     QColor lineBackground(int line) const;
     InsertFilterFn m_insertFilter;
     // Normalized decorations per layer (empty layers are removed).

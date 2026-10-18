@@ -343,6 +343,12 @@ int CodeEditArea::tabWidth() const {
     return m_renderer->tabWidth();
 }
 
+void CodeEditArea::setPlaceholderText(const QString& text) {
+    if (m_placeholderText == text) return;
+    m_placeholderText = text;
+    viewport()->update();
+}
+
 int CodeEditArea::visualRowCount() const {
     if (!m_doc) return 1;
     // The wrap layout is empty until the viewport has a width.
@@ -458,6 +464,15 @@ void CodeEditArea::paintEvent(QPaintEvent* e) {
     p.fillRect(e->rect(), palette().base());
     paintLineBackgrounds(p);
     paintSelection(p);
+    // Grey hint in an empty document, where the first line would be.
+    if (!m_placeholderText.isEmpty() && m_doc && m_doc->lineCount() <= 1
+            && m_doc->lineAt(0).isEmpty() && m_preedit.isEmpty()) {
+        p.setPen(palette().color(QPalette::PlaceholderText));
+        const int lineHeight = LineRenderer::lineHeightFor(font());
+        p.drawText(QRect(LineRenderer::kLeftPaddingPx, 0,
+                         viewport()->width() - LineRenderer::kLeftPaddingPx, lineHeight),
+                   Qt::AlignLeft | Qt::AlignVCenter, m_placeholderText);
+    }
     p.setPen(palette().text().color());
     m_renderer->setSelectionRegion(selectionRegion());
     // Lazy highlighting: make sure every visible line is highlighted.

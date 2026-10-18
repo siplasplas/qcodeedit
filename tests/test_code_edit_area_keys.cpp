@@ -75,6 +75,37 @@ private:
     }
 
 private slots:
+    // Enter on the last row shown whole scrolls, so that the cursor's row is
+    // shown whole too, not cut off at the bottom (with and without wrapping,
+    // a window height that is not a whole number of rows).
+    void enterOnLastRow_keepsCursorRowWhole() {
+        for (const bool wrap : {true, false}) {
+            SimpleTextDocument doc;
+            QString text;
+            for (int i = 0; i < 40; ++i)
+                text += QStringLiteral("line %1 with some longer text that wraps in a narrow window\n").arg(i);
+            doc.setText(text);
+            CodeEditArea area;
+            area.setDocument(&doc);
+            area.setWordWrap(wrap);
+            area.resize(260, int(QFontMetrics(area.font()).height() * 1.15 * 6.5) + 2 * area.frameWidth());
+            activate(&area);
+            const auto caretRow = [&area]() {
+                return area.inputMethodQuery(Qt::ImCursorRectangle).toRect().translated(-area.viewport()->pos());
+            };
+            for (int step = 0; step < 4; ++step) {
+                const int lineHeight = area.viewportState().lineHeight;
+                // Down to the last row shown whole, to its end, then Enter.
+                for (int i = 0; i < 40 && caretRow().top() + 2 * lineHeight <= area.viewport()->height(); ++i)
+                    QTest::keyClick(&area, Qt::Key_Down);
+                QTest::keyClick(&area, Qt::Key_End);
+                QTest::keyClick(&area, Qt::Key_Return);
+                QVERIFY2(caretRow().top() + lineHeight <= area.viewport()->height(),
+                         qPrintable(QStringLiteral("wrap %1, step %2").arg(wrap).arg(step)));
+            }
+        }
+    }
+
     void editing_keepsCollapsedRegion() {
         SimpleTextDocument doc;
         CodeEditArea area;

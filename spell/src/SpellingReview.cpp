@@ -23,6 +23,7 @@
 #include <QProgressDialog>
 #include <QPainter>
 #include <QPushButton>
+#include <QScopedValueRollback>
 #include <QStyledItemDelegate>
 #include <QTextDocument>
 #include <QTreeWidget>
@@ -305,10 +306,14 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     auto* all = buttons->addButton(tr("Check &All"), QDialogButtonBox::ActionRole);
     auto* none = buttons->addButton(tr("Check &None"), QDialogButtonBox::ActionRole);
     const auto checkAll = [this](Qt::CheckState state) {
-        for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
-            QTreeWidgetItem* row = m_list->topLevelItem(i);
-            if (row->flags() & Qt::ItemIsUserCheckable) row->setCheckState(WordColumn, state);
+        {
+            const QScopedValueRollback bulk(m_bulkChange, true);
+            for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
+                QTreeWidgetItem* row = m_list->topLevelItem(i);
+                if (row->flags() & Qt::ItemIsUserCheckable) row->setCheckState(WordColumn, state);
+            }
         }
+        updateSummary();
     };
     connect(all, &QPushButton::clicked, this, [checkAll]() { checkAll(Qt::Checked); });
     connect(none, &QPushButton::clicked, this, [checkAll]() { checkAll(Qt::Unchecked); });
@@ -345,16 +350,20 @@ void SpellingReviewDialog::setSearchTime(qint64 milliseconds) {
 
 void SpellingReviewDialog::checkAtFirst() {
     const CheckedAtFirst mode = checkedAtFirst();
-    for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* row = m_list->topLevelItem(i);
-        if (!(row->flags() & Qt::ItemIsUserCheckable)) continue;
-        const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
-        const bool check = mode == CheckedAtFirst::Every || (mode == CheckedAtFirst::Single && item.single)
-            || item.confident;
-        row->setCheckState(WordColumn, check ? Qt::Checked : Qt::Unchecked);
-        if (auto* choice = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn)))
-            choice->setCurrentIndex(0);
+    {
+        const QScopedValueRollback bulk(m_bulkChange, true);
+        for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* row = m_list->topLevelItem(i);
+            if (!(row->flags() & Qt::ItemIsUserCheckable)) continue;
+            const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
+            const bool check = mode == CheckedAtFirst::Every || (mode == CheckedAtFirst::Single && item.single)
+                || item.confident;
+            row->setCheckState(WordColumn, check ? Qt::Checked : Qt::Unchecked);
+            if (auto* choice = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn)))
+                choice->setCurrentIndex(0);
+        }
     }
+    updateSummary();
 }
 
 void SpellingReviewDialog::filter() {
@@ -396,6 +405,7 @@ void SpellingReviewDialog::ownCorrection() {
                                    .trimmed();
     if (!given || correction.isEmpty() || correction == word) return;
     m_spelling->checker().addCorrection(word, correction);
+    m_bulkChange = true;
     // Every row of the word: that correction first, score 0, checked.
     for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
         QTreeWidgetItem* row = m_list->topLevelItem(i);
@@ -415,6 +425,7 @@ void SpellingReviewDialog::ownCorrection() {
         showScore(row, 0);
         row->setCheckState(WordColumn, Qt::Checked);
     }
+    m_bulkChange = false;
     updateSummary();
     if (m_updateButtons) m_updateButtons();
 }
@@ -458,6 +469,7 @@ void SpellingReviewDialog::rememberCorrection() {
     if (!(chosen.range.start == item.word.start && chosen.range.end == item.word.end)) return;
     const QString word = item.word.word;
     m_spelling->checker().addCorrection(word, chosen.replacement);
+    m_bulkChange = true;
     // Every row of the word: that correction, score 0, checked.
     for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
         QTreeWidgetItem* row = m_list->topLevelItem(i);
@@ -476,6 +488,7 @@ void SpellingReviewDialog::rememberCorrection() {
         showScore(row, 0);
         row->setCheckState(WordColumn, Qt::Checked);
     }
+    m_bulkChange = false;
     updateSummary();
 }
 
@@ -491,6 +504,9 @@ void SpellingReviewDialog::acceptWord(bool addToDictionary) {
 }
 
 void SpellingReviewDialog::updateSummary() {
+    // Counting every row: once after a change of many rows, not for each
+    // (and not before the label exists, while the window is being made).
+    if (m_bulkChange || !m_summary) return;
     int checked = 0;
     for (int i = 0; i < m_list->topLevelItemCount(); ++i)
         if (m_list->topLevelItem(i)->checkState(WordColumn) == Qt::Checked) ++checked;

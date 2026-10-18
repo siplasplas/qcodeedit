@@ -109,6 +109,7 @@ private:
     QLabel* m_searchTime = nullptr;
     CodeEditSpelling* m_spelling = nullptr;
     std::function<void()> m_updateButtons;
+    bool m_bulkChange = false;  ///< many rows change: the summary waits
 };
 
 /// Reviews the misspelled words of the selection of the spelling's editor, or

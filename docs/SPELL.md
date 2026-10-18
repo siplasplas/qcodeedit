@@ -122,7 +122,12 @@ data directory (`~/.local/share`, `/usr/local/share`, `/usr/share`) or else in
 4.0; 676 KB for Polish, 0.3 s), with the installed dictionary's stems. The
 full list (`_full.txt`, 19 MB) gave the same results. `qcodeedit-spelldata`'s
 `WordFrequencyDownloader` fetches the list for a dictionary and makes the file
-in a worker thread (about 1.5 s); the application asks the user first. Without
+in a worker thread (about 1.5 s); the application asks the user first. The
+list is kept as it is in `~/.local/share/word-frequencies/<language>_50k.txt`,
+shared by programs (e.g. for detecting a text's language, by words), with a
+`README.txt` naming source and licence; a checker makes the stem file again
+from it in the background when the file is missing (a cleared cache) or older
+than the list or the dictionary. Without
 the file suggestions work as before, only rare words come up more often
 ("dialac": dialach, dialag, działać).
 [wiki2corpus](https://github.com/nlp-and-learning/wiki2corpus)'s `wordfreq`

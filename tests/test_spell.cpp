@@ -214,6 +214,30 @@ private slots:
         QCOMPARE(checker.suggestions(QStringLiteral("dialac")).value(0), QStringLiteral("działać"));
     }
 
+    // A downloaded list without its stem file (e.g. a cleared cache): the
+    // checker makes the file again in the background.
+    void wordFrequenciesRemadeFromTheList() {
+        if (!installed(QStringLiteral("pl"))) QSKIP("No Polish dictionary (hunspell-pl)");
+        const QString stems = m_home.filePath(QStringLiteral("cache/siplasplas/spell/freq/pl.lemma.freq"));
+        if (!QFile::exists(stems)) QSKIP("Needs wordFrequenciesFromFormCounts");
+        QVERIFY(QFile::remove(stems));
+        QVERIFY(!hasWordFrequencies(QStringLiteral("pl")));
+        QCOMPARE(wordFrequencyListPath(QStringLiteral("pl")), m_home.filePath(QStringLiteral("word-frequencies/pl_50k.txt")));
+        QVERIFY(QDir().mkpath(wordFrequencyListDir()));
+        QFile list(wordFrequencyListPath(QStringLiteral("pl")));
+        QVERIFY(list.open(QIODevice::WriteOnly | QIODevice::Text));
+        list.write("działać 6000\ndziałają 3000\n");
+        list.close();
+        QVERIFY(hasWordFrequencies(QStringLiteral("pl")));
+
+        SpellChecker checker;
+        checker.setLanguages({QStringLiteral("pl")});
+        QTRY_VERIFY_WITH_TIMEOUT(checker.suggestionIndexReady(), 60000);
+        checker.suggestions(QStringLiteral("dialac"));  // starts making the file
+        QTRY_VERIFY_WITH_TIMEOUT(QFile::exists(stems), 30000);
+        QTRY_COMPARE(checker.suggestions(QStringLiteral("dialac")).value(0), QStringLiteral("działać"));
+    }
+
     // As the area's child (no parent given) the spelling is deleted after the
     // area's own part; it must not touch the area then. Needs no dictionary.
     void deletedWithItsArea() {

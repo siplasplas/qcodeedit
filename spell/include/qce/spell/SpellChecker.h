@@ -45,11 +45,21 @@ QString packageHint(const QString& language);
 /// per line.
 QString userDictionaryPath(const QString& dictionaryName);
 
+/// Downloaded lists of word forms with their counts, shared by all programs
+/// (e.g. also for detecting a text's language): FrequencyWords'
+/// <code>_50k.txt as they are, in <GenericDataLocation>/word-frequencies.
+QString wordFrequencyListDir();
+/// The list of a language there ("pl", "pl_PL" -> pl_50k.txt; "nb", "nn" ->
+/// no_50k.txt), whether it exists or not.
+QString wordFrequencyListPath(const QString& language);
+
 /// Word frequencies put common words before rare ones in suggestions: the
 /// counts of a dictionary's stems, <language>.lemma.freq, installed in
 /// <GenericDataLocation>/siplasplas/spell/freq or made by
-/// buildWordFrequencies() in <GenericCacheLocation>/siplasplas/spell/freq.
-/// True when there is such a file for the language ("pl", "pl_PL").
+/// buildWordFrequencies() in <GenericCacheLocation>/siplasplas/spell/freq,
+/// which a checker remakes in the background from the language's list in
+/// wordFrequencyListDir() when it is missing or older than the list or the
+/// dictionary. True when the language ("pl", "pl_PL") has the file or the list.
 bool hasWordFrequencies(const QString& language);
 /// Makes the frequency file of the dictionary's language from a list of word
 /// forms with their counts, lines "word count" (e.g. FrequencyWords'

@@ -97,9 +97,26 @@ struct Loaded {
     std::unique_ptr<detail::FrequencyTable> frequency;
     QString frequencyFile;
     QDateTime frequencyModified;
+    // Remaking the file from the downloaded list: 0 not tried, 1 running, 2
+    // done or failed (once per run; a new download makes the file itself).
+    std::shared_ptr<std::atomic<int>> frequencyBuild = std::make_shared<std::atomic<int>>(0);
     const detail::FrequencyTable& frequencies() {
         const QString path = detail::frequencyPath(languageOf(name));
         const QDateTime modified = path.isEmpty() ? QDateTime() : QFileInfo(path).lastModified();
+        // A file of our cache (not an installed one) older than the list or
+        // the dictionary, or none: made again from the list, if there is one.
+        const QFileInfo list(wordFrequencyListPath(name));
+        if ((path.isEmpty() || path.startsWith(detail::frequencyCacheDir())) && list.exists()
+                && (!modified.isValid() || modified < list.lastModified()
+                    || modified < QFileInfo(dicPath).lastModified())
+                && frequencyBuild->load() == 0) {
+            frequencyBuild->store(1);
+            QThreadPool::globalInstance()->start(
+                [state = frequencyBuild, dictionary = name, listPath = list.absoluteFilePath()]() {
+                    buildWordFrequencies(dictionary, listPath);
+                    state->store(2);
+                });
+        }
         if (!frequency || path != frequencyFile || modified != frequencyModified) {
             frequency = std::make_unique<detail::FrequencyTable>(path);
             frequencyFile = path;
@@ -293,8 +310,20 @@ QString userDictionaryPath(const QString& dictionaryName) {
     return base + QStringLiteral("/siplasplas/spell/") + languageOf(dictionaryName) + QStringLiteral(".dic");
 }
 
+QString wordFrequencyListDir() {
+    const QString data = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    return QDir(data).filePath(QStringLiteral("word-frequencies"));
+}
+
+QString wordFrequencyListPath(const QString& language) {
+    QString code = languageOf(language);
+    if (code == QLatin1String("nb") || code == QLatin1String("nn")) code = QStringLiteral("no");
+    return QDir(wordFrequencyListDir()).filePath(QStringLiteral("%1_50k.txt").arg(code));
+}
+
 bool hasWordFrequencies(const QString& language) {
-    return !detail::frequencyPath(languageOf(language)).isEmpty();
+    return !detail::frequencyPath(languageOf(language)).isEmpty()
+        || QFileInfo::exists(wordFrequencyListPath(language));
 }
 
 bool buildWordFrequencies(const QString& dictionaryName, const QString& countsPath, QString* error) {

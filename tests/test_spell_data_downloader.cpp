@@ -63,6 +63,13 @@ private slots:
         const QString text = QString::fromUtf8(file.readAll());
         QVERIFY(text.startsWith(QStringLiteral("# 10000 words in pl_50k.txt, 10000 known to pl_PL\n")));
         QVERIFY(text.contains(QStringLiteral("\ndziałać\t9000\n")));
+        // The list itself stays, shared, with a note on its source.
+        QCOMPARE(wordFrequencyListPath(QStringLiteral("pl_PL")),
+                 m_home.filePath(QStringLiteral("data/word-frequencies/pl_50k.txt")));
+        QFile kept(wordFrequencyListPath(QStringLiteral("pl")));
+        QVERIFY(kept.open(QIODevice::ReadOnly));
+        QCOMPARE(kept.readAll(), QByteArray("działać 6000\ndziałają 3000\nrzeczy 1000\n"));
+        QVERIFY(QFile::exists(m_home.filePath(QStringLiteral("data/word-frequencies/README.txt"))));
     }
 
     void missingListFails() {

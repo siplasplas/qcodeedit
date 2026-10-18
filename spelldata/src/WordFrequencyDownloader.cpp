@@ -7,7 +7,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
-#include <QTemporaryDir>
+#include <QSaveFile>
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <memory>
@@ -108,16 +108,28 @@ void WordFrequencyDownloader::onReply(QNetworkReply* reply) {
         finish(false, tr("Unexpected word frequency list from %1").arg(reply->url().toString()));
         return;
     }
-    // Stems are counted in a worker thread; the list is only an input.
-    const QString fileName = reply->url().fileName();
-    m_build.setFuture(QtConcurrent::run([list, fileName, dictionary = m_dictionary]() -> QString {
-        QTemporaryDir dir;
-        if (!dir.isValid()) return QStringLiteral("Cannot create a temporary directory");
-        const QString path = dir.filePath(fileName.isEmpty() ? QStringLiteral("list.txt") : fileName);
-        QFile file(path);
-        if (!file.open(QIODevice::WriteOnly) || file.write(list) != list.size())
+    // The list is kept as it is in the shared directory, the stems are
+    // counted from it in a worker thread.
+    m_build.setFuture(QtConcurrent::run([list, dictionary = m_dictionary]() -> QString {
+        const QDir dir(wordFrequencyListDir());
+        if (!dir.mkpath(QStringLiteral(".")))
+            return QStringLiteral("Cannot create %1").arg(dir.path());
+        if (!dir.exists(QStringLiteral("README.txt"))) {
+            QSaveFile readme(dir.filePath(QStringLiteral("README.txt")));
+            if (readme.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                readme.write("Lists of the most frequent word forms of a language with their counts,\n"
+                             "<language>_50k.txt, downloaded by programs using qcodeedit (spelling\n"
+                             "suggestions) and shared by them.\n\n"
+                             "Source: FrequencyWords by Hermit Dave, from OpenSubtitles 2018,\n"
+                             "https://github.com/hermitdave/FrequencyWords\n"
+                             "Licence: CC-BY-SA 4.0, https://creativecommons.org/licenses/by-sa/4.0/\n");
+                readme.commit();
+            }
+        }
+        const QString path = wordFrequencyListPath(dictionary);
+        QSaveFile file(path);
+        if (!file.open(QIODevice::WriteOnly) || file.write(list) != list.size() || !file.commit())
             return QStringLiteral("Cannot write %1").arg(path);
-        file.close();
         QString error;
         return buildWordFrequencies(dictionary, path, &error) ? QString() : error;
     }));

@@ -14,10 +14,12 @@ namespace qce::spell {
 /// language and turns it into the word frequencies of its suggestions (see
 /// buildWordFrequencies() in SpellChecker.h): the list is
 /// FrequencyWords' <base>/<language>/<language>_50k.txt (the 50,000 most
-/// frequent forms in film subtitles, CC-BY-SA 4.0, under 1 MB), the stems are
-/// counted with the installed dictionary in a worker thread, and only the
-/// result is kept, in ~/.cache/siplasplas/spell/freq. The class shows no UI:
-/// the application asks the user before start().
+/// frequent forms in film subtitles, CC-BY-SA 4.0, under 1 MB). The list is
+/// kept as it is in wordFrequencyListDir() (~/.local/share/word-frequencies,
+/// shared by programs, with a README.txt naming source and licence), and the
+/// stems are counted from it with the installed dictionary in a worker thread
+/// into ~/.cache/siplasplas/spell/freq. The class shows no UI: the
+/// application asks the user before start().
 class WordFrequencyDownloader : public QObject {
     Q_OBJECT
 public:

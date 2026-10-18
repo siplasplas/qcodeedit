@@ -343,6 +343,16 @@ int CodeEditArea::tabWidth() const {
     return m_renderer->tabWidth();
 }
 
+int CodeEditArea::visualRowCount() const {
+    if (!m_doc) return 1;
+    // The wrap layout is empty until the viewport has a width.
+    if (m_wordWrap && m_wrapLayout->totalRows() > 0) return m_wrapLayout->totalRows();
+    int rows = 0;
+    for (int line = 0; line < m_doc->lineCount(); ++line)
+        if (m_foldState.isLineVisible(line)) ++rows;
+    return qMax(1, rows);
+}
+
 void CodeEditArea::setTabCaptured(bool captured) {
     m_tabCaptured = captured;
 }

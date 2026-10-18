@@ -133,6 +133,11 @@ public:
     void setTabCaptured(bool captured);
     bool tabCaptured() const { return m_tabCaptured; }
 
+    /// The rows the text takes as drawn: wrapped rows with word wrap, lines
+    /// without it (collapsed folds excluded); at least 1. E.g. for a field that
+    /// grows with its text.
+    int visualRowCount() const;
+
     void setReadOnly(bool ro);
     bool readOnly() const { return m_readOnly; }
 

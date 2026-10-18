@@ -21,7 +21,28 @@ namespace qce::spell {
 
 namespace {
 
-enum Column { WordColumn, CorrectionColumn, LineColumn, ContextColumn };
+enum Column { WordColumn, CorrectionColumn, ScoreColumn, LineColumn, ContextColumn };
+
+// Sort keys of a row, in Qt::UserRole + 1 of these columns.
+constexpr int kSortRole = Qt::UserRole + 1;
+
+// A row sorted by the sort key of the column (the text's order, the word
+// alphabetically, or the score), keeping its correction box.
+class ReviewRow : public QTreeWidgetItem {
+public:
+    using QTreeWidgetItem::QTreeWidgetItem;
+    bool operator<(const QTreeWidgetItem& other) const override {
+        const int column = treeWidget() ? treeWidget()->sortColumn() : LineColumn;
+        const QVariant a = data(column, kSortRole), b = other.data(column, kSortRole);
+        if (column == WordColumn) {
+            const int order = QString::localeAwareCompare(a.toString(), b.toString());
+            if (order != 0) return order < 0;
+        } else if (a.toDouble() != b.toDouble()) {
+            return a.toDouble() < b.toDouble();
+        }
+        return data(LineColumn, kSortRole).toDouble() < other.data(LineColumn, kSortRole).toDouble();
+    }
+};
 
 const QStringList& checkedAtFirstNames() {
     static const QStringList names = {QStringLiteral("sure"), QStringLiteral("single"), QStringLiteral("every")};
@@ -76,6 +97,15 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     m_checkAtFirst->setItemData(1, tr("Also when it is not that close, e.g. \"agents\" → agent"), Qt::ToolTipRole);
     m_checkAtFirst->setCurrentIndex(int(checkedAtFirst));
     options->addWidget(m_checkAtFirst);
+    options->addSpacing(12);
+    options->addWidget(new QLabel(tr("Sort:"), this));
+    auto* sort = new QComboBox(this);
+    sort->addItem(tr("As in the text"), int(LineColumn));
+    sort->addItem(tr("Alphabetically"), int(WordColumn));
+    sort->addItem(tr("By score"), int(ScoreColumn));
+    sort->setItemData(2, tr("The best (lowest) score first: how far the word is from its first correction"),
+                      Qt::ToolTipRole);
+    options->addWidget(sort);
     options->addStretch();
     m_onlyChecked = new QCheckBox(tr("Show &only checked words"), this);
     m_onlyChecked->setToolTip(tr("Hides the unchecked words, to look over the corrections that will be made"));
@@ -85,12 +115,21 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     m_list = new QTreeWidget(this);
     m_list->setRootIsDecorated(false);
     m_list->setUniformRowHeights(true);
-    m_list->setHeaderLabels({tr("Word"), tr("Correction"), tr("Line"), tr("Context")});
+    m_list->setHeaderLabels({tr("Word"), tr("Correction"), tr("Score"), tr("Line"), tr("Context")});
+    m_list->headerItem()->setToolTip(ScoreColumn, tr("How far the word is from its first correction: the lower, the "
+                                                     "closer (0.3 a missing diacritic, about 1 a typing slip, more "
+                                                     "for a rare word)"));
     m_list->header()->setStretchLastSection(true);
     for (int i = 0; i < m_items.size(); ++i) {
         const SpellingReviewItem& item = m_items[i];
-        auto* row = new QTreeWidgetItem(m_list);
+        auto* row = new ReviewRow(m_list);
         row->setText(WordColumn, item.word.word);
+        row->setData(WordColumn, kSortRole, item.word.word);
+        row->setData(LineColumn, kSortRole, double(item.word.start.line) * 1e6 + item.word.start.column);
+        // Without a score (no suggestion, or only a moved space): last.
+        row->setData(ScoreColumn, kSortRole, item.score >= 0 ? item.score : 1e9);
+        if (item.score >= 0) row->setText(ScoreColumn, QString::number(item.score, 'f', 2));
+        row->setTextAlignment(ScoreColumn, Qt::AlignRight | Qt::AlignVCenter);
         row->setText(LineColumn, QString::number(item.word.start.line + 1));
         row->setTextAlignment(LineColumn, Qt::AlignRight | Qt::AlignVCenter);
         row->setText(ContextColumn, context(item.lineText, item.word.start.column, item.word.end.column));
@@ -112,6 +151,11 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     m_list->resizeColumnToContents(WordColumn);
     m_list->setColumnWidth(CorrectionColumn, qMax(160, m_list->columnWidth(WordColumn) + 40));
     m_list->resizeColumnToContents(LineColumn);
+    m_list->resizeColumnToContents(ScoreColumn);
+    m_list->sortItems(LineColumn, Qt::AscendingOrder);
+    connect(sort, &QComboBox::activated, this, [this, sort]() {
+        m_list->sortItems(sort->currentData().toInt(), Qt::AscendingOrder);
+    });
     layout->addWidget(m_list, 1);
     checkAtFirst();
     connect(m_list, &QTreeWidget::itemChanged, this, &SpellingReviewDialog::updateSummary);
@@ -268,6 +312,7 @@ int reviewSpelling(CodeEditSpelling& spelling, CheckedAtFirst& checkedAtFirst, Q
         auto found = suggestions.find(word.word);
         if (found == suggestions.end()) found = suggestions.insert(word.word, spelling.scoredSuggestions(word.word, 3));
         for (const auto& suggestion : found.value()) item.choices.append({word, suggestion.text, suggestion.text});
+        if (!found.value().isEmpty()) item.score = found.value().front().score;
         const auto phrases = spelling.phraseCorrections(word);
         for (const auto& phrase : phrases)
             item.choices.append({phrase.range, phrase.replacement, spaceCorrectionLabel(phrase.range.word, phrase.replacement)});

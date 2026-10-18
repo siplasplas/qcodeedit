@@ -173,7 +173,9 @@ as one undo step.
 `qce/spell/SpellingReview.h` puts this together for applications:
 `reviewSpelling(spelling, checkedAtFirst, parent)` finds the corrections of
 the selection's misspelled words (or the whole text's) and shows
-`SpellingReviewDialog`: each word with its corrections, line and context,
+`SpellingReviewDialog`: each word with its corrections, the first one's score
+(lower is closer; sorting by it shows where sure corrections end), line and
+context, sorted as in the text, alphabetically or by score,
 checked at first as `CheckedAtFirst` says (sure corrections, words with a
 single suggestion, or every word; the application keeps the user's choice),
 "Show only checked words", and how long finding the corrections took. "Add to

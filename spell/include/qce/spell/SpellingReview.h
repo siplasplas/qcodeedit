@@ -39,10 +39,13 @@ struct SpellingReviewItem {
     QList<Choice> choices;    ///< best first; a moved space after the word's own suggestions
     bool confident = false;   ///< a single close suggestion and no moved space
     bool single = false;      ///< a single suggestion and no moved space, close or not
+    double score = -1;        ///< the first suggestion's score (lower: closer); -1 without one
 };
 
 /// The misspelled words of a text or a selection, each with a correction to
-/// choose, its line and context. Checked at first as CheckedAtFirst says (the
+/// choose, its score (how far it is: the lower, the closer), line and
+/// context, sorted as in the text, alphabetically or by score. Checked at
+/// first as CheckedAtFirst says (the
 /// user may change it); "Show only checked words" hides the others to look
 /// them over (applied when switched, so a word unchecked meanwhile stays in
 /// sight). With `spelling`, "Add to Dictionary" and "Ignore" take the

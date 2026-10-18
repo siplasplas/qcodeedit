@@ -156,6 +156,11 @@ public:
     /// without it (collapsed folds excluded); at least 1. E.g. for a field that
     /// grows with its text.
     int visualRowCount() const;
+    /// The row `pos` is drawn in: its wrapped row with word wrap, its line
+    /// without it. E.g. whether the cursor is in the first or last row:
+    /// visualRow(cursorPosition()) == visualRowCount() - 1. Up and Down move
+    /// by these rows.
+    int visualRow(TextCursor pos) const { return visualRowOf(pos); }
 
     void setReadOnly(bool ro);
     bool readOnly() const { return m_readOnly; }
@@ -320,6 +325,9 @@ private:
     // --- Word-wrap helpers ---
     void rebuildWrapLayout();
     int  visualRowOf(TextCursor pos) const;
+    /// `delta` rows up (< 0) or down: wrapped rows with word wrap, keeping
+    /// the character cell; lines without it. Unchanged at the first or last row.
+    TextCursor moveVisualRows(TextCursor c, int delta) const;
 
     // --- Highlighting helpers ---
     void rebuildHighlightCache();

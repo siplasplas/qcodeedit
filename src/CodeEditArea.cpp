@@ -614,8 +614,8 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
 
     switch (e->key()) {
     // --- Navigation ---
-    case Qt::Key_Up:       move(cc.moveUp(c));                              break;
-    case Qt::Key_Down:     move(cc.moveDown(c));                            break;
+    case Qt::Key_Up:       move(moveVisualRows(c, -1));                     break;
+    case Qt::Key_Down:     move(moveVisualRows(c, 1));                      break;
     case Qt::Key_Left:
         move(ctrl ? cc.moveWordLeft(c) : cc.moveLeft(c));
         break;
@@ -1351,6 +1351,36 @@ void CodeEditArea::rebuildWrapLayout() {
 int CodeEditArea::visualRowOf(TextCursor pos) const {
     if (!m_wordWrap) return pos.line;
     return m_wrapLayout->rowForCursor(pos.line, pos.column);
+}
+
+TextCursor CodeEditArea::moveVisualRows(TextCursor c, int delta) const {
+    if (!m_wordWrap || !m_doc || m_wrapLayout->totalRows() == 0) {
+        return delta < 0 ? m_cursorCtrl->moveUp(c, -delta) : m_cursorCtrl->moveDown(c, delta);
+    }
+    const int row = visualRowOf(c);
+    const int target = qBound(0, row + delta, m_wrapLayout->totalRows() - 1);
+    if (target == row) return c;  // first or last row: as moveUp() on line 0
+    const int tw = tabWidth();
+    // The same character cell in the target row, or its end.
+    const WrapLayout::Row& from = m_wrapLayout->rowAt(row);
+    const int x = LineRenderer::visualColumn(m_doc->lineAt(from.logicalLine).mid(from.startCol),
+                                             c.column - from.startCol, tw);
+    const WrapLayout::Row& to = m_wrapLayout->rowAt(target);
+    const QString line = m_doc->lineAt(to.logicalLine);
+    const QString seg = line.mid(to.startCol, to.endCol - to.startCol);
+    int visual = 0, segCol = 0;
+    while (segCol < seg.size()) {
+        const int cw = (seg.at(segCol) == QLatin1Char('\t')) ? (tw - (visual % tw)) : 1;
+        if (2 * x < 2 * visual + cw) break;
+        visual += cw;
+        segCol = codepoints::nextIndex(seg, segCol);
+    }
+    // The end of a row the line continues after is the start of the next
+    // row; stay on the last character of this one.
+    if (segCol >= seg.size() && to.endCol < line.size() && !seg.isEmpty()) {
+        segCol = codepoints::prevIndex(seg, int(seg.size()));
+    }
+    return m_cursorCtrl->clamp({to.logicalLine, to.startCol + segCol});
 }
 
 // --- Highlighting helpers ------------------------------------------------

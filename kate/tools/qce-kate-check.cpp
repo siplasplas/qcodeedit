@@ -56,6 +56,10 @@ int main(int argc, char** argv) {
 
     QTextStream out(stdout);
     QTextStream err(stderr);
+    // Kate data of qcodeedit 1.12 and older moves to the shared place first.
+    const auto moved = qce::kate::migrateDataRoot();
+    for (const QString& line : moved.log) out << line << Qt::endl;
+    for (const QString& line : moved.warnings) err << line << Qt::endl;
     const QString directory = parser.isSet(syntaxOption)
         ? parser.value(syntaxOption) : qce::kate::syntaxDir();
     if (directory.isEmpty() || !QFileInfo(directory).isDir()) {

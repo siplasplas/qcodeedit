@@ -1,5 +1,5 @@
 // qce-kate-fetch — download Kate syntax definitions and themes into the
-// qcodeedit data directory (or --dir), fetching only what is missing.
+// shared Kate data directory (or --dir), fetching only what is missing.
 
 #include <qce/kate/KateDataDownloader.h>
 #include <qce/kate/KatePaths.h>
@@ -12,6 +12,12 @@
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("qce-kate-fetch"));
+
+    // Kate data of qcodeedit 1.12 and older moves to the shared place first,
+    // so that it is not downloaded again.
+    const auto moved = qce::kate::migrateDataRoot();
+    for (const QString& line : moved.log) QTextStream(stdout) << line << Qt::endl;
+    for (const QString& line : moved.warnings) QTextStream(stderr) << line << Qt::endl;
 
     QCommandLineParser parser;
     parser.setApplicationDescription(

@@ -12,7 +12,7 @@ private slots:
     void init();
     void cleanup();
 
-    void dataRoot_isGenericDataLocationPlusQcodeedit();
+    void dataRoot_isGenericDataLocationPlusKateData();
     void dataDir_defaultHasVersionSuffix();
     void syntaxAndThemes_areUnderDataDir();
     void env_overridesDefault();
@@ -35,18 +35,18 @@ void TestKatePaths::cleanup() {
     init();
 }
 
-void TestKatePaths::dataRoot_isGenericDataLocationPlusQcodeedit() {
+void TestKatePaths::dataRoot_isGenericDataLocationPlusKateData() {
     const QString base =
         QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
     QVERIFY(!base.isEmpty());
-    QCOMPARE(qce::kate::dataRoot(), base + QStringLiteral("/qcodeedit"));
+    QCOMPARE(qce::kate::dataRoot(), base + QStringLiteral("/kate-data"));
 }
 
 void TestKatePaths::dataDir_defaultHasVersionSuffix() {
-    const QString expected = qce::kate::dataRoot() + QStringLiteral("/kate-")
+    const QString expected = qce::kate::dataRoot() + QLatin1Char('/')
         + qce::kate::supportedSyntaxVersion().toString();
     QCOMPARE(qce::kate::dataDir(), expected);
-    QVERIFY(qce::kate::dataDir().endsWith(QStringLiteral("/qcodeedit/kate-6.31")));
+    QVERIFY(qce::kate::dataDir().endsWith(QStringLiteral("/kate-data/6.31")));
 }
 
 void TestKatePaths::syntaxAndThemes_areUnderDataDir() {

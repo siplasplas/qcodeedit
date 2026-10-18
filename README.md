@@ -107,8 +107,12 @@ Options:
   `KateSyntaxIndex`). Depends on the core library.
 - `QCE_BUILD_KATE_DOWNLOADER=ON` (default) — builds `qcodeedit-katedata`
   (`KateDataDownloader` + `qce-kate-fetch` tool) that fetches Kate syntax
-  definitions and themes into the qcodeedit data directory. The only part
-  that needs Qt Network. See [docs/KATE_DATA.md](docs/KATE_DATA.md).
+  definitions and themes into a shared directory,
+  `~/.local/share/kate-data/<version>` on Linux. The only part that needs Qt
+  Network. Up to 1.12 the data was in `~/.local/share/qcodeedit/kate-<version>`;
+  programs call `qce::kate::migrateDataRoot()` once at start-up to move it, and
+  must be rebuilt with the new qcodeedit (the libraries are static). See
+  [docs/KATE_DATA.md](docs/KATE_DATA.md).
 - `QCE_BUILD_ENCODING=ON` (default) — builds `qcodeedit-encoding` (code pages
   and UTF, detection, the editor's encoding guard) on the
   [cpg](https://github.com/siplasplas/cpg) library. Needs ICU and zlib; an

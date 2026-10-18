@@ -8,6 +8,8 @@ add_library(qcodeedit-kate STATIC
     src/KateTheme.cpp
     src/KateSyntaxVersion.cpp
     src/KatePaths.cpp
+    src/KateDataMigration.cpp
+    src/KateDataMigration.h
     src/KateSyntaxIndex.cpp
     include/qce/kate/KateXmlReader.h
     include/qce/kate/KateTheme.h

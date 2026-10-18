@@ -35,30 +35,55 @@ testy regresji).
 ```cpp
 #include <qce/kate/KatePaths.h>
 
-qce::kate::dataRoot();   // GenericDataLocation + "/qcodeedit"
-qce::kate::dataDir();    // dataRoot() + "/kate-6.31"
+qce::kate::dataRoot();   // GenericDataLocation + "/kate-data"
+qce::kate::dataDir();    // dataRoot() + "/6.31"
 qce::kate::syntaxDir();  // dataDir() + "/syntax"
 qce::kate::themesDir();  // dataDir() + "/themes"
 ```
 
-| system  | `dataDir()`                                         |
-|---------|-----------------------------------------------------|
-| Linux   | `~/.local/share/qcodeedit/kate-6.31`                |
-| Windows | `C:/Users/<user>/AppData/Local/qcodeedit/kate-6.31` |
-| macOS   | `~/Library/Application Support/qcodeedit/kate-6.31` |
+| system  | `dataDir()`                                    |
+|---------|------------------------------------------------|
+| Linux   | `~/.local/share/kate-data/6.31`                |
+| Windows | `C:/Users/<user>/AppData/Local/kate-data/6.31` |
+| macOS   | `~/Library/Application Support/kate-data/6.31` |
+
+Dane Kate są w formacie KDE i może je czytać każdy program, więc leżą we
+wspólnym, neutralnym miejscu, a nie w katalogu jednego programu.
 
 Kolejność ustalania `dataDir()`: `setDataDirOverride()`, potem zmienna
 `QCE_KATE_DATA_DIR`, na końcu wartość domyślna. Override podaje gotowy
 katalog, bez dopisywania wersji.
 
 Każda wersja ma osobny katalog. Po podbiciu wersji wszystko pobiera się od
-nowa, bez kopiowania ze starego katalogu. Stare katalogi `kate-*` usuwa się
+nowa, bez kopiowania ze starego katalogu. Stare katalogi wersji usuwa się
 ręcznie; biblioteka ich nie rusza.
+
+### Przeniesienie ze starego miejsca
+
+Do qcodeedit 1.12 dane leżały w `GenericDataLocation + "/qcodeedit/kate-6.31"`.
+Program wywołuje raz przy starcie, zanim cokolwiek czyta dane:
+
+```cpp
+const auto moved = qce::kate::migrateDataRoot();
+for (const QString& line : moved.log) qInfo("%s", qPrintable(line));
+for (const QString& line : moved.warnings) qWarning("%s", qPrintable(line));
+```
+
+Każdy katalog `kate-<wersja>/` staje się `kate-data/<wersja>/`. Istniejący
+nowy katalog nigdy nie jest nadpisywany; stara kopia, w której nie ma niczego,
+czego brakuje nowej (np. pobrana ponownie przez program zbudowany ze starszym
+qcodeedit), jest usuwana. Pozostałości jeszcze starszego układu (`syntax/` i
+`update-<wersja>.xml` bezpośrednio w `qcodeedit/`) są usuwane, gdy wersja ma te
+same pliki, albo stają się jej katalogiem, gdy go nie ma. Nierozpoznane pliki
+zostają z ostrzeżeniem, a pusty `qcodeedit/` jest usuwany. Po błędzie wszystko
+wraca na miejsce, a `dataDir()` wskazuje do końca uruchomienia stare miejsce.
+Biblioteki są statyczne, więc każdy program trzeba przebudować z nowym
+qcodeedit.
 
 Zawartość:
 
 ```
-kate-6.31/
+6.31/
   index.json        indeks (KateSyntaxIndex)
   update-6.31.xml   lista definicji z ostatniego pobrania
   theme-data.qrc    lista motywów z ostatniego pobrania

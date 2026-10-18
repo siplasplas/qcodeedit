@@ -3,7 +3,7 @@
 Cel: dodać kolorowanie składni do `qcodeedit` z zachowaniem ścisłej separacji:
 
 - **Komponent edycji (core `qcodeedit`)** nie czyta żadnych plików konfiguracyjnych i nie zna formatu XML. Dostaje *gotowe dane* przez API.
-- **Demo (lub aplikacja użytkownika)** czyta pliki Kate `*.xml` z katalogu `qce::kate::syntaxDir()` (np. `~/.local/share/qcodeedit/kate-6.31/syntax/`, zob. [KATE_DATA.md](KATE_DATA.md)) i buduje instancje klas danych wyeksportowanych przez core.
+- **Demo (lub aplikacja użytkownika)** czyta pliki Kate `*.xml` z katalogu `qce::kate::syntaxDir()` (np. `~/.local/share/kate-data/6.31/syntax/`, zob. [KATE_DATA.md](KATE_DATA.md)) i buduje instancje klas danych wyeksportowanych przez core.
 
 Taka separacja pozwala:
 

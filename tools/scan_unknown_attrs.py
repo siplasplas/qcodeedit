@@ -35,7 +35,7 @@ def generic_data_location():
 def default_syntax_dir():
     """Same resolution as qce::kate::syntaxDir()."""
     data_dir = os.environ.get("QCE_KATE_DATA_DIR") or os.path.join(
-        generic_data_location(), "qcodeedit", f"kate-{supported_syntax_version()}")
+        generic_data_location(), "kate-data", supported_syntax_version())
     return os.path.join(data_dir, "syntax")
 
 # Attributes that KateXmlReader explicitly reads for each element type.

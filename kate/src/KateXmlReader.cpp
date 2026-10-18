@@ -169,9 +169,11 @@ struct RawItemData {
     QString color;  // explicit foreground color (overrides theme if set)
     bool italic = false, bold = false, underline = false, strikeOut = false;
     bool italicSet = false, boldSet = false, underlineSet = false, strikeOutSet = false;
+    bool spellChecking = true;  // false when the definition says spellChecking="false"
 };
 struct LangData {
     QString              name;
+    QString              section;  // "Sources", "Markup", "Other", ...
     QVector<RawContext>  contexts;
     QVector<RawList>     lists;
     QVector<RawItemData> itemDatas;
@@ -228,6 +230,7 @@ static LangData parseKateFile(const QString& path) {
 
         if (name == QLatin1String("language")) {
             data.name = xml.attributes().value(QStringLiteral("name")).toString();
+            data.section = xml.attributes().value(QStringLiteral("section")).toString();
         } else if (name == QLatin1String("list")) {
             RawList rl;
             rl.name = xml.attributes().value(QStringLiteral("name")).toString();
@@ -277,6 +280,8 @@ static LangData parseKateFile(const QString& path) {
             readBool(QStringLiteral("bold"),      rid.bold,      rid.boldSet);
             readBool(QStringLiteral("underline"), rid.underline, rid.underlineSet);
             readBool(QStringLiteral("strikeOut"), rid.strikeOut, rid.strikeOutSet);
+            bool spellSet = false;
+            readBool(QStringLiteral("spellChecking"), rid.spellChecking, spellSet);
             data.itemDatas.push_back(std::move(rid));
         } else if (name == QLatin1String("keywords")) {
             const auto a = xml.attributes();
@@ -292,6 +297,20 @@ static LangData parseKateFile(const QString& path) {
         qWarning() << "KateXmlReader:" << path << ":" << xml.errorString();
 
     return data;
+}
+
+// Whether text of an itemData may be spell checked. Never what the definition
+// excludes (spellChecking="false"). In markup and other prose languages
+// (sections Markup and Other, e.g. Markdown) all the rest; in code only
+// comments, strings and documentation, never keywords, identifiers or numbers.
+static bool spellCheckable(const QString& section, const RawItemData& rid) {
+    if (!rid.spellChecking) return false;
+    if (section == QLatin1String("Markup") || section == QLatin1String("Other")) return true;
+    static const QSet<QString> prose = {
+        QStringLiteral("dsComment"), QStringLiteral("dsDocumentation"),
+        QStringLiteral("dsString"), QStringLiteral("dsVerbatimString"),
+        QStringLiteral("dsSpecialString")};
+    return prose.contains(rid.defStyleNum);
 }
 
 // Resolve defStyleNum (e.g. "dsDecVal") against an optional external theme,
@@ -446,6 +465,7 @@ private:
             if (rid.italicSet)    ta.italic    = rid.italic;
             if (rid.boldSet)      ta.bold      = rid.bold;
             if (rid.underlineSet) ta.underline = rid.underline;
+            ta.spellCheck = spellCheckable(data.section, rid);
             resolved.attrByName.insert(rid.name, m_hl->addAttribute(ta));
         }
 

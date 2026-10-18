@@ -13,6 +13,9 @@ struct TextAttribute {
     bool   bold      = false;
     bool   italic    = false;
     bool   underline = false;
+    /// Text in this attribute may be spell checked (comments, strings and
+    /// documentation in code; prose in markup). See CodeEditArea::spellCheckRanges().
+    bool   spellCheck = true;
 };
 
 } // namespace qce

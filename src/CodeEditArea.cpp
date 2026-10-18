@@ -1308,6 +1308,31 @@ bool CodeEditArea::highlightComplete() const {
     return !m_highlighter || !m_doc || m_validLines >= m_doc->lineCount();
 }
 
+QList<QPair<int, int>> CodeEditArea::spellCheckRanges(int line) {
+    QList<QPair<int, int>> ranges;
+    if (!m_doc || line < 0 || line >= m_doc->lineCount()) return ranges;
+    const int length = int(m_doc->lineAt(line).size());
+    if (!m_highlighter) {
+        if (length > 0) ranges.append({0, length});
+        return ranges;
+    }
+    if (line >= m_validLines) highlightUpTo(line + 1);
+    if (line >= m_validLines || line >= m_lineSpans.size()) return ranges;
+    // Text outside any span, or in a span without an attribute, is code.
+    const QVector<TextAttribute>& attributes = m_highlighter->attributes();
+    for (const StyleSpan& span : m_lineSpans[line]) {
+        if (span.length <= 0 || span.attributeId < 0 || span.attributeId >= attributes.size()
+                || !attributes[span.attributeId].spellCheck)
+            continue;
+        const int start = qBound(0, span.start, length);
+        const int end = qBound(start, span.start + span.length, length);
+        if (start == end) continue;
+        if (!ranges.isEmpty() && ranges.last().second == start) ranges.last().second = end;
+        else ranges.append({start, end});
+    }
+    return ranges;
+}
+
 void CodeEditArea::highlightUpTo(int lineCount) {
     if (!m_highlighter || !m_doc) return;
     const int end = qMin(lineCount, int(m_lineEndStates.size()));

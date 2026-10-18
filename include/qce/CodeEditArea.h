@@ -78,6 +78,13 @@ public:
     /// Layer used for spelling underlines by qcodeedit-spell.
     static constexpr int SpellingLayer = 100;
 
+    /// The parts of `line` that may be spell checked, as [start, end) columns
+    /// in order: the whole line without a highlighter, otherwise the spans
+    /// whose attribute allows it (TextAttribute::spellCheck; with Kate
+    /// definitions comments, strings and documentation in code, prose in
+    /// markup). Highlights the document up to `line` when needed.
+    QList<QPair<int, int>> spellCheckRanges(int line);
+
     void setSelectionColor(const QColor& color);
     QColor selectionColor() const { return m_selectionColor; }
 

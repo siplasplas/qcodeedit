@@ -7,6 +7,7 @@
 #include <QPair>
 #include <QString>
 
+class QCheckBox;
 class QComboBox;
 class QLabel;
 class QTreeWidget;
@@ -47,7 +48,8 @@ struct SpellingReviewItem {
 /// first as CheckedAtFirst says (the user may change it). "Show" lists all
 /// words, only the checked ones (to look them over) or only the unchecked
 /// ones (left to decide), applied when chosen, so a word checked or
-/// unchecked meanwhile stays in sight. With `spelling`, "Add to Dictionary" and "Ignore" take the
+/// unchecked meanwhile stays in sight. Only the check boxes decide which
+/// words are corrected, unless "Picking a correction checks the word" is on. With `spelling`, "Add to Dictionary" and "Ignore" take the
 /// selected word out of the list, every occurrence of it ("careta" written on
 /// purpose). Ctrl+C or the context menu copies the selected rows, separated
 /// by tabs, or their lines of text. Correct accepts; chosenReplacements()
@@ -82,6 +84,7 @@ private:
     QLabel* m_summary = nullptr;
     QComboBox* m_checkAtFirst = nullptr;
     QComboBox* m_show = nullptr;
+    QCheckBox* m_pickChecks = nullptr;
     QLabel* m_searchTime = nullptr;
     CodeEditSpelling* m_spelling = nullptr;
 };

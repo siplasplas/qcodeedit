@@ -3,6 +3,7 @@
 #include <qce/CodeEditArea.h>
 #include <qce/ITextDocument.h>
 
+#include <QCheckBox>
 #include <QClipboard>
 #include <QComboBox>
 #include <QGuiApplication>
@@ -174,11 +175,12 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
         row->setCheckState(WordColumn, Qt::Unchecked);
         auto* choice = new QComboBox(m_list);
         for (const auto& correction : item.choices) choice->addItem(correction.label);
-        // Picking another correction means correcting the word; opening the
-        // list only to look, or picking the same one again, does not.
+        // Picking another correction checks the word only when asked for
+        // ("Picking a correction checks the word"); looking does not.
         choice->setProperty(kChosenProperty, 0);
-        connect(choice, &QComboBox::activated, this, [row, choice](int index) {
-            if (index != choice->property(kChosenProperty).toInt()) row->setCheckState(WordColumn, Qt::Checked);
+        connect(choice, &QComboBox::activated, this, [this, row, choice](int index) {
+            if (m_pickChecks->isChecked() && index != choice->property(kChosenProperty).toInt())
+                row->setCheckState(WordColumn, Qt::Checked);
             choice->setProperty(kChosenProperty, index);
         });
         m_list->setItemWidget(row, CorrectionColumn, choice);
@@ -203,6 +205,9 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     connect(m_show, &QComboBox::activated, this, &SpellingReviewDialog::filter);
 
     auto* status = new QHBoxLayout;
+    m_pickChecks = new QCheckBox(tr("&Picking a correction checks the word"), this);
+    m_pickChecks->setToolTip(tr("Off: only the check box decides which words are corrected"));
+    layout->addWidget(m_pickChecks);
     m_summary = new QLabel(this);
     status->addWidget(m_summary);
     status->addStretch();

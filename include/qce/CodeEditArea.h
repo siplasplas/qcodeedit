@@ -12,6 +12,7 @@
 #include <QColor>
 #include <QHash>
 #include <QInputMethodEvent>
+#include <QMap>
 #include <QRegion>
 #include <QVector>
 
@@ -65,7 +66,17 @@ public:
     /// Cleared on any text change/reset or document replacement; no automatic tracking.
     /// Updating decorations only repaints, without re-highlighting or recomputing folds.
     void setExtraSelections(const QVector<ExtraSelection>& selections);
-    QVector<ExtraSelection> extraSelections() const { return m_extraSelections; }
+    QVector<ExtraSelection> extraSelections() const { return m_selectionLayers.value(0); }
+
+    /// Decorations in independent layers, so that e.g. spelling underlines and
+    /// search matches do not replace each other; setExtraSelections(selections)
+    /// is layer 0. Within a layer the rules above hold; across layers a higher
+    /// layer overrides only the colors it sets (background, foreground,
+    /// underline). All layers are cleared on any text change.
+    void setExtraSelections(int layer, const QVector<ExtraSelection>& selections);
+    QVector<ExtraSelection> extraSelections(int layer) const { return m_selectionLayers.value(layer); }
+    /// Layer used for spelling underlines by qcodeedit-spell.
+    static constexpr int SpellingLayer = 100;
 
     void setSelectionColor(const QColor& color);
     QColor selectionColor() const { return m_selectionColor; }
@@ -202,9 +213,13 @@ private:
     QColor m_currentLineColor;
     QColor lineBackground(int line) const;
     InsertFilterFn m_insertFilter;
-    QVector<ExtraSelection> m_extraSelections;
-    // Disjoint, sorted segments per logical line; overlap resolved on bulk update.
+    // Normalized decorations per layer (empty layers are removed).
+    QMap<int, QVector<ExtraSelection>> m_selectionLayers;
+    // Disjoint, sorted segments per logical line, all layers merged; overlap
+    // resolved on bulk update.
     QHash<int, QVector<ExtraSelection>> m_extraSelectionsByLine;
+    void rebuildDecorations();
+    void clearAllExtraSelections();
     bool   m_tabCaptured     = true;
     bool   m_readOnly        = false;
     bool   m_overwrite       = false;

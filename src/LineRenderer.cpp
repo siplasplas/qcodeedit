@@ -6,6 +6,7 @@
 
 #include <QFontMetrics>
 #include <QPainter>
+#include <QPainterPath>
 
 #include <algorithm>
 
@@ -191,6 +192,26 @@ int LineRenderer::cellCount(const QString& text) {
     return codepoints::codePointColumn(text, int(text.size()));
 }
 
+void LineRenderer::drawWavyUnderline(QPainter& painter, int x1, int x2, int baselineY,
+                                     const QColor& color) const {
+    // Half the descent below the baseline, so the wave stays under the text
+    // and inside the line; two pixels high, a period of four.
+    const qreal y = baselineY + qMax(1, QFontMetrics(m_font).descent() / 2) + 0.5;
+    const qreal amplitude = 1.0;
+    QPainterPath path(QPointF(x1, y));
+    bool up = true;
+    for (qreal x = x1; x < x2; x += 2) {
+        path.lineTo(QPointF(qMin<qreal>(x + 2, x2), up ? y - amplitude : y + amplitude));
+        up = !up;
+    }
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(QPen(color, 1));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawPath(path);
+    painter.restore();
+}
+
 void LineRenderer::drawCells(QPainter& painter, int x, int baselineY, int charWidth,
                              const QString& text) {
     int runStart = 0;   // first index of the BMP run not drawn yet
@@ -331,6 +352,8 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
         painter.setFont(f);
 
         drawCells(painter, drawX + visual * charWidth, baselineY, charWidth, expanded);
+        if (decoration && decoration->underline.isValid() && cell.width() > 0)
+            drawWavyUnderline(painter, cell.left(), cell.right() + 1, baselineY, decoration->underline);
 
         // Advance visual column past this chunk.
         for (int i = 0; i < chunk.size(); ++i) {

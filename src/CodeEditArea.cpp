@@ -99,7 +99,7 @@ void CodeEditArea::setDocument(ITextDocument* doc) {
         return;
     }
     cancelPreedit(true);
-    setExtraSelections({});
+    clearAllExtraSelections();
     rebindDocumentSignals(doc);
     m_doc = doc;
     m_cursorCtrl->setDocument(doc);
@@ -169,48 +169,86 @@ void CodeEditArea::setSelection(TextCursor anchor, TextCursor cursor) {
 }
 
 void CodeEditArea::setExtraSelections(const QVector<ExtraSelection>& selections) {
-    m_extraSelections.clear();
+    setExtraSelections(0, selections);
+}
+
+void CodeEditArea::setExtraSelections(int layer, const QVector<ExtraSelection>& selections) {
+    QVector<ExtraSelection> normalized;
+    if (m_doc && m_doc->lineCount() > 0) {
+        for (auto selection : selections) {
+            selection.start = m_cursorCtrl->clamp(selection.start);
+            selection.end = m_cursorCtrl->clamp(selection.end);
+            if (selection.end < selection.start) std::swap(selection.start, selection.end);
+            if (selection.start == selection.end) continue;
+            normalized.append(selection);
+        }
+    }
+    if (normalized.isEmpty()) m_selectionLayers.remove(layer);
+    else m_selectionLayers.insert(layer, normalized);
+    rebuildDecorations();
+}
+
+void CodeEditArea::clearAllExtraSelections() {
+    if (m_selectionLayers.isEmpty()) return;
+    m_selectionLayers.clear();
+    rebuildDecorations();
+}
+
+void CodeEditArea::rebuildDecorations() {
     m_extraSelectionsByLine.clear();
-    if (!m_doc || m_doc->lineCount() == 0 || selections.isEmpty()) {
+    if (!m_doc || m_doc->lineCount() == 0 || m_selectionLayers.isEmpty()) {
         viewport()->update();
         return;
     }
-    struct Event { int column; int index; bool opening; };
+    // Each decoration as (layer, index); active ones are ordered by both, so
+    // the last of a layer is that layer's top entry.
+    struct Event { int column; int layer; int index; bool opening; };
     QHash<int, QVector<Event>> eventsByLine;
-    for (auto selection : selections) {
-        selection.start = m_cursorCtrl->clamp(selection.start);
-        selection.end = m_cursorCtrl->clamp(selection.end);
-        if (selection.end < selection.start) std::swap(selection.start, selection.end);
-        if (selection.start == selection.end) continue;
-        const int index = m_extraSelections.size();
-        m_extraSelections.append(selection);
-        for (int line = selection.start.line; line <= selection.end.line; ++line) {
-            const int start = line == selection.start.line ? selection.start.column : 0;
-            const int end = line == selection.end.line ? selection.end.column : m_doc->lineAt(line).size();
-            if (start >= end) continue;
-            eventsByLine[line].append({start, index, true});
-            eventsByLine[line].append({end, index, false});
+    for (auto layer = m_selectionLayers.cbegin(); layer != m_selectionLayers.cend(); ++layer) {
+        for (int index = 0; index < layer->size(); ++index) {
+            const ExtraSelection& selection = layer->at(index);
+            for (int line = selection.start.line; line <= selection.end.line; ++line) {
+                const int start = line == selection.start.line ? selection.start.column : 0;
+                const int end = line == selection.end.line ? selection.end.column : m_doc->lineAt(line).size();
+                if (start >= end) continue;
+                eventsByLine[line].append({start, layer.key(), index, true});
+                eventsByLine[line].append({end, layer.key(), index, false});
+            }
         }
     }
+    // Within a layer the later entry wins as a complete style; a higher layer
+    // overrides only the colors it sets.
+    auto merged = [this](const std::set<std::pair<int, int>>& active) {
+        ExtraSelection style;
+        for (auto it = active.cbegin(); it != active.cend(); ++it) {
+            const auto next = std::next(it);
+            if (next != active.cend() && next->first == it->first) continue;  // not the layer's top
+            const ExtraSelection& top = m_selectionLayers[it->first][it->second];
+            if (top.background.isValid()) style.background = top.background;
+            if (top.foreground.isValid()) style.foreground = top.foreground;
+            if (top.underline.isValid()) style.underline = top.underline;
+        }
+        return style;
+    };
     for (auto it = eventsByLine.begin(); it != eventsByLine.end(); ++it) {
         auto& events = it.value();
         std::sort(events.begin(), events.end(), [](const Event& a, const Event& b) {
             return a.column < b.column;
         });
-        std::set<int> active;
+        std::set<std::pair<int, int>> active;
         int previous = 0;
         auto& segments = m_extraSelectionsByLine[it.key()];
         for (qsizetype i = 0; i < events.size();) {
             const int column = events[i].column;
             if (previous < column && !active.empty()) {
-                auto style = m_extraSelections[*active.rbegin()];
+                ExtraSelection style = merged(active);
                 style.start = {it.key(), previous};
                 style.end = {it.key(), column};
                 segments.append(style);
             }
             while (i < events.size() && events[i].column == column) {
-                if (events[i].opening) active.insert(events[i].index);
-                else active.erase(events[i].index);
+                if (events[i].opening) active.insert({events[i].layer, events[i].index});
+                else active.erase({events[i].layer, events[i].index});
                 ++i;
             }
             previous = column;
@@ -890,7 +928,7 @@ int CodeEditArea::preeditColumns() const {
 // ------------------------------------------------------------------------
 
 void CodeEditArea::onDocumentReset() {
-    setExtraSelections({});
+    clearAllExtraSelections();
     m_cursor = m_cursorCtrl->clamp(TextCursor{});
     m_anchor = m_cursor;
     m_undoStack->clear();
@@ -908,7 +946,7 @@ void CodeEditArea::onDocumentReset() {
 }
 
 void CodeEditArea::onLinesInserted(int startLine, int count) {
-    setExtraSelections({});
+    clearAllExtraSelections();
     m_cursor = m_cursorCtrl->clamp(m_cursor);
     m_anchor = m_cursorCtrl->clamp(m_anchor);
     m_knownLineCount += count;
@@ -935,7 +973,7 @@ void CodeEditArea::onLinesInserted(int startLine, int count) {
 }
 
 void CodeEditArea::onLinesRemoved(int startLine, int count) {
-    setExtraSelections({});
+    clearAllExtraSelections();
     m_cursor = m_cursorCtrl->clamp(m_cursor);
     m_anchor = m_cursorCtrl->clamp(m_anchor);
     m_knownLineCount -= count;
@@ -958,7 +996,7 @@ void CodeEditArea::onLinesRemoved(int startLine, int count) {
 }
 
 void CodeEditArea::onLinesChanged(int startLine, int) {
-    setExtraSelections({});
+    clearAllExtraSelections();
     // A document may report the changed line before the lines it inserted or
     // removed (SimpleTextDocument does for multi-line inserts). Until that
     // signal arrives the per-line caches and fold regions cannot be lined up

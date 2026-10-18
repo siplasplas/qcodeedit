@@ -12,6 +12,9 @@ struct ExtraSelection {
     TextCursor end;
     QColor background;
     QColor foreground;
+    /// Wavy line under the text in this color, e.g. a misspelled word; invalid
+    /// = none.
+    QColor underline;
 };
 
 } // namespace qce

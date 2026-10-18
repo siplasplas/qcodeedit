@@ -68,8 +68,8 @@ public:
     /// True when the word is right in any dictionary, ignored, or nothing is
     /// in use.
     bool check(const QString& word) const;
-    /// Up to `maxCount` suggestions, best first and only those close to the
-    /// best. Ranked by a distance that makes swapped letters, missing Polish
+    /// Suggestions, best first and only those close to the best: three at
+    /// most, often one (and at most `maxCount`). Ranked by a distance that makes swapped letters, missing Polish
     /// diacritics and held-AltGr characters cheap, over all forms of the
     /// dictionaries (a cache file in ~/.cache/siplasplas/spell, built in the
     /// background the first time) together with hunspell's suggestions;

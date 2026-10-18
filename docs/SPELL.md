@@ -103,6 +103,7 @@ held, "żę" → "że"), two adjacent letters swapped 0.5, a missing letter 0.9,
 a letter too many 1, another letter 1.5, plus 1 for a split into two words and
 0.4 for a capital (a proper name) the typed word does not have. Hunspell's
 suggestions are ranked the same way and break ties. Only suggestions close to
-the best are shown (within 1.2), at most the requested number. On a list of
-96 real typing mistakes 91 were first (hunspell alone: 71), in about 25 ms
-each.
+the best are shown (at most 0.6 worse), three at most (or the requested number
+if smaller). On a list of 96 real typing mistakes 91 were first (hunspell
+alone: 71) and the right word was always among those shown, 1.77 suggestions
+on average, one for half of the words, in about 25 ms each.

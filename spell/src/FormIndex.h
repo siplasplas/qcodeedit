@@ -60,6 +60,13 @@ bool buildFormIndex(const QString& affPath, const QString& dicPath, const QStrin
 
 /// Distance limit for suggestions (about two typing mistakes).
 constexpr double kSuggestionLimit = 2.6;
+/// Suggestions shown: those at most this much worse than the best, at most
+/// kMaxShown. On 96 real typing mistakes the right word is then always among
+/// them (a right one may be 0.6 behind a real word closer in spelling, e.g.
+/// "dialac": dialach, dialag, działać), 1.77 suggestions on average, one for
+/// half of the words; with 1.2 and 8 it was 5.5.
+constexpr double kCloseToBest = 0.6;
+constexpr int kMaxShown = 3;
 
 /// Up to `maxCount` of the candidates, best first, only those close to the
 /// best (a threshold, not always maxCount); ties keep the order of

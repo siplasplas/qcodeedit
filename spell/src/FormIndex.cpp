@@ -491,8 +491,12 @@ QStringList rankSuggestions(const QString& word, std::vector<std::pair<double, Q
     const bool allCaps = word.size() > 1 && word == word.toUpper();
     const bool capitalized = !allCaps && !word.isEmpty() && word[0].isUpper();
     for (const auto& [dist, candidate] : candidates) {
-        // Close to the best only: a threshold, not always maxCount.
-        if (int(result.size()) >= maxCount || dist > candidates.front().first + 1.2) break;
+        // Close to the best only: usually one suggestion, not always maxCount.
+        // (The small allowance keeps a candidate exactly kCloseToBest behind,
+        // e.g. 0.3 + 0.6 summed as 0.9000001.)
+        if (int(result.size()) >= std::min(maxCount, kMaxShown)
+                || dist > candidates.front().first + kCloseToBest + 1e-9)
+            break;
         QString form = candidate;
         if (allCaps) form = form.toUpper();
         else if (capitalized) form[0] = form[0].toUpper();

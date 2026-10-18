@@ -3,10 +3,10 @@
 # code page document storable. Kept apart from the core library so that only
 # applications that want it need cpg (and through it ICU and zlib).
 
-# An installed cpg 1.1.1 or later is used (sampling around non-ASCII bytes,
-# fast detection with a known language); otherwise the tag below is fetched
-# and built in, library only.
-find_package(cpg 1.1.1 QUIET)
+# An installed cpg 1.2.0 or later is used (calibrated detection confidence,
+# plausible alternatives, preview of differing lines, several languages);
+# otherwise the tag below is fetched and built in, library only.
+find_package(cpg 1.2.0 QUIET)
 if(NOT TARGET cpg::cpg)
     include(FetchContent)
     # Installed along with qcodeedit, so that qcodeedit-encoding's package
@@ -15,7 +15,7 @@ if(NOT TARGET cpg::cpg)
     FetchContent_Declare(
         cpg
         GIT_REPOSITORY https://github.com/siplasplas/cpg.git
-        GIT_TAG v1.1.1
+        GIT_TAG v1.2.0
         GIT_SHALLOW TRUE
     )
     FetchContent_MakeAvailable(cpg)

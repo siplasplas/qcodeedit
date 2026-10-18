@@ -116,7 +116,7 @@ Options:
 - `QCE_BUILD_ENCODING=ON` (default) — builds `qcodeedit-encoding` (code pages
   and UTF, detection, the editor's encoding guard) on the
   [cpg](https://github.com/siplasplas/cpg) library. Needs ICU and zlib; an
-  installed cpg 1.1.1 is used, otherwise it is fetched. See
+  installed cpg 1.2.0 is used, otherwise it is fetched. See
   [docs/ENCODING.md](docs/ENCODING.md).
 
 ## Install

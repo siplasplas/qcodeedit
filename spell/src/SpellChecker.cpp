@@ -411,6 +411,7 @@ struct SpellChecker::Private {
     QSet<QString> ignored;
     mutable QHash<QString, bool> cache;
     mutable int cacheGeneration = -1;
+    HunspellSuggestions hunspellSuggestions = HunspellSuggestions::Always;
 };
 
 SpellChecker::SpellChecker() : d(std::make_unique<Private>()) {}
@@ -432,6 +433,10 @@ void SpellChecker::setLanguages(const QStringList& languages) {
 }
 
 QStringList SpellChecker::dictionaries() const { return d->names; }
+
+void SpellChecker::setHunspellSuggestions(HunspellSuggestions when) { d->hunspellSuggestions = when; }
+
+SpellChecker::HunspellSuggestions SpellChecker::hunspellSuggestions() const { return d->hunspellSuggestions; }
 
 bool SpellChecker::isReady() const { return !d->dictionaries.isEmpty(); }
 
@@ -465,15 +470,6 @@ QStringList SpellChecker::suggestions(const QString& word, int maxCount) const {
 }
 
 QList<SpellChecker::Suggestion> SpellChecker::scoredSuggestions(const QString& word, int maxCount) const {
-    QStringList hunspellOrder;
-    for (const auto& loaded : d->dictionaries) {
-        const std::string encoded = loaded->encode(word);
-        if (encoded.empty()) continue;
-        for (const std::string& suggestion : loaded->hunspell->suggest(encoded)) {
-            const QString text = loaded->decode(suggestion);
-            if (!text.isEmpty() && !hunspellOrder.contains(text)) hunspellOrder << text;
-        }
-    }
     std::vector<std::pair<double, QString>> candidates;
     bool indexed = false;
     for (const auto& loaded : d->dictionaries) {
@@ -482,6 +478,19 @@ QList<SpellChecker::Suggestion> SpellChecker::scoredSuggestions(const QString& w
             auto found = index->candidates(word, detail::kSuggestionLimit);
             candidates.insert(candidates.end(), std::make_move_iterator(found.begin()),
                               std::make_move_iterator(found.end()));
+        }
+    }
+    // Hunspell's suggestions take most of the time; they may be left out
+    // when the forms already have candidates.
+    QStringList hunspellOrder;
+    if (!indexed || candidates.empty() || d->hunspellSuggestions == HunspellSuggestions::Always) {
+        for (const auto& loaded : d->dictionaries) {
+            const std::string encoded = loaded->encode(word);
+            if (encoded.empty()) continue;
+            for (const std::string& suggestion : loaded->hunspell->suggest(encoded)) {
+                const QString text = loaded->decode(suggestion);
+                if (!text.isEmpty() && !hunspellOrder.contains(text)) hunspellOrder << text;
+            }
         }
     }
     if (!indexed) {

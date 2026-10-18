@@ -56,6 +56,9 @@ public:
     void setCorrectWhileTyping(bool correct);
     bool correctsWhileTyping() const { return m_correctWhileTyping; }
 
+    /// See SpellChecker::setHunspellSuggestions().
+    void setHunspellSuggestions(SpellChecker::HunspellSuggestions when) { m_checker.setHunspellSuggestions(when); }
+
     void setUnderlineColor(const QColor& color);
     QColor underlineColor() const { return m_color; }
 

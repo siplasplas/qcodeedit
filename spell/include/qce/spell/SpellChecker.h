@@ -118,6 +118,12 @@ public:
     /// bookami, "agents" → agent) is only offered, and so is a capital the
     /// typed word has not ("serach" → Serach, a name).
     static bool isConfident(const QString& word, const QList<Suggestion>& suggestions);
+    /// Whether hunspell's own suggestions are added to those from the forms:
+    /// always (the default), or only when the forms have no candidate. They
+    /// take most of the time of a suggestion (about 18 of 25 ms a word).
+    enum class HunspellSuggestions { Always, WhenNoneFound };
+    void setHunspellSuggestions(HunspellSuggestions when);
+    HunspellSuggestions hunspellSuggestions() const;
     /// The suggestion files of the dictionaries in use are ready (or not
     /// possible for them); starts building them when needed.
     bool suggestionIndexReady() const;

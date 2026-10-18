@@ -119,6 +119,10 @@ without a capital the typed word lacks: sure enough to apply without asking
 (correction while typing, checked at first in a review). On a list of 97 real
 typing mistakes 91 are first (hunspell alone: 71), 95 shown, 1.38 suggestions
 on average, 39 confident and all of those right, in about 25 ms each.
+Hunspell's own suggestions take most of that time; with
+`setHunspellSuggestions(WhenNoneFound)` they are asked only when the forms
+have no candidate: the same results on that list (one tie broken
+differently elsewhere) in about 7 ms a word instead of 28.
 
 Word frequency, when installed for the dictionary's language, puts common
 words before rare ones: `siplasplas/spell/freq/<language>.lemma.freq` in a

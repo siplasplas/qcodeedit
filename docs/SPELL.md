@@ -119,10 +119,10 @@ without a capital the typed word lacks: sure enough to apply without asking
 (correction while typing, checked at first in a review). On a list of 97 real
 typing mistakes 91 are first (hunspell alone: 71), 95 shown, 1.38 suggestions
 on average, 39 confident and all of those right, in about 25 ms each.
-Hunspell's own suggestions take most of that time; with
-`setHunspellSuggestions(WhenNoneFound)` they are asked only when the forms
-have no candidate: the same results on that list (one tie broken
-differently elsewhere) in about 7 ms a word instead of 28.
+Hunspell's own suggestions take most of that time, so by default they are
+asked only when the forms have no candidate: the same results on that list
+(one tie broken differently elsewhere) in about 7 ms a word instead of 28;
+`setHunspellSuggestions(Always)` adds them always.
 
 Word frequency, when installed for the dictionary's language, puts common
 words before rare ones: `siplasplas/spell/freq/<language>.lemma.freq` in a
@@ -176,8 +176,10 @@ the selection's misspelled words (or the whole text's) and shows
 `SpellingReviewDialog`: each word with its corrections, line and context,
 checked at first as `CheckedAtFirst` says (sure corrections, words with a
 single suggestion, or every word; the application keeps the user's choice),
-"Show only checked words", and how long finding the corrections took; the
-checked words are replaced as one undo step.
+"Show only checked words", and how long finding the corrections took. "Add to
+Dictionary" and "Ignore" take the selected word out of the list, every row of
+it (an English word or a coined one written on purpose). The checked words are
+replaced as one undo step.
 
 `setCorrectWhileTyping(true)` (off by default) corrects a misspelled word when
 a space or punctuation is typed right after it, if its single suggestion is

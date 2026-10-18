@@ -45,12 +45,14 @@ struct SpellingReviewItem {
 /// choose, its line and context. Checked at first as CheckedAtFirst says (the
 /// user may change it); "Show only checked words" hides the others to look
 /// them over (applied when switched, so a word unchecked meanwhile stays in
-/// sight). Correct accepts; chosenReplacements() gives the checked words.
+/// sight). With `spelling`, "Add to Dictionary" and "Ignore" take the
+/// selected word out of the list, every occurrence of it ("careta" written on
+/// purpose). Correct accepts; chosenReplacements() gives the checked words.
 class SpellingReviewDialog : public QDialog {
     Q_OBJECT
 public:
     SpellingReviewDialog(const QList<SpellingReviewItem>& items, bool inSelection, CheckedAtFirst checkedAtFirst,
-                         QWidget* parent = nullptr);
+                         QWidget* parent = nullptr, CodeEditSpelling* spelling = nullptr);
 
     /// The checked words with the chosen corrections.
     QList<QPair<SpellingReviewItem::Range, QString>> chosenReplacements() const;
@@ -63,6 +65,9 @@ private:
     void updateSummary();
     void checkAtFirst();
     void filter();
+    /// Adds the selected word to the dictionary (or ignores it) and removes
+    /// its rows.
+    void acceptWord(bool addToDictionary);
 
     QList<SpellingReviewItem> m_items;
     QTreeWidget* m_list = nullptr;
@@ -70,6 +75,7 @@ private:
     QComboBox* m_checkAtFirst = nullptr;
     QCheckBox* m_onlyChecked = nullptr;
     QLabel* m_searchTime = nullptr;
+    CodeEditSpelling* m_spelling = nullptr;
 };
 
 /// Reviews the misspelled words of the selection of the spelling's editor, or

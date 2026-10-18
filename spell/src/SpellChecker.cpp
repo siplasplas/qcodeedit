@@ -411,7 +411,7 @@ struct SpellChecker::Private {
     QSet<QString> ignored;
     mutable QHash<QString, bool> cache;
     mutable int cacheGeneration = -1;
-    HunspellSuggestions hunspellSuggestions = HunspellSuggestions::Always;
+    HunspellSuggestions hunspellSuggestions = HunspellSuggestions::WhenNoneFound;
 };
 
 SpellChecker::SpellChecker() : d(std::make_unique<Private>()) {}

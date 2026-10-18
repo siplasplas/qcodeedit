@@ -55,8 +55,8 @@ CheckedAtFirst checkedAtFirstFromName(const QString& name) {
 }
 
 SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& items, bool inSelection,
-                                           CheckedAtFirst checkedAtFirst, QWidget* parent)
-    : QDialog(parent), m_items(items) {
+                                           CheckedAtFirst checkedAtFirst, QWidget* parent, CodeEditSpelling* spelling)
+    : QDialog(parent), m_items(items), m_spelling(spelling) {
     setWindowTitle(tr("Review Spelling"));
     resize(760, 480);
     auto* layout = new QVBoxLayout(this);
@@ -141,6 +141,21 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
             if (row->flags() & Qt::ItemIsUserCheckable) row->setCheckState(WordColumn, state);
         }
     };
+    if (m_spelling) {
+        auto* add = buttons->addButton(tr("Add to &Dictionary"), QDialogButtonBox::ActionRole);
+        add->setToolTip(tr("The selected word is right: into the user dictionary, all its rows out of the list"));
+        auto* ignore = buttons->addButton(tr("&Ignore"), QDialogButtonBox::ActionRole);
+        ignore->setToolTip(tr("The selected word is right here: left as it is, all its rows out of the list"));
+        connect(add, &QPushButton::clicked, this, [this]() { acceptWord(true); });
+        connect(ignore, &QPushButton::clicked, this, [this]() { acceptWord(false); });
+        const auto updateButtons = [this, add, ignore]() {
+            const bool selected = m_list->currentItem() != nullptr;
+            add->setEnabled(selected);
+            ignore->setEnabled(selected);
+        };
+        connect(m_list, &QTreeWidget::currentItemChanged, this, updateButtons);
+        updateButtons();
+    }
     connect(all, &QPushButton::clicked, this, [checkAll]() { checkAll(Qt::Checked); });
     connect(none, &QPushButton::clicked, this, [checkAll]() { checkAll(Qt::Unchecked); });
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -196,11 +211,22 @@ void SpellingReviewDialog::filter() {
     }
 }
 
+void SpellingReviewDialog::acceptWord(bool addToDictionary) {
+    QTreeWidgetItem* current = m_list->currentItem();
+    if (!current || !m_spelling) return;
+    const QString word = current->text(WordColumn);
+    if (addToDictionary) m_spelling->addToDictionary(word);
+    else m_spelling->ignore(word);
+    for (int i = m_list->topLevelItemCount() - 1; i >= 0; --i)
+        if (m_list->topLevelItem(i)->text(WordColumn) == word) delete m_list->takeTopLevelItem(i);
+    updateSummary();
+}
+
 void SpellingReviewDialog::updateSummary() {
     int checked = 0;
     for (int i = 0; i < m_list->topLevelItemCount(); ++i)
         if (m_list->topLevelItem(i)->checkState(WordColumn) == Qt::Checked) ++checked;
-    m_summary->setText(tr("%1 of %2 words to correct").arg(checked).arg(m_items.size()));
+    m_summary->setText(tr("%1 of %2 words to correct").arg(checked).arg(m_list->topLevelItemCount()));
 }
 
 int reviewSpelling(CodeEditSpelling& spelling, CheckedAtFirst& checkedAtFirst, QWidget* parent) {
@@ -250,7 +276,7 @@ int reviewSpelling(CodeEditSpelling& spelling, CheckedAtFirst& checkedAtFirst, Q
         items.append(item);
     }
     progress.setValue(int(words.size()));
-    SpellingReviewDialog dialog(items, inSelection, checkedAtFirst, parent);
+    SpellingReviewDialog dialog(items, inSelection, checkedAtFirst, parent, &spelling);
     dialog.setSearchTime(searching.elapsed());
     const bool accepted = dialog.exec() == QDialog::Accepted;
     checkedAtFirst = dialog.checkedAtFirst();

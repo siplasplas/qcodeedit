@@ -119,8 +119,9 @@ public:
     /// typed word has not ("serach" → Serach, a name).
     static bool isConfident(const QString& word, const QList<Suggestion>& suggestions);
     /// Whether hunspell's own suggestions are added to those from the forms:
-    /// always (the default), or only when the forms have no candidate. They
-    /// take most of the time of a suggestion (about 18 of 25 ms a word).
+    /// only when the forms have no candidate (the default), or always. They
+    /// take most of the time of a suggestion (about 18 of 25 ms a word); on
+    /// a test list the results were the same.
     enum class HunspellSuggestions { Always, WhenNoneFound };
     void setHunspellSuggestions(HunspellSuggestions when);
     HunspellSuggestions hunspellSuggestions() const;

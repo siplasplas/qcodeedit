@@ -119,6 +119,10 @@ without a capital the typed word lacks: sure enough to apply without asking
 (correction while typing, checked at first in a review). On a list of 97 real
 typing mistakes 91 are first (hunspell alone: 71), 95 shown, 1.38 suggestions
 on average, 39 confident and all of those right, in about 25 ms each.
+A checker keeps the suggestions it found (per word) while its dictionaries,
+user words, corrections or frequencies stay the same, so a second review of a
+long text only looks for new words (6000 misspelled words: 45 s the first
+time, under a second afterwards).
 Hunspell's own suggestions take most of that time, so by default they are
 asked only when the forms have no candidate: the same results on that list
 (one tie broken differently elsewhere) in about 7 ms a word instead of 28;

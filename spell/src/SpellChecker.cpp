@@ -105,6 +105,7 @@ struct Loaded {
     // Read again when the file appears or changes (e.g. made by
     // buildWordFrequencies()).
     std::unique_ptr<detail::FrequencyTable> frequency;
+    int frequencyVersion = 0;  // changes when the table is read again
     QString frequencyFile;
     QDateTime frequencyModified;
     // Remaking the file from the downloaded list: 0 not tried, 1 running, 2
@@ -131,6 +132,7 @@ struct Loaded {
             frequency = std::make_unique<detail::FrequencyTable>(path);
             frequencyFile = path;
             frequencyModified = modified;
+            ++frequencyVersion;
         }
         return *frequency;
     }
@@ -464,6 +466,10 @@ struct SpellChecker::Private {
     mutable QHash<QString, bool> cache;
     mutable int cacheGeneration = -1;
     HunspellSuggestions hunspellSuggestions = HunspellSuggestions::WhenNoneFound;
+    // Suggestions found before (word and count), kept while nothing they
+    // depend on changes: e.g. a second review of a long text is at once.
+    mutable QHash<QString, QList<Suggestion>> suggestionCache;
+    mutable QString suggestionStamp;
 };
 
 SpellChecker::SpellChecker() : d(std::make_unique<Private>()) {}
@@ -473,6 +479,7 @@ void SpellChecker::setLanguages(const QStringList& languages) {
     d->names.clear();
     d->dictionaries.clear();
     d->cache.clear();
+    d->suggestionCache.clear();
     for (const QString& language : languages) {
         const QString name = dictionaryFor(language);
         if (name.isEmpty() || d->names.contains(name)) continue;
@@ -486,7 +493,10 @@ void SpellChecker::setLanguages(const QStringList& languages) {
 
 QStringList SpellChecker::dictionaries() const { return d->names; }
 
-void SpellChecker::setHunspellSuggestions(HunspellSuggestions when) { d->hunspellSuggestions = when; }
+void SpellChecker::setHunspellSuggestions(HunspellSuggestions when) {
+    d->hunspellSuggestions = when;
+    d->suggestionCache.clear();
+}
 
 SpellChecker::HunspellSuggestions SpellChecker::hunspellSuggestions() const { return d->hunspellSuggestions; }
 
@@ -528,6 +538,28 @@ QList<SpellChecker::Suggestion> SpellChecker::scoredSuggestions(const QString& w
         if (auto it = loaded->corrections.constFind(word); it != loaded->corrections.cend())
             return {{it.value(), 0, 0}};
     }
+    // Found before, unless the dictionaries (user words), the frequencies or
+    // the way of finding them changed since.
+    QString stamp = QString::number(registry().generation) + QLatin1Char('/')
+        + QString::number(int(d->hunspellSuggestions));
+    for (const auto& loaded : d->dictionaries) {
+        loaded->frequencies();
+        stamp += QLatin1Char('/') + QString::number(loaded->frequencyVersion);
+    }
+    if (stamp != d->suggestionStamp) {
+        d->suggestionCache.clear();
+        d->suggestionStamp = stamp;
+    }
+    const QString key = word + QChar(0x1f) + QString::number(maxCount);
+    if (auto it = d->suggestionCache.constFind(key); it != d->suggestionCache.cend()) return it.value();
+    bool indexed = false;
+    QList<Suggestion> result = findSuggestions(word, maxCount, &indexed);
+    // Without the forms (still being built) hunspell's alone: not kept.
+    if (indexed) d->suggestionCache.insert(key, result);
+    return result;
+}
+
+QList<SpellChecker::Suggestion> SpellChecker::findSuggestions(const QString& word, int maxCount, bool* indexedOut) const {
     std::vector<std::pair<double, QString>> candidates;
     bool indexed = false;
     for (const auto& loaded : d->dictionaries) {
@@ -551,6 +583,7 @@ QList<SpellChecker::Suggestion> SpellChecker::scoredSuggestions(const QString& w
             }
         }
     }
+    *indexedOut = indexed;
     if (!indexed) {
         QList<Suggestion> result;
         for (const QString& suggestion : hunspellOrder.mid(0, maxCount)) {

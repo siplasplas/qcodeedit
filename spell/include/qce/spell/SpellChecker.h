@@ -160,6 +160,7 @@ public:
     void refreshUserDictionary();
 
 private:
+    QList<Suggestion> findSuggestions(const QString& word, int maxCount, bool* indexed) const;
     bool hasFrequencies() const;
     /// Occurrences per million of the word's stem; negative when no
     /// dictionary with frequencies knows the word.

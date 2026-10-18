@@ -178,7 +178,8 @@ the selection's misspelled words (or the whole text's) and shows
 context, sorted as in the text, alphabetically or by score,
 checked at first as `CheckedAtFirst` says (sure corrections, words with a
 single suggestion, or every word; the application keeps the user's choice),
-"Show only checked words", and how long finding the corrections took. "Add to
+"Show" all words, only the checked ones or only the unchecked ones, and how
+long finding the corrections took. "Add to
 Dictionary" and "Ignore" take the selected word out of the list, every row of
 it (an English word or a coined one written on purpose). The checked words are
 replaced as one undo step.

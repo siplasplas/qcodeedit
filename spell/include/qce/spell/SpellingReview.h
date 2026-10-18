@@ -7,7 +7,6 @@
 #include <QPair>
 #include <QString>
 
-class QCheckBox;
 class QComboBox;
 class QLabel;
 class QTreeWidget;
@@ -45,10 +44,10 @@ struct SpellingReviewItem {
 /// The misspelled words of a text or a selection, each with a correction to
 /// choose, its score (how far it is: the lower, the closer), line and
 /// context, sorted as in the text, alphabetically or by score. Checked at
-/// first as CheckedAtFirst says (the
-/// user may change it); "Show only checked words" hides the others to look
-/// them over (applied when switched, so a word unchecked meanwhile stays in
-/// sight). With `spelling`, "Add to Dictionary" and "Ignore" take the
+/// first as CheckedAtFirst says (the user may change it). "Show" lists all
+/// words, only the checked ones (to look them over) or only the unchecked
+/// ones (left to decide), applied when chosen, so a word checked or
+/// unchecked meanwhile stays in sight. With `spelling`, "Add to Dictionary" and "Ignore" take the
 /// selected word out of the list, every occurrence of it ("careta" written on
 /// purpose). Correct accepts; chosenReplacements() gives the checked words.
 class SpellingReviewDialog : public QDialog {
@@ -76,7 +75,7 @@ private:
     QTreeWidget* m_list = nullptr;
     QLabel* m_summary = nullptr;
     QComboBox* m_checkAtFirst = nullptr;
-    QCheckBox* m_onlyChecked = nullptr;
+    QComboBox* m_show = nullptr;
     QLabel* m_searchTime = nullptr;
     CodeEditSpelling* m_spelling = nullptr;
 };

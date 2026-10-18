@@ -3,7 +3,6 @@
 #include <qce/CodeEditArea.h>
 #include <qce/ITextDocument.h>
 
-#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QElapsedTimer>
@@ -107,9 +106,16 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
                       Qt::ToolTipRole);
     options->addWidget(sort);
     options->addStretch();
-    m_onlyChecked = new QCheckBox(tr("Show &only checked words"), this);
-    m_onlyChecked->setToolTip(tr("Hides the unchecked words, to look over the corrections that will be made"));
-    options->addWidget(m_onlyChecked);
+    auto* showLabel = new QLabel(tr("Sh&ow:"), this);
+    options->addWidget(showLabel);
+    m_show = new QComboBox(this);
+    m_show->addItem(tr("All words"));
+    m_show->addItem(tr("Checked words"));
+    m_show->addItem(tr("Unchecked words"));
+    m_show->setToolTip(tr("Checked: to look over the corrections that will be made; unchecked: those left to "
+                          "decide (several suggestions, or not sure)"));
+    showLabel->setBuddy(m_show);
+    options->addWidget(m_show);
     layout->addLayout(options);
 
     m_list = new QTreeWidget(this);
@@ -165,7 +171,7 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     });
     // Applied when switched: a word unchecked while looking them over stays
     // in sight until then.
-    connect(m_onlyChecked, &QCheckBox::toggled, this, &SpellingReviewDialog::filter);
+    connect(m_show, &QComboBox::activated, this, &SpellingReviewDialog::filter);
 
     auto* status = new QHBoxLayout;
     m_summary = new QLabel(this);
@@ -248,10 +254,11 @@ void SpellingReviewDialog::checkAtFirst() {
 }
 
 void SpellingReviewDialog::filter() {
-    const bool only = m_onlyChecked->isChecked();
+    const int show = m_show->currentIndex();  // all, checked, unchecked
     for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
         QTreeWidgetItem* row = m_list->topLevelItem(i);
-        row->setHidden(only && row->checkState(WordColumn) != Qt::Checked);
+        const bool checked = row->checkState(WordColumn) == Qt::Checked;
+        row->setHidden((show == 1 && !checked) || (show == 2 && checked));
     }
 }
 

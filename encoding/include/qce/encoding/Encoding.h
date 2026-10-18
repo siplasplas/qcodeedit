@@ -72,6 +72,22 @@ struct EncodingDetection {
 EncodingDetection detectEncoding(const QByteArray& bytes, const QStringList& languages = {},
                                  double threshold = 0.95);
 
+/// A piece of the file shown in every option, for a person to choose.
+struct EncodingPreviewLine {
+    qsizetype byteOffset = 0; ///< start of the piece in the file
+    QStringList variants;     ///< the piece decoded by each option, in option order
+};
+
+/// Up to `maxLines` single-line pieces (about 80 bytes; "…" marks a cut line)
+/// where `options` decode the file differently, for a choice dialog. Lines
+/// with the most differing bytes come first, then in file order; keep that
+/// order: the lines that speak most against the best option are often
+/// unrepresentative (a fragment in another encoding) and would mislead.
+/// Undefined bytes and control characters show as U+FFFD. Empty for fewer
+/// than two options; single-byte code pages and UTF-8 only.
+QList<EncodingPreviewLine> previewEncodings(const QByteArray& bytes,
+                                            const QList<EncodingOption>& options, int maxLines = 5);
+
 struct DecodeResult {
     bool ok = false;
     /// The content with "\n" line breaks and without BOM, for

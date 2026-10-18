@@ -257,6 +257,20 @@ private slots:
                  QStringLiteral("cp1250"));
     }
 
+    // cp1250 and iso-8859-2 share the bytes of ó ł ż ę but not of ś (cp1250 9C).
+    void previewShowsOnlyDifferingLines() {
+        const QByteArray bytes("same in both: \xBF\xF3\xB3t\xEA\nonly cp1250: \x9Cwiat\n");
+        const QList<EncodingOption> options = {{QStringLiteral("cp1250"), {}, 0.5},
+                                               {QStringLiteral("iso-8859-2"), {}, 0.5}};
+        const QList<EncodingPreviewLine> lines = previewEncodings(bytes, options);
+        QCOMPARE(lines.size(), 1);
+        QCOMPARE(lines.front().variants.size(), 2);
+        QVERIFY(lines.front().variants[0].contains(QStringLiteral("świat")));
+        QVERIFY(lines.front().variants[0] != lines.front().variants[1]);
+        QVERIFY(lines.front().byteOffset >= bytes.indexOf('\n'));
+        QVERIFY(previewEncodings(bytes, {options.front()}).isEmpty());
+    }
+
     void decodeReportsDetectionOnlyWhenDetecting() {
         const DecodeResult detected = decode(kPolishCp1250);
         QVERIFY(detected.ok);

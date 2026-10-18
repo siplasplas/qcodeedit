@@ -227,6 +227,35 @@ EncodingDetection detectEncoding(const QByteArray& bytes, const QStringList& lan
     return result;
 }
 
+QList<EncodingPreviewLine> previewEncodings(const QByteArray& bytes,
+                                            const QList<EncodingOption>& options, int maxLines) {
+    QList<EncodingPreviewLine> result;
+    if (options.size() < 2 || maxLines <= 0) return result;
+    std::vector<DetectionResult> cpgOptions;
+    for (const EncodingOption& option : options) {
+        DetectionResult r;
+        r.codepage = toStd(option.encoding);  // preview() reads only the code page
+        cpgOptions.push_back(r);
+    }
+    std::lock_guard lock(cpg().mutex);
+    Cpg& c = cpg();
+    c.loadDetection();
+    if (!c.detector) return result;
+    try {
+        const auto lines = c.detector->preview(std::string_view(bytes.constData(), size_t(bytes.size())),
+                                               cpgOptions, size_t(maxLines));
+        for (const PreviewLine& line : lines) {
+            EncodingPreviewLine out;
+            out.byteOffset = qsizetype(line.byteOffset);
+            for (const std::string& variant : line.variants) out.variants << fromUtf8(variant);
+            result.append(out);
+        }
+    } catch (const std::exception&) {
+        result.clear();
+    }
+    return result;
+}
+
 QString detect(const QByteArray& bytes, const QStringList& languages) {
     return detectEncoding(bytes, languages).options.front().encoding;
 }

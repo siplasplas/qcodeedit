@@ -47,6 +47,10 @@ public:
     // --- Cursor ---
     TextCursor cursorPosition() const { return m_cursor; }
     void setCursorPosition(TextCursor pos);
+    /// The text position at `viewportPoint` (in viewport() coordinates), as a
+    /// click there would place the cursor; e.g. the word under a context-menu
+    /// click: cursorAt(viewport()->mapFrom(this, pos)).
+    TextCursor cursorAt(const QPoint& viewportPoint) const { return cursorFromPoint(viewportPoint); }
 
     // --- Selection ---
     bool hasSelection() const { return m_anchor != m_cursor; }

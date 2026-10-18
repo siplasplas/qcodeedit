@@ -99,8 +99,10 @@ letters, missing diacritics and a held AltGr keep the class; a letter too
 many, too few or wrong is a neighbouring class. Only those classes are
 ranked, by a weighted edit distance from the typed word: a missing diacritic
 0.3 (a typed one removed 0.6, or 0.3 right after another such letter: AltGr
-held, "żę" → "że"), two adjacent letters swapped 0.5, a missing letter 0.9,
-a letter too many 1, another letter 1.5, plus 1 for a split into two words and
+held, "żę" → "że"), two adjacent letters swapped 0.5 (a letter two places
+off 1, three places 1.5; a swap right after another adds 0.5, so "dziłaja"
+gives działają before działaj), a missing letter 0.9, a letter too many 1,
+another letter 1.5, plus 1 for a split into two words and
 0.4 for a capital (a proper name) the typed word does not have. Hunspell's
 suggestions are ranked the same way and break ties. Only suggestions close to
 the best are shown (at most 0.6 worse), three at most (or the requested number
@@ -119,10 +121,10 @@ A suggestion's stem (hunspell's) adds 0.3 for each tenfold below 1000 per
 million words; one not in the file counts as 0.3 per million (very rare); a
 two-word suggestion takes its rarer word's. Only suggestions at most 0.4 worse
 than the best are then shown. "dialac" gives działać (not dialach, dialag),
-"reczy" rzeczy (not ręczy). With counts from film subtitles 94 of 97 typing
-mistakes got the right word first (93 without) and it was always shown, 1.28
-suggestions on average; counts from Wikipedia did worse, its nouns and third
-person beating what people type.
+"reczy" rzeczy (not ręczy). With counts from film subtitles 95 of 97 typing
+mistakes got the right word first (94 without), 1.29 suggestions on average;
+counts from Wikipedia did worse, its nouns and third person beating what
+people type.
 
 A space missing or in the wrong place: `CodeEditSpelling::phraseCorrections()`
 joins the misspelled word with the word before or after it on its line (also

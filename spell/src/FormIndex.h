@@ -34,12 +34,21 @@ QString classKey(const QString& word);
 /// letter too many (deleted from it): letters are left out a bit more often.
 constexpr double kInsertCost = 0.9;
 constexpr double kDeleteCost = 1.0;
+/// A letter typed k places too early or too late (index k): one place, two
+/// adjacent letters swapped, is the usual slip of two hands; two places
+/// costs more, three much more (still less than deleting and inserting it).
+/// A move right after another adds kMoveAgainCost: two adjacent swaps in a
+/// row ("dziłaja" → "działaj": "ła"/"ał", "ja"/"aj") are a letter moved by
+/// three rather than two slips.
+constexpr double kMoveCost[] = {0, 0.5, 1.0, 1.5};
+constexpr double kMoveAgainCost = 0.5;
 
 /// Weighted Damerau–Levenshtein distance from the typed word `a` to `b`,
 /// case-insensitive: a missing diacritic or AltGr difference 0.3, a typed
-/// diacritic removed 0.6 (0.3 after another such letter: AltGr held), two
-/// adjacent letters swapped 0.5, a letter inserted 0.9 or deleted 1, another
-/// letter 1.5. Returns more than `limit` once it exceeds it.
+/// diacritic removed 0.6 (0.3 after another such letter: AltGr held), a
+/// letter moved by one to three places (kMoveCost), a letter inserted 0.9 or
+/// deleted 1, another letter 1.5. Returns more than `limit` once it exceeds
+/// it.
 double distance(const QString& a, const QString& b, double limit);
 
 /// distance() plus 1 for a candidate split into two words (space or hyphen)

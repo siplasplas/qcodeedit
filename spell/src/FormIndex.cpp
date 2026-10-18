@@ -166,14 +166,27 @@ QString classKey(const QString& word) {
 double distance(const QString& a, const QString& b, double limit) {
     const int n = int(a.size()), m = int(b.size());
     if (std::abs(n - m) > limit) return limit + 1;
-    std::vector<double> prev2(size_t(m + 1)), prev(size_t(m + 1)), cur(size_t(m + 1));
-    for (int j = 0; j <= m; ++j) prev[size_t(j)] = j * kInsertCost;
+    const size_t width = size_t(m + 1);
+    std::vector<double> dist(size_t(n + 1) * width);
+    // Cells reached by moving a letter: a move right after another costs more.
+    std::vector<char> moved(dist.size(), 0);
+    const auto at = [width](int i, int j) { return size_t(i) * width + size_t(j); };
+    for (int j = 0; j <= m; ++j) dist[at(0, j)] = j * kInsertCost;
     QString la = a.toLower(), lb = b.toLower();
     // A typed letter with a diacritic or from the AltGr level (not ASCII).
     const auto marked = [](QChar c) { return c.unicode() > 0x7F; };
+    // The last k + 1 letters of both words the same but for one letter typed
+    // k places too early or too late ("ał" as "ła": k = 1; "ała" as "łaa": 2).
+    const auto isMove = [&la, &lb](int i, int j, int k) {
+        const QStringView typed = QStringView(la).mid(i - k - 1, k + 1);
+        const QStringView meant = QStringView(lb).mid(j - k - 1, k + 1);
+        if (typed == meant) return false;
+        return (typed.front() == meant.back() && typed.mid(1) == meant.first(k))
+            || (typed.back() == meant.front() && typed.first(k) == meant.mid(1));
+    };
     for (int i = 1; i <= n; ++i) {
-        cur[0] = i * kDeleteCost;
-        double rowMin = cur[0];
+        dist[at(i, 0)] = i * kDeleteCost;
+        double rowMin = dist[at(i, 0)];
         for (int j = 1; j <= m; ++j) {
             const QChar x = la[i - 1], y = lb[j - 1];
             double change = 1.5;
@@ -186,18 +199,23 @@ double distance(const QString& a, const QString& b, double limit) {
                 const bool removesTyped = marked(x) && !marked(y);
                 change = removesTyped && !(i > 1 && marked(la[i - 2])) ? 0.6 : 0.3;
             }
-            double v = std::min({prev[size_t(j)] + kDeleteCost, cur[size_t(j - 1)] + kInsertCost,
-                                 prev[size_t(j - 1)] + change});
-            if (i > 1 && j > 1 && x == lb[j - 2] && la[i - 2] == y)
-                v = std::min(v, prev2[size_t(j - 2)] + 0.5);
-            cur[size_t(j)] = v;
+            double v = std::min({dist[at(i - 1, j)] + kDeleteCost, dist[at(i, j - 1)] + kInsertCost,
+                                 dist[at(i - 1, j - 1)] + change});
+            for (int k = 1; k < int(std::size(kMoveCost)); ++k) {
+                if (i <= k || j <= k || !isMove(i, j, k)) continue;
+                const size_t from = at(i - k - 1, j - k - 1);
+                const double w = dist[from] + kMoveCost[k] + (moved[from] ? kMoveAgainCost : 0);
+                if (w < v) {
+                    v = w;
+                    moved[at(i, j)] = 1;
+                }
+            }
+            dist[at(i, j)] = v;
             rowMin = std::min(rowMin, v);
         }
         if (rowMin > limit) return limit + 1;
-        std::swap(prev2, prev);
-        std::swap(prev, cur);
     }
-    return prev[size_t(m)];
+    return dist[at(n, m)];
 }
 
 double score(const QString& word, const QString& candidate, double limit) {

@@ -423,6 +423,12 @@ void CodeEditArea::setTabCaptured(bool captured) {
     m_tabCaptured = captured;
 }
 
+bool CodeEditArea::focusNextPrevChild(bool next) {
+    // Tab and Shift+Tab (without Ctrl or Alt) then reach keyPressEvent().
+    if (m_tabCaptured && !m_readOnly && m_doc) return false;
+    return QAbstractScrollArea::focusNextPrevChild(next);
+}
+
 void CodeEditArea::setReadOnly(bool ro) {
     if (m_readOnly == ro) return;
     m_readOnly = ro;

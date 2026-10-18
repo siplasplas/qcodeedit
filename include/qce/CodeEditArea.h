@@ -141,9 +141,11 @@ public:
     void setTabWidth(int spaces);
     int  tabWidth() const;
 
-    /// When true (default), Tab inserts spaces and Shift+Tab dedents.
-    /// When false, Tab / Shift+Tab pass through to Qt focus navigation.
-    /// Ctrl+Tab and Shift+Ctrl+Tab always pass through regardless.
+    /// When true (default), Tab inserts a tab character and Shift+Tab removes
+    /// one tab or up to tabWidth() spaces at the start of the line. When
+    /// false, and in a read-only view, Tab / Shift+Tab move the focus as in
+    /// other widgets. Ctrl+Tab and Shift+Ctrl+Tab always pass through (e.g.
+    /// to switch tabs).
     void setTabCaptured(bool captured);
     bool tabCaptured() const { return m_tabCaptured; }
 
@@ -240,6 +242,9 @@ protected:
     void changeEvent(QEvent* e) override;
     void scrollContentsBy(int dx, int dy) override;
     void keyPressEvent(QKeyEvent* e) override;
+    /// Qt handles Tab before keyPressEvent(), moving the focus, unless this
+    /// returns false: it does while Tab is captured.
+    bool focusNextPrevChild(bool next) override;
     void mousePressEvent(QMouseEvent* e) override;
     void mouseMoveEvent(QMouseEvent* e) override;
     void mouseReleaseEvent(QMouseEvent* e) override;

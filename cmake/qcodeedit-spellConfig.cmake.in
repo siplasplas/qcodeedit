@@ -1,0 +1,11 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Qt6 COMPONENTS Widgets)
+find_dependency(qcodeedit @PROJECT_VERSION@ REQUIRED)
+find_dependency(PkgConfig)
+pkg_check_modules(HUNSPELL REQUIRED IMPORTED_TARGET hunspell)
+
+include("${CMAKE_CURRENT_LIST_DIR}/qcodeedit-spellTargets.cmake")
+
+check_required_components(qcodeedit-spell)

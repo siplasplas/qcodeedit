@@ -10,6 +10,8 @@ option(QCE_BUILD_KATE_DOWNLOADER
        "Build qcodeedit-katedata (downloads Kate syntax/themes; needs Qt Network)" ON)
 option(QCE_BUILD_ENCODING
        "Build qcodeedit-encoding (code pages and UTF; needs cpg, ICU, zlib)" ON)
+option(QCE_BUILD_SPELL
+       "Build qcodeedit-spell (spell checking; needs hunspell, skipped without it)" ON)
 
 include(GNUInstallDirs)
 
@@ -192,6 +194,10 @@ endif()
 
 if(QCE_BUILD_ENCODING)
     add_subdirectory(encoding)
+endif()
+
+if(QCE_BUILD_SPELL)
+    add_subdirectory(spell)
 endif()
 
 if(QCE_BUILD_DEMO)

@@ -1,0 +1,353 @@
+#include <qce/spell/SpellChecker.h>
+
+#include <hunspell.hxx>
+
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QHash>
+#include <QLocale>
+#include <QSaveFile>
+#include <QStandardPaths>
+#include <QStringDecoder>
+#include <QStringEncoder>
+#include <QTextStream>
+
+#include <algorithm>
+
+namespace qce::spell {
+
+namespace {
+
+// cpg's language keys that are not ISO 639-1 codes.
+QString isoCode(const QString& language) {
+    static const QHash<QString, QString> cpg = {
+        {QStringLiteral("cz"), QStringLiteral("cs")}, {QStringLiteral("gr"), QStringLiteral("el")},
+        {QStringLiteral("dk"), QStringLiteral("da")}, {QStringLiteral("ua"), QStringLiteral("uk")},
+        {QStringLiteral("se"), QStringLiteral("sv")}, {QStringLiteral("jp"), QStringLiteral("ja")}};
+    const QString code = language.toLower();
+    return cpg.value(code, code);
+}
+
+QString languageOf(const QString& dictionaryName) {
+    return dictionaryName.section(QLatin1Char('_'), 0, 0).section(QLatin1Char('-'), 0, 0).toLower();
+}
+
+QString displayNameOf(const QString& dictionaryName) {
+    const QLocale locale(dictionaryName);
+    if (locale.language() == QLocale::C) return dictionaryName;
+    const QString language = QLocale::languageToString(locale.language());
+    return dictionaryName.contains(QLatin1Char('_')) || dictionaryName.contains(QLatin1Char('-'))
+        ? QStringLiteral("%1 (%2)").arg(language, QLocale::territoryToString(locale.territory()))
+        : language;
+}
+
+// Hunspell's names for encodings, as Qt knows them.
+QString qtEncodingName(const std::string& hunspellName) {
+    const QString name = QString::fromStdString(hunspellName).trimmed();
+    if (name.compare(QLatin1String("microsoft-cp1251"), Qt::CaseInsensitive) == 0)
+        return QStringLiteral("windows-1251");
+    return name.isEmpty() ? QStringLiteral("ISO-8859-1") : name;
+}
+
+// A dictionary loaded once for the program, with the shared user dictionary.
+struct Loaded {
+    std::unique_ptr<Hunspell> hunspell;
+    QString encoding;
+    bool utf8 = false;
+    QString userPath;
+    QDateTime userModified;
+    QSet<QString> userWords;
+
+    std::string encode(const QString& word) const {
+        if (utf8) return word.toStdString();
+        QStringEncoder encoder(encoding.toLatin1().constData());
+        const QByteArray bytes = encoder(word);
+        return encoder.hasError() ? std::string() : bytes.toStdString();
+    }
+    QString decode(const std::string& text) const {
+        if (utf8) return QString::fromStdString(text);
+        QStringDecoder decoder(encoding.toLatin1().constData());
+        return decoder(QByteArray::fromStdString(text));
+    }
+    // Adds the user dictionary's words that are new (another program may
+    // have added some).
+    bool refreshUserWords() {
+        const QFileInfo info(userPath);
+        if (!info.exists() || info.lastModified() == userModified) return false;
+        userModified = info.lastModified();
+        QFile file(userPath);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
+        bool added = false;
+        QTextStream in(&file);
+        while (!in.atEnd()) {
+            const QString word = in.readLine().trimmed();
+            if (word.isEmpty() || userWords.contains(word)) continue;
+            userWords.insert(word);
+            hunspell->add(encode(word));
+            added = true;
+        }
+        return added;
+    }
+};
+
+struct Registry {
+    QHash<QString, std::shared_ptr<Loaded>> loaded;
+    int generation = 0;  // changes when any dictionary gains words
+
+    std::shared_ptr<Loaded> load(const QString& name) {
+        if (auto it = loaded.find(name); it != loaded.end()) return it.value();
+        std::shared_ptr<Loaded> result;
+        for (const Dictionary& dictionary : installedDictionaries()) {
+            if (dictionary.name != name) continue;
+            result = std::make_shared<Loaded>();
+            result->hunspell = std::make_unique<Hunspell>(QFile::encodeName(dictionary.affPath).constData(),
+                                                          QFile::encodeName(dictionary.dicPath).constData());
+            result->encoding = qtEncodingName(result->hunspell->get_dict_encoding());
+            result->utf8 = result->encoding.compare(QLatin1String("UTF-8"), Qt::CaseInsensitive) == 0;
+            result->userPath = userDictionaryPath(name);
+            result->refreshUserWords();
+            break;
+        }
+        loaded.insert(name, result);
+        return result;
+    }
+};
+
+Registry& registry() {
+    static Registry instance;
+    return instance;
+}
+
+bool isWordChar(QChar c) {
+    return c.isLetterOrNumber() || c.isMark() || c == QLatin1Char('_');
+}
+
+bool isApostrophe(QChar c) {
+    return c == QLatin1Char('\'') || c == QChar(0x2019);
+}
+
+// Tokens that are code or addresses rather than prose.
+bool isTechnicalToken(const QString& token) {
+    if (token.contains(QLatin1String("://")) || token.contains(QLatin1String("::"))
+            || token.contains(QLatin1String("->")) || token.contains(QLatin1Char('/'))
+            || token.contains(QLatin1Char('\\')))
+        return true;
+    if (token.contains(QLatin1Char('@')) && token.contains(QLatin1Char('.'))) return true;
+    for (int i = 1; i + 1 < token.size(); ++i)  // a.b: member access, file name, domain
+        if (token[i] == QLatin1Char('.') && token[i - 1].isLetterOrNumber() && token[i + 1].isLetterOrNumber())
+            return true;
+    return false;
+}
+
+bool worthChecking(const QString& word) {
+    int letters = 0, upper = 0;
+    for (int i = 0; i < word.size(); ++i) {
+        const QChar c = word[i];
+        if (c.isDigit() || c == QLatin1Char('_')) return false;
+        if (!c.isLetter()) continue;
+        ++letters;
+        if (c.isUpper()) {
+            ++upper;
+            // An inner capital after a lowercase letter: camelCase, PascalCase.
+            if (i > 0 && word[i - 1].isLower()) return false;
+        }
+    }
+    if (letters < 2) return false;
+    return upper < letters;  // ALL-CAPS: an acronym or constant
+}
+
+} // namespace
+
+QStringList dictionaryDirectories() {
+    QStringList directories;
+    for (const QString& path : qEnvironmentVariable("DICPATH").split(QLatin1Char(':'), Qt::SkipEmptyParts))
+        directories << path;
+    const QString user = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    if (!user.isEmpty()) directories << user + QStringLiteral("/hunspell");
+    directories << QStringLiteral("/usr/share/hunspell") << QStringLiteral("/usr/share/myspell")
+                << QStringLiteral("/usr/share/myspell/dicts");
+    return directories;
+}
+
+QList<Dictionary> installedDictionaries() {
+    QList<Dictionary> result;
+    QSet<QString> seen;
+    for (const QString& directory : dictionaryDirectories()) {
+        const QDir dir(directory);
+        for (const QFileInfo& dic : dir.entryInfoList({QStringLiteral("*.dic")}, QDir::Files)) {
+            const QString name = dic.completeBaseName();
+            // Hyphenation patterns and thesauri share the extension.
+            if (name.startsWith(QLatin1String("hyph_")) || name.startsWith(QLatin1String("th_"))
+                    || seen.contains(name))
+                continue;
+            const QString aff = dir.filePath(name + QStringLiteral(".aff"));
+            if (!QFileInfo::exists(aff)) continue;
+            seen.insert(name);
+            result.append({name, languageOf(name), displayNameOf(name), aff, dic.absoluteFilePath()});
+        }
+    }
+    std::sort(result.begin(), result.end(), [](const Dictionary& a, const Dictionary& b) {
+        return QString::localeAwareCompare(a.displayName, b.displayName) < 0;
+    });
+    return result;
+}
+
+QString dictionaryFor(const QString& language) {
+    if (language.isEmpty()) return {};
+    const QList<Dictionary> dictionaries = installedDictionaries();
+    for (const Dictionary& dictionary : dictionaries)
+        if (dictionary.name == language) return dictionary.name;
+    const QString code = isoCode(language);
+    // The language's own country first (pl_PL, de_DE, cs_CZ); English: en_US.
+    const QString preferred = code == QLatin1String("en") ? QStringLiteral("en_US")
+        : code == QLatin1String("cs") ? QStringLiteral("cs_CZ")
+        : code + QLatin1Char('_') + code.toUpper();
+    for (const Dictionary& dictionary : dictionaries)
+        if (dictionary.name == preferred) return dictionary.name;
+    QString first;
+    for (const Dictionary& dictionary : dictionaries)
+        if (dictionary.language == code && (first.isEmpty() || dictionary.name < first)) first = dictionary.name;
+    return first;
+}
+
+QString packageHint(const QString& language) {
+    const QString code = isoCode(languageOf(language));
+    if (code.isEmpty()) return {};
+    static const QHash<QString, QString> packages = {
+        {QStringLiteral("en"), QStringLiteral("hunspell-en-us")}, {QStringLiteral("de"), QStringLiteral("hunspell-de-de")},
+        {QStringLiteral("pt"), QStringLiteral("hunspell-pt-pt")}, {QStringLiteral("sv"), QStringLiteral("hunspell-sv")},
+        {QStringLiteral("nb"), QStringLiteral("hunspell-no")}, {QStringLiteral("nn"), QStringLiteral("hunspell-no")}};
+    return packages.value(code, QStringLiteral("hunspell-") + code);
+}
+
+QString userDictionaryPath(const QString& dictionaryName) {
+    const QString base = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    if (base.isEmpty()) return {};
+    return base + QStringLiteral("/siplasplas/spell/") + languageOf(dictionaryName) + QStringLiteral(".dic");
+}
+
+struct SpellChecker::Private {
+    QStringList names;
+    QList<std::shared_ptr<Loaded>> dictionaries;
+    QSet<QString> ignored;
+    mutable QHash<QString, bool> cache;
+    mutable int cacheGeneration = -1;
+};
+
+SpellChecker::SpellChecker() : d(std::make_unique<Private>()) {}
+SpellChecker::~SpellChecker() = default;
+
+void SpellChecker::setLanguages(const QStringList& languages) {
+    d->names.clear();
+    d->dictionaries.clear();
+    d->cache.clear();
+    for (const QString& language : languages) {
+        const QString name = dictionaryFor(language);
+        if (name.isEmpty() || d->names.contains(name)) continue;
+        if (auto loaded = registry().load(name)) {
+            if (loaded->refreshUserWords()) ++registry().generation;
+            d->names << name;
+            d->dictionaries << loaded;
+        }
+    }
+}
+
+QStringList SpellChecker::dictionaries() const { return d->names; }
+
+bool SpellChecker::isReady() const { return !d->dictionaries.isEmpty(); }
+
+bool SpellChecker::check(const QString& word) const {
+    if (d->dictionaries.isEmpty() || word.isEmpty() || d->ignored.contains(word)) return true;
+    if (d->cacheGeneration != registry().generation) {
+        d->cache.clear();
+        d->cacheGeneration = registry().generation;
+    }
+    if (auto it = d->cache.constFind(word); it != d->cache.cend()) return it.value();
+    bool right = false;
+    for (const auto& loaded : d->dictionaries) {
+        const std::string encoded = loaded->encode(word);
+        if (!encoded.empty() && loaded->hunspell->spell(encoded)) {
+            right = true;
+            break;
+        }
+    }
+    d->cache.insert(word, right);
+    return right;
+}
+
+QStringList SpellChecker::suggestions(const QString& word, int maxCount) const {
+    QStringList result;
+    for (const auto& loaded : d->dictionaries) {
+        const std::string encoded = loaded->encode(word);
+        if (encoded.empty()) continue;
+        for (const std::string& suggestion : loaded->hunspell->suggest(encoded)) {
+            const QString text = loaded->decode(suggestion);
+            if (!text.isEmpty() && !result.contains(text)) result << text;
+            if (result.size() >= maxCount) return result;
+        }
+    }
+    return result;
+}
+
+void SpellChecker::addToDictionary(const QString& word) {
+    if (d->dictionaries.isEmpty() || word.trimmed().isEmpty()) return;
+    const std::shared_ptr<Loaded>& loaded = d->dictionaries.front();
+    if (!loaded->userWords.contains(word)) {
+        QDir().mkpath(QFileInfo(loaded->userPath).absolutePath());
+        QFile file(loaded->userPath);
+        if (file.open(QIODevice::Append | QIODevice::Text)) {
+            QTextStream(&file) << word << '\n';
+            file.close();
+        }
+        loaded->userWords.insert(word);
+        loaded->userModified = QFileInfo(loaded->userPath).lastModified();
+    }
+    loaded->hunspell->add(loaded->encode(word));
+    ++registry().generation;
+}
+
+void SpellChecker::refreshUserDictionary() {
+    for (const auto& loaded : d->dictionaries)
+        if (loaded->refreshUserWords()) ++registry().generation;
+}
+
+void SpellChecker::ignore(const QString& word) {
+    d->ignored.insert(word);
+    d->cache.remove(word);
+}
+
+QList<QPair<int, int>> checkableWords(const QString& text, int start, int end) {
+    QList<QPair<int, int>> words;
+    start = qBound(0, start, int(text.size()));
+    end = qBound(start, end, int(text.size()));
+    int i = start;
+    while (i < end) {
+        while (i < end && text[i].isSpace()) ++i;
+        const int tokenStart = i;
+        while (i < end && !text[i].isSpace()) ++i;
+        const QString token = text.mid(tokenStart, i - tokenStart);
+        if (token.isEmpty() || isTechnicalToken(token)) continue;
+        // Words inside the token: word characters, with apostrophes between
+        // letters ("don't"); hyphens separate words.
+        int j = 0;
+        while (j < token.size()) {
+            while (j < token.size() && !isWordChar(token[j])) ++j;
+            const int wordStart = j;
+            while (j < token.size()) {
+                if (isWordChar(token[j])) ++j;
+                else if (isApostrophe(token[j]) && j > wordStart && j + 1 < token.size()
+                         && token[j - 1].isLetter() && token[j + 1].isLetter())
+                    ++j;
+                else
+                    break;
+            }
+            if (j > wordStart && worthChecking(token.mid(wordStart, j - wordStart)))
+                words.append({tokenStart + wordStart, j - wordStart});
+        }
+    }
+    return words;
+}
+
+} // namespace qce::spell

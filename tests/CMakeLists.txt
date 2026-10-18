@@ -125,6 +125,14 @@ qce_add_test(test_code_edit_area_keys)
 qce_add_test(test_code_edit_area_input_method)
 qce_add_test(test_extra_selections INTERNAL)
 
+# Spell checking with the system's hunspell dictionaries (skips without them).
+if(TARGET qcodeedit::spell AND TARGET qcodeedit::kate)
+    add_executable(test_spell test_spell.cpp)
+    target_link_libraries(test_spell PRIVATE qcodeedit::spell qcodeedit::kate Qt6::Test)
+    add_test(NAME test_spell COMMAND test_spell)
+    set_tests_properties(test_spell PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
 # Code pages, detection and the editor's encoding guard (needs cpg).
 if(TARGET qcodeedit::encoding)
     add_executable(test_encoding test_encoding.cpp)

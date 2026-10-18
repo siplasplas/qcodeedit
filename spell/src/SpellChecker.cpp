@@ -26,6 +26,11 @@ namespace qce::spell {
 
 namespace {
 
+// How common each word of a split must be, per million words, when word
+// frequencies are known: a single letter is rarely a word of its own.
+constexpr double kPhraseWordPerMillion = 1;
+constexpr double kPhraseLetterPerMillion = 300;
+
 // cpg's language keys that are not ISO 639-1 codes.
 QString isoCode(const QString& language) {
     static const QHash<QString, QString> cpg = {
@@ -454,6 +459,12 @@ bool SpellChecker::check(const QString& word) const {
 // order breaks ties. Without any index (still being built, or a dictionary
 // it does not support) hunspell's suggestions in its order.
 QStringList SpellChecker::suggestions(const QString& word, int maxCount) const {
+    QStringList texts;
+    for (const Suggestion& suggestion : scoredSuggestions(word, maxCount)) texts << suggestion.text;
+    return texts;
+}
+
+QList<SpellChecker::Suggestion> SpellChecker::scoredSuggestions(const QString& word, int maxCount) const {
     QStringList hunspellOrder;
     for (const auto& loaded : d->dictionaries) {
         const std::string encoded = loaded->encode(word);
@@ -473,7 +484,12 @@ QStringList SpellChecker::suggestions(const QString& word, int maxCount) const {
                               std::make_move_iterator(found.end()));
         }
     }
-    if (!indexed) return hunspellOrder.mid(0, maxCount);
+    if (!indexed) {
+        QList<Suggestion> result;
+        for (const QString& suggestion : hunspellOrder.mid(0, maxCount))
+            result.append({suggestion, detail::score(word, suggestion, detail::kSuggestionLimit)});
+        return result;
+    }
     // Hunspell's own (e.g. words of the user dictionary) count with our distance too.
     QSet<QString> known;
     for (const auto& candidate : candidates) known.insert(candidate.second.toLower());
@@ -486,18 +502,11 @@ QStringList SpellChecker::suggestions(const QString& word, int maxCount) const {
     // (none from the dictionaries without frequencies or not knowing the
     // word); a candidate split into words ("dial ac") takes its rarest
     // word's. Only the candidates that could still be shown are looked up.
-    bool withFrequency = false;
-    for (const auto& loaded : d->dictionaries) withFrequency = withFrequency || !loaded->frequencies().isEmpty();
+    const bool withFrequency = hasFrequencies();
     if (withFrequency && !candidates.empty()) {
         const auto wordPenalty = [this](const QString& part) {
-            double penalty = -1;
-            for (const auto& loaded : d->dictionaries) {
-                const double perMillion = loaded->perMillion(part);
-                if (perMillion < 0) continue;
-                const double p = detail::frequencyPenalty(perMillion);
-                penalty = penalty < 0 ? p : std::min(penalty, p);
-            }
-            return penalty;
+            const double perMillion = this->perMillion(part);
+            return perMillion < 0 ? 0.0 : detail::frequencyPenalty(perMillion);
         };
         static const QRegularExpression separator(QStringLiteral("[ -]"));
         double best = candidates.front().first;
@@ -511,24 +520,52 @@ QStringList SpellChecker::suggestions(const QString& word, int maxCount) const {
             dist += penalty;
         }
     }
-    return detail::rankSuggestions(word, std::move(candidates), maxCount, hunspellOrder,
-                                   withFrequency ? detail::kCloseToBestWithFrequency : detail::kCloseToBest);
+    QList<Suggestion> result;
+    for (auto& [score, text] : detail::rankSuggestions(word, std::move(candidates), maxCount, hunspellOrder,
+                                                        withFrequency ? detail::kCloseToBestWithFrequency
+                                                                      : detail::kCloseToBest))
+        result.append({std::move(text), score});
+    return result;
+}
+
+bool SpellChecker::isConfident(const QString& word, const QList<Suggestion>& suggestions) {
+    if (suggestions.size() != 1 || suggestions.front().score > detail::kConfidentScore + 1e-9) return false;
+    // A capital the word has not (a proper name, "serach" → Serach) is asked.
+    const QString& text = suggestions.front().text;
+    return !(word == word.toLower() && text != text.toLower());
+}
+
+bool SpellChecker::hasFrequencies() const {
+    for (const auto& loaded : d->dictionaries)
+        if (!loaded->frequencies().isEmpty()) return true;
+    return false;
+}
+
+// The most frequent of the dictionaries that have frequencies and know the word.
+double SpellChecker::perMillion(const QString& word) const {
+    double best = -1;
+    for (const auto& loaded : d->dictionaries) best = std::max(best, loaded->perMillion(word));
+    return best;
 }
 
 QStringList SpellChecker::splitSuggestions(const QString& first, const QString& second, int maxCount) const {
     const QString joined = first + second;
     const int original = int(first.size());
-    std::vector<std::pair<int, QString>> found;
-    for (int split = 1; split < joined.size(); ++split) {
-        if (split == original) continue;  // the words as typed
-        const QString left = joined.left(split), right = joined.mid(split);
-        if (check(left) && check(right)) found.emplace_back(std::abs(split - original), left + QLatin1Char(' ') + right);
-    }
-    std::stable_sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    // With frequencies, both words must be common: a split into rare words
+    // ("sie z" → "si ez") is seldom what was meant, and a single letter must
+    // be a word of its own (Polish "w", "z", "i"; not "d" of "d asie").
+    const bool withFrequency = hasFrequencies();
+    const auto common = [&](const QString& part) {
+        if (!withFrequency) return true;
+        return perMillion(part) >= (part.size() == 1 ? kPhraseLetterPerMillion : kPhraseWordPerMillion);
+    };
     QStringList result;
-    for (const auto& [moved, phrase] : found) {
+    // The space moved by one letter, to the left first.
+    for (const int split : {original - 1, original + 1}) {
         if (int(result.size()) >= maxCount) break;
-        result << phrase;
+        if (split < 1 || split >= joined.size()) continue;
+        const QString left = joined.left(split), right = joined.mid(split);
+        if (check(left) && check(right) && common(left) && common(right)) result << left + QLatin1Char(' ') + right;
     }
     return result;
 }

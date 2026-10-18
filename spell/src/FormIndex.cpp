@@ -163,6 +163,49 @@ QString classKey(const QString& word) {
     return key;
 }
 
+namespace {
+
+// The keys of the letters on a QWERTY keyboard: row, and column in key widths
+// (the rows are staggered by a quarter and half a key).
+struct KeyPosition {
+    int row = -1;
+    double column = 0;
+};
+
+KeyPosition keyPosition(QChar c) {
+    static const char* const rows[] = {"qwertyuiop", "asdfghjkl", "zxcvbnm"};
+    static const double offsets[] = {0, 0.25, 0.75};
+    const QChar key = foldChar(c);
+    if (key.unicode() > 0x7F) return {};
+    for (int row = 0; row < 3; ++row)
+        if (const char* found = std::strchr(rows[row], char(key.unicode())); found && *found)
+            return {row, offsets[row] + double(found - rows[row])};
+    return {};
+}
+
+} // namespace
+
+// foldChar() of each letter, in order.
+QString foldWord(const QString& word) {
+    QString folded = word;
+    for (QChar& c : folded) c = foldChar(c);
+    return folded;
+}
+
+int handOf(QChar c) {
+    const KeyPosition key = keyPosition(c);
+    if (key.row < 0) return -1;
+    // Left hand: q–t, a–g, z–b; right hand the rest.
+    static const double firstRight[] = {5, 5.25, 5.75};
+    return key.column < firstRight[key.row] ? 0 : 1;
+}
+
+bool keysTouch(QChar a, QChar b) {
+    const KeyPosition x = keyPosition(a), y = keyPosition(b);
+    if (x.row < 0 || y.row < 0 || std::abs(x.row - y.row) > 1) return false;
+    return std::abs(x.column - y.column) < (x.row == y.row ? 1.1 : 0.9);
+}
+
 double distance(const QString& a, const QString& b, double limit) {
     const int n = int(a.size()), m = int(b.size());
     if (std::abs(n - m) > limit) return limit + 1;
@@ -175,17 +218,44 @@ double distance(const QString& a, const QString& b, double limit) {
     QString la = a.toLower(), lb = b.toLower();
     // A typed letter with a diacritic or from the AltGr level (not ASCII).
     const auto marked = [](QChar c) { return c.unicode() > 0x7F; };
-    // The last k + 1 letters of both words the same but for one letter typed
-    // k places too early or too late ("ał" as "ła": k = 1; "ała" as "łaa": 2).
-    const auto isMove = [&la, &lb](int i, int j, int k) {
-        const QStringView typed = QStringView(la).mid(i - k - 1, k + 1);
-        const QStringView meant = QStringView(lb).mid(j - k - 1, k + 1);
-        if (typed == meant) return false;
-        return (typed.front() == meant.back() && typed.mid(1) == meant.first(k))
-            || (typed.back() == meant.front() && typed.first(k) == meant.mid(1));
+    const QString fa = foldWord(la), fb = foldWord(lb);
+    // The cost of the last k + 1 letters of both words being the same but for
+    // one letter typed k places too early or too late ("ał" as "ła": k = 1;
+    // "ała" as "łaa": 2), compared without diacritics, each missing one
+    // adding its cost ("ci" as "ić"); negative when they are not.
+    const auto moveCost = [&](int i, int j, int k) -> double {
+        const QStringView typed = QStringView(fa).mid(i - k - 1, k + 1);
+        const QStringView meant = QStringView(fb).mid(j - k - 1, k + 1);
+        if (typed == meant) return -1;
+        // `early`: the first typed letter belongs at the end.
+        const bool early = typed.front() == meant.back() && typed.mid(1) == meant.first(k);
+        const bool late = typed.back() == meant.front() && typed.first(k) == meant.mid(1);
+        if (!early && !late) return -1;
+        double cost = kMoveCost[k];
+        if (k == 1) {
+            const int h1 = handOf(la[i - 2]), h2 = handOf(la[i - 1]);
+            cost = h1 >= 0 && h1 == h2 ? kSwapOneHandCost : kSwapTwoHandsCost;
+        }
+        for (int p = 0; p <= k; ++p) {
+            const int t = i - k - 1 + p;
+            const int q = early ? (p == 0 ? j - 1 : j - k - 1 + p - 1) : (p == k ? j - k - 1 : j - k - 1 + p + 1);
+            if (la[t] != lb[q]) cost += 0.3;
+        }
+        return cost;
+    };
+    // A letter too many, typed between the meant letters lb[j - 1] and lb[j]:
+    // cheaper when its key touches both (or repeats one), a little when it
+    // touches one.
+    const auto deleteCost = [&la, &lb, m](int i, int j) {
+        const QChar x = la[i - 1];
+        const bool before = j > 0 && keysTouch(x, lb[j - 1]);
+        const bool after = j < m && keysTouch(x, lb[j]);
+        const bool repeats = (j > 0 && foldChar(x) == foldChar(lb[j - 1])) || (j < m && foldChar(x) == foldChar(lb[j]));
+        if (repeats || (before && after)) return kDeleteTouchingCost;
+        return before || after ? kDeleteTouchingOneCost : kDeleteCost;
     };
     for (int i = 1; i <= n; ++i) {
-        dist[at(i, 0)] = i * kDeleteCost;
+        dist[at(i, 0)] = dist[at(i - 1, 0)] + deleteCost(i, 0);
         double rowMin = dist[at(i, 0)];
         for (int j = 1; j <= m; ++j) {
             const QChar x = la[i - 1], y = lb[j - 1];
@@ -199,12 +269,14 @@ double distance(const QString& a, const QString& b, double limit) {
                 const bool removesTyped = marked(x) && !marked(y);
                 change = removesTyped && !(i > 1 && marked(la[i - 2])) ? 0.6 : 0.3;
             }
-            double v = std::min({dist[at(i - 1, j)] + kDeleteCost, dist[at(i, j - 1)] + kInsertCost,
+            double v = std::min({dist[at(i - 1, j)] + deleteCost(i, j), dist[at(i, j - 1)] + kInsertCost,
                                  dist[at(i - 1, j - 1)] + change});
             for (int k = 1; k < int(std::size(kMoveCost)); ++k) {
-                if (i <= k || j <= k || !isMove(i, j, k)) continue;
+                if (i <= k || j <= k) continue;
+                const double cost = moveCost(i, j, k);
+                if (cost < 0) continue;
                 const size_t from = at(i - k - 1, j - k - 1);
-                const double w = dist[from] + kMoveCost[k] + (moved[from] ? kMoveAgainCost : 0);
+                const double w = dist[from] + cost + (moved[from] ? kMoveAgainCost : 0);
                 if (w < v) {
                     v = w;
                     moved[at(i, j)] = 1;
@@ -541,8 +613,10 @@ double frequencyPenalty(double perMillion) {
     return f >= kCommonPerMillion ? 0.0 : kFrequencyWeight * std::log10(kCommonPerMillion / f);
 }
 
-QStringList rankSuggestions(const QString& word, std::vector<std::pair<double, QString>> candidates,
-                            int maxCount, const QStringList& preferred, double closeToBest) {
+std::vector<std::pair<double, QString>> rankSuggestions(const QString& word,
+                                                        std::vector<std::pair<double, QString>> candidates,
+                                                        int maxCount, const QStringList& preferred,
+                                                        double closeToBest) {
     const auto rank = [&preferred](const QString& form) {
         const qsizetype i = preferred.indexOf(form);
         return i < 0 ? preferred.size() : i;
@@ -554,8 +628,13 @@ QStringList rankSuggestions(const QString& word, std::vector<std::pair<double, Q
         if (a.second.size() != b.second.size()) return a.second.size() < b.second.size();
         return a.second < b.second;
     });
-    QStringList result;
+    std::vector<std::pair<double, QString>> result;
     if (candidates.empty()) return result;
+    const auto shown = [&result](const QString& form) {
+        return std::any_of(result.cbegin(), result.cend(), [&form](const auto& kept) {
+            return kept.second.compare(form, Qt::CaseInsensitive) == 0;
+        });
+    };
     const bool allCaps = word.size() > 1 && word == word.toUpper();
     const bool capitalized = !allCaps && !word.isEmpty() && word[0].isUpper();
     for (const auto& [dist, candidate] : candidates) {
@@ -563,13 +642,19 @@ QStringList rankSuggestions(const QString& word, std::vector<std::pair<double, Q
         // (The small allowance keeps a candidate exactly kCloseToBest behind,
         // e.g. 0.3 + 0.6 summed as 0.9000001.)
         if (int(result.size()) >= std::min(maxCount, kMaxShown)
-                || dist > candidates.front().first + closeToBest + 1e-9)
+                || dist > candidates.front().first + closeToBest + 1e-9 || dist > kShownLimit + 1e-9)
             break;
+        // A candidate differing only in case keeps its own ("warszawa" →
+        // Warszawa); the others follow the word's.
         QString form = candidate;
-        if (allCaps) form = form.toUpper();
-        else if (capitalized) form[0] = form[0].toUpper();
+        if (form.compare(word, Qt::CaseInsensitive) == 0) {
+        } else if (allCaps) {
+            form = form.toUpper();
+        } else if (capitalized) {
+            form[0] = form[0].toUpper();
+        }
         // One of the forms differing only in case: the better one.
-        if (!result.contains(form, Qt::CaseInsensitive)) result.append(form);
+        if (!shown(form)) result.emplace_back(dist, form);
     }
     return result;
 }

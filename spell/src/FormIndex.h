@@ -30,25 +30,41 @@ QChar foldChar(QChar c);
 /// The class of a word: foldChar() of its letters, sorted.
 QString classKey(const QString& word);
 
+/// The hand that types a letter on a QWERTY keyboard (Polish diacritics and
+/// AltGr characters as their keys): 0 left, 1 right, -1 not a letter key.
+int handOf(QChar c);
+/// Two letters whose keys touch on a QWERTY keyboard (or the same key).
+bool keysTouch(QChar a, QChar b);
+
 /// Costs of a letter missing in the typed word (inserted into it) and of a
-/// letter too many (deleted from it): letters are left out a bit more often.
-constexpr double kInsertCost = 0.9;
-constexpr double kDeleteCost = 1.0;
-/// A letter typed k places too early or too late (index k): one place, two
-/// adjacent letters swapped, is the usual slip of two hands; two places
-/// costs more, three much more (still less than deleting and inserting it).
-/// A move right after another adds kMoveAgainCost: two adjacent swaps in a
-/// row ("dziłaja" → "działaj": "ła"/"ał", "ja"/"aj") are a letter moved by
-/// three rather than two slips.
+/// letter too many (deleted from it): a letter is more often typed by the
+/// way than left out, most often a key touching both meant letters around
+/// it, or one of them twice ("bhyc": h between b and y), less when it touches
+/// one of them.
+constexpr double kInsertCost = 1.0;
+constexpr double kDeleteCost = 0.9;
+constexpr double kDeleteTouchingCost = 0.5;
+constexpr double kDeleteTouchingOneCost = 0.7;
+/// A letter typed k places too early or too late (index k). One place, two
+/// adjacent letters swapped, is the usual slip when the two hands type them
+/// ("po poslku": s left, l right, kSwapTwoHandsCost), less likely with one
+/// hand ("serach": r and a both left, kSwapOneHandCost); two places cost more, three much more (still less than deleting and inserting
+/// the letter). A move right after another adds kMoveAgainCost: two adjacent
+/// swaps in a row ("dziłaja" → "działaj": "ła"/"ał", "ja"/"aj") are a letter
+/// moved by three rather than two slips. A moved letter that also lacks its
+/// diacritic adds the diacritic's cost ("dzielci" → "dzielić").
+constexpr double kSwapTwoHandsCost = 0.5;
+constexpr double kSwapOneHandCost = 1.0;
 constexpr double kMoveCost[] = {0, 0.5, 1.0, 1.5};
 constexpr double kMoveAgainCost = 0.5;
 
 /// Weighted Damerau–Levenshtein distance from the typed word `a` to `b`,
 /// case-insensitive: a missing diacritic or AltGr difference 0.3, a typed
 /// diacritic removed 0.6 (0.3 after another such letter: AltGr held), a
-/// letter moved by one to three places (kMoveCost), a letter inserted 0.9 or
-/// deleted 1, another letter 1.5. Returns more than `limit` once it exceeds
-/// it.
+/// letter moved by one to three places (kMoveCost, by hands for one place),
+/// a letter missing 1, one too many 0.9 (0.5 or 0.7 when its key touches the
+/// meant letters around it),
+/// another letter 1.5. Returns more than `limit` once it exceeds it.
 double distance(const QString& a, const QString& b, double limit);
 
 /// distance() plus 1 for a candidate split into two words (space or hyphen)
@@ -116,12 +132,22 @@ constexpr double kVeryRarePerMillion = 0.3;
 constexpr double kFrequencyWeight = 0.3;
 double frequencyPenalty(double perMillion);
 
-/// Up to `maxCount` of the candidates, best first, only those at most
-/// `closeToBest` worse than the best (a threshold, not always maxCount); ties
-/// keep the order of `preferred` (e.g. hunspell's suggestions), then the
-/// shorter. The case follows `word` (Capitalized, ALL CAPS).
-QStringList rankSuggestions(const QString& word, std::vector<std::pair<double, QString>> candidates,
-                            int maxCount, const QStringList& preferred, double closeToBest = kCloseToBest);
+/// Suggestions scoring more (too far from the typed word, e.g. "bookamrk" →
+/// bookami) are not shown at all.
+constexpr double kShownLimit = 2.6;
+/// A single suggestion scoring at most this is sure enough to be applied
+/// without asking (correction while typing, checked at first in a review).
+constexpr double kConfidentScore = 0.8;
+
+/// Up to `maxCount` of the candidates with their scores, best first, only
+/// those at most `closeToBest` worse than the best (a threshold, not always
+/// maxCount) and at most kShownLimit; ties keep the order of `preferred`
+/// (e.g. hunspell's suggestions), then the shorter. The case follows `word`
+/// (Capitalized, ALL CAPS).
+std::vector<std::pair<double, QString>> rankSuggestions(const QString& word,
+                                                        std::vector<std::pair<double, QString>> candidates,
+                                                        int maxCount, const QStringList& preferred,
+                                                        double closeToBest = kCloseToBest);
 
 class FormIndex {
 public:

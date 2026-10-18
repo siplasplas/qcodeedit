@@ -99,16 +99,25 @@ letters, missing diacritics and a held AltGr keep the class; a letter too
 many, too few or wrong is a neighbouring class. Only those classes are
 ranked, by a weighted edit distance from the typed word: a missing diacritic
 0.3 (a typed one removed 0.6, or 0.3 right after another such letter: AltGr
-held, "żę" → "że"), two adjacent letters swapped 0.5 (a letter two places
-off 1, three places 1.5; a swap right after another adds 0.5, so "dziłaja"
-gives działają before działaj), a missing letter 0.9, a letter too many 1,
-another letter 1.5, plus 1 for a split into two words and
+held, "żę" → "że"), two adjacent letters swapped 0.5 when the two hands type
+them on a QWERTY keyboard and 1 when one hand does ("serach" for "search": r
+and a both left), a letter two places off 1, three places 1.5 (a swap right
+after another adds 0.5, so "dziłaja" gives działają before działaj; a moved
+letter also lacking its diacritic adds 0.3, "dzielci" → dzielić), a missing
+letter 1, a letter too many 0.9, or 0.5 when its key touches both meant
+letters around it or repeats one ("bhyc": h between b and y) and 0.7 when it
+touches one, another letter 1.5, plus 1 for a split into two words and
 0.4 for a capital (a proper name) the typed word does not have. Hunspell's
 suggestions are ranked the same way and break ties. Only suggestions close to
 the best are shown (at most 0.6 worse), three at most (or the requested number
-if smaller). On a list of 96 real typing mistakes 91 were first (hunspell
-alone: 71) and the right word was always among those shown, 1.77 suggestions
-on average, one for half of the words, in about 25 ms each.
+if smaller), and none scoring more than 2.6 (with the frequency penalty
+below), so a word far from every dictionary word ("bookamrk" without an
+English dictionary) has no suggestion. `SpellChecker::scoredSuggestions()`
+gives the scores; `isConfident()` tells a single suggestion scoring at most 0.8
+without a capital the typed word lacks: sure enough to apply without asking
+(correction while typing, checked at first in a review). On a list of 97 real
+typing mistakes 91 are first (hunspell alone: 71), 95 shown, 1.38 suggestions
+on average, 35 confident and all of those right, in about 25 ms each.
 
 Word frequency, when installed for the dictionary's language, puts common
 words before rare ones: `siplasplas/spell/freq/<language>.lemma.freq` in a
@@ -135,18 +144,19 @@ makes such files too, also from a text corpus.
 A suggestion's stem (hunspell's) adds 0.3 for each tenfold below 1000 per
 million words; one not in the file counts as 0.3 per million (very rare); a
 two-word suggestion takes its rarer word's. Only suggestions at most 0.4 worse
-than the best are then shown. "dialac" gives działać (not dialach, dialag),
-"reczy" rzeczy (not ręczy). With counts from film subtitles 95 of 97 typing
-mistakes got the right word first (94 without), 1.29 suggestions on average;
-counts from Wikipedia did worse, its nouns and third person beating what
-people type.
+than the best are then shown. "dialac" gives działać (not dialach, dialag).
+Counts from film subtitles did better than from Wikipedia, whose nouns and
+third person beat what people type.
 
-A space missing or in the wrong place: `CodeEditSpelling::phraseCorrections()`
-joins the misspelled word with the word before or after it on its line (also
-a single letter) and splits the letters elsewhere into two right words
+A space in the wrong place: `CodeEditSpelling::phraseCorrections()` joins the
+misspelled word with the word before or after it on its line (also a single
+letter) and moves the space by one letter into two right words
 (`SpellChecker::splitSuggestions()`): "n aoknie" → "na oknie", "mam yz" →
-"mamy z". Each correction covers both words and is applied with
-`replaceWord()` as one undo step; the space moved least comes first. A split
+"mamy z". With word frequencies both words must be in them, a single letter
+only if it is a word of its own (at least 300 per million: Polish "w", "z",
+not "d" of "da sie" → "d asie"). Each correction covers both words and is
+applied with `replaceWord()` as one undo step; applications offer them after
+the word's own suggestions, and never apply them without asking. A split
 that also needs a correction ("daj eodległosc" → "daje odległość") is not
 found yet.
 
@@ -156,9 +166,9 @@ underlines, even when most of them are right in another language), and
 `replaceWords()` replaces several words or phrases, each with its correction,
 as one undo step.
 
-`setCorrectWhileTyping(true)` (off by default) corrects a misspelled word with a
-single correction when a space or punctuation is typed right after it: one
-suggestion, or a moved space ending at the word. Pasted text is not corrected
+`setCorrectWhileTyping(true)` (off by default) corrects a misspelled word when
+a space or punctuation is typed right after it, if its single suggestion is
+confident (see above) and no moved space is offered instead. Pasted text is not corrected
 (only typed keys count), nor a word right in another installed language. The
 correction is its own undo step, so undo brings back the word as typed;
 `corrected()` reports it, e.g. for a status bar.

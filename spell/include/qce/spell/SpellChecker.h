@@ -103,13 +103,27 @@ public:
     /// hunspell's alone until the file is ready or for a dictionary it does
     /// not support.
     QStringList suggestions(const QString& word, int maxCount = 8) const;
+    /// The same with their scores: the distance from the typed word plus the
+    /// penalty for a rare word (lower is better). Those too far are left out,
+    /// so a word may have none.
+    struct Suggestion {
+        QString text;
+        double score = 0;
+    };
+    QList<Suggestion> scoredSuggestions(const QString& word, int maxCount = 8) const;
+    /// A single suggestion close enough to apply without asking (correction
+    /// while typing, checked at first in a review); a far one ("bookamrk" →
+    /// bookami, "agents" → agent) is only offered, and so is a capital the
+    /// typed word has not ("serach" → Serach, a name).
+    static bool isConfident(const QString& word, const QList<Suggestion>& suggestions);
     /// The suggestion files of the dictionaries in use are ready (or not
     /// possible for them); starts building them when needed.
     bool suggestionIndexReady() const;
-    /// Two words typed with a space missing or in the wrong place: the
-    /// letters of `first` and `second` joined and split elsewhere into two
-    /// right words, "w1 w2", the space moved least first (e.g. "n", "aoknie"
-    /// → "na oknie"; "mam", "yz" → "mamy z"); at most `maxCount`.
+    /// Two words typed with the space one letter off: the letters of `first`
+    /// and `second` joined and split one letter to the left or right into two
+    /// right words, "w1 w2" (e.g. "n", "aoknie" → "na oknie"; "mam", "yz" →
+    /// "mamy z"); with word frequencies both words must be in them (not "d
+    /// asie" for "da sie"); at most `maxCount`.
     QStringList splitSuggestions(const QString& first, const QString& second, int maxCount = 3) const;
 
     /// Adds the word to the shared user dictionary of the first dictionary in
@@ -122,6 +136,11 @@ public:
     void refreshUserDictionary();
 
 private:
+    bool hasFrequencies() const;
+    /// Occurrences per million of the word's stem; negative when no
+    /// dictionary with frequencies knows the word.
+    double perMillion(const QString& word) const;
+
     struct Private;
     std::unique_ptr<Private> d;
 };

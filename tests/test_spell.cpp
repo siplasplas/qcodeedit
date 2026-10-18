@@ -242,6 +242,13 @@ private slots:
     // as one undo step, an overlapping range skipped.
     void misspelledWordsAndReplaceWords() {
         if (!installed(QStringLiteral("pl"))) QSKIP("No Polish dictionary (hunspell-pl)");
+        // With frequencies the words of a moved space must be common.
+        const QString counts = m_home.filePath(QStringLiteral("pl_review.txt"));
+        QFile list(counts);
+        QVERIFY(list.open(QIODevice::WriteOnly | QIODevice::Text));
+        list.write("na 9000\noknie 3000\nkot 1000\n");
+        list.close();
+        QVERIFY(buildWordFrequencies(QStringLiteral("pl_PL"), counts));
         CodeEditArea area;
         auto* doc = new SimpleTextDocument(&area);
         area.setDocument(doc);
@@ -272,22 +279,29 @@ private slots:
         QCOMPARE(doc->lineAt(0), QStringLiteral("Stoi n aoknie kot, tlyko teraz."));
     }
 
-    // A word with a single correction is corrected when a space is typed
-    // after it, only when asked, not in pasted text; undo brings it back.
+    // A word with a single close correction is corrected when a space is
+    // typed after it, only when asked, not in pasted text; undo brings it
+    // back. One farther off is only offered.
     void correctsWhileTyping() {
         if (!installed(QStringLiteral("pl"))) QSKIP("No Polish dictionary (hunspell-pl)");
-        // Frequencies known for the test: "tylko" common, "tyko" very rare,
-        // so "tlyko" has a single suggestion.
+        // Frequencies known for the test: "być" common, its neighbours very
+        // rare, so "bhyc" (h typed between b and y) has a single suggestion.
         const QString counts = m_home.filePath(QStringLiteral("pl_typing.txt"));
         QFile list(counts);
         QVERIFY(list.open(QIODevice::WriteOnly | QIODevice::Text));
-        list.write("tylko 9000\ni 5000\nja 3000\n");
+        list.write("być 9000\ni 5000\nja 3000\nagent 1000\n");
         list.close();
         QVERIFY(buildWordFrequencies(QStringLiteral("pl_PL"), counts));
         SpellChecker checker;
         checker.setLanguages({QStringLiteral("pl")});
         QTRY_VERIFY_WITH_TIMEOUT(checker.suggestionIndexReady(), 60000);
-        QCOMPARE(checker.suggestions(QStringLiteral("tlyko")), QStringList{QStringLiteral("tylko")});
+        const auto bhyc = checker.scoredSuggestions(QStringLiteral("bhyc"));
+        QCOMPARE(checker.suggestions(QStringLiteral("bhyc")), QStringList{QStringLiteral("być")});
+        QVERIFY(SpellChecker::isConfident(QStringLiteral("bhyc"), bhyc));
+        // A letter too many that touches neither neighbour: offered, not sure.
+        const auto agents = checker.scoredSuggestions(QStringLiteral("agents"));
+        QCOMPARE(agents.size(), 1);
+        QVERIFY(!SpellChecker::isConfident(QStringLiteral("agents"), agents));
 
         CodeEditArea area;
         auto* doc = new SimpleTextDocument(&area);
@@ -298,26 +312,30 @@ private slots:
         spelling.setLanguages({QStringLiteral("pl")});
         QSignalSpy corrected(&spelling, &CodeEditSpelling::corrected);
         QVERIFY(!spelling.correctsWhileTyping());
-        QTest::keyClicks(&area, QStringLiteral("Ja tlyko "));
+        QTest::keyClicks(&area, QStringLiteral("Ja bhyc "));
         QCoreApplication::processEvents();
-        QCOMPARE(doc->lineAt(0), QStringLiteral("Ja tlyko "));
+        QCOMPARE(doc->lineAt(0), QStringLiteral("Ja bhyc "));
 
         spelling.setCorrectWhileTyping(true);
-        QTest::keyClicks(&area, QStringLiteral("i tlyko "));
-        QTRY_COMPARE(doc->lineAt(0), QStringLiteral("Ja tlyko i tylko "));
-        QCOMPARE(area.cursorPosition(), (TextCursor{0, 17}));
+        QTest::keyClicks(&area, QStringLiteral("i bhyc "));
+        QTRY_COMPARE(doc->lineAt(0), QStringLiteral("Ja bhyc i być "));
+        QCOMPARE(area.cursorPosition(), (TextCursor{0, 14}));
         QCOMPARE(corrected.size(), 1);
-        QCOMPARE(corrected.at(0).at(0).toString(), QStringLiteral("tlyko"));
-        QCOMPARE(corrected.at(0).at(1).toString(), QStringLiteral("tylko"));
+        QCOMPARE(corrected.at(0).at(0).toString(), QStringLiteral("bhyc"));
+        QCOMPARE(corrected.at(0).at(1).toString(), QStringLiteral("być"));
         // The correction is its own step: the typing stays.
         area.undoStack()->undo();
-        QCOMPARE(doc->lineAt(0), QStringLiteral("Ja tlyko i tlyko "));
+        QCOMPARE(doc->lineAt(0), QStringLiteral("Ja bhyc i bhyc "));
         area.undoStack()->redo();
-        QCOMPARE(doc->lineAt(0), QStringLiteral("Ja tlyko i tylko "));
+        QCOMPARE(doc->lineAt(0), QStringLiteral("Ja bhyc i być "));
 
-        area.insertText(QStringLiteral("tlyko "));
+        area.insertText(QStringLiteral("bhyc "));
         QCoreApplication::processEvents();
-        QCOMPARE(doc->lineAt(0), QStringLiteral("Ja tlyko i tylko tlyko "));
+        QCOMPARE(doc->lineAt(0), QStringLiteral("Ja bhyc i być bhyc "));
+        // Not sure enough: left as typed.
+        QTest::keyClicks(&area, QStringLiteral("agents "));
+        QCoreApplication::processEvents();
+        QCOMPARE(doc->lineAt(0), QStringLiteral("Ja bhyc i być bhyc agents "));
         QCOMPARE(corrected.size(), 1);
     }
 

@@ -123,14 +123,11 @@ void CodeEditSpelling::correctTypedWord(TextCursor at, QChar typed) {
     if (!word || word->end.column != at.column) return;
     // A word of another installed language is meant, not mistyped.
     if (inOtherLanguage(word->word)) return;
-    // Only a single correction: a moved space ending at the word ("mam yz" →
-    // "mamy z") or one suggestion.
-    QList<PhraseCorrection> choices;
-    for (const auto& phrase : phraseCorrections(*word, 2))
-        if (phrase.range.end <= word->end) choices.append(phrase);
-    for (const QString& suggestion : m_checker.suggestions(word->word, 2)) choices.append({*word, suggestion});
-    if (choices.size() != 1) return;
-    const PhraseCorrection& correction = choices.front();
+    // Only a single suggestion, close to the word, and no moved space to
+    // choose instead: anything less sure is left for the menu.
+    const auto suggestions = m_checker.scoredSuggestions(word->word, 2);
+    if (!SpellChecker::isConfident(word->word, suggestions) || !phraseCorrections(*word, 1).isEmpty()) return;
+    const PhraseCorrection correction{*word, suggestions.front().text};
     m_area->undoStack()->push(new ReplaceWordCommand(m_area, correction.range.start, correction.range.end,
                                                      correction.replacement, true));
     emit corrected(correction.range.word, correction.replacement);

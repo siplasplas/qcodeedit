@@ -48,10 +48,10 @@ public:
     void setEnabled(bool enabled);
     bool isEnabled() const { return m_enabled; }
 
-    /// Off by default. On: a misspelled word with a single correction (one
-    /// suggestion, or a moved space ending at it: "mam yz" → "mamy z") is
-    /// corrected when a space or punctuation is typed right after it; not in
-    /// pasted text, not a word right in another installed language. The
+    /// Off by default. On: a misspelled word with a single suggestion close
+    /// to it (SpellChecker::isConfident()) and no moved space to choose
+    /// instead is corrected when a space or punctuation is typed right after
+    /// it; not in pasted text, not a word right in another installed language. The
     /// correction is its own undo step: undo brings back the word as typed.
     void setCorrectWhileTyping(bool correct);
     bool correctsWhileTyping() const { return m_correctWhileTyping; }
@@ -70,6 +70,11 @@ public:
     /// Suggestions for a word, up to `maxCount`.
     QStringList suggestions(const QString& word, int maxCount = 8) const {
         return m_checker.suggestions(word, maxCount);
+    }
+    /// Suggestions with their scores (see SpellChecker::scoredSuggestions(),
+    /// SpellChecker::isConfident()).
+    QList<SpellChecker::Suggestion> scoredSuggestions(const QString& word, int maxCount = 8) const {
+        return m_checker.scoredSuggestions(word, maxCount);
     }
     /// Replaces a misspelled word as one undo step.
     void replaceWord(const Misspelling& misspelling, const QString& replacement);

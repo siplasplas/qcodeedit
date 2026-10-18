@@ -17,8 +17,9 @@ namespace {
 constexpr int kMarginLines = 20;
 // Checking waits this long after the last edit or scroll.
 constexpr int kDelayMs = 150;
-// With at least this many words checked, more than half of them wrong means
-// the text is in another language, and nothing is underlined.
+// With at least this many words checked, more than half of them wrong, and
+// most of those right in another installed language, the text is in that
+// language, and nothing is underlined.
 constexpr int kLanguageWords = 5;
 
 // Replaces a range as one undo step and leaves the cursor after the new text.
@@ -166,9 +167,19 @@ void CodeEditSpelling::recheck() {
             }
         }
     }
-    // Most words wrong: the text is in another language than the dictionaries
-    // (e.g. before the application has detected it), not full of mistakes.
-    if (words >= kLanguageWords && underlines.size() * 2 > words) underlines.clear();
+    // Most words wrong, and most of those right in another installed language:
+    // the text is in that language (e.g. before the application has detected
+    // it), not full of mistakes. Wrong words no dictionary knows stay
+    // underlined, however many.
+    if (words >= kLanguageWords && underlines.size() * 2 > words) {
+        int otherLanguage = 0;
+        for (const ExtraSelection& underline : underlines) {
+            const QString word = doc->lineAt(underline.start.line)
+                                     .mid(underline.start.column, underline.end.column - underline.start.column);
+            if (inOtherLanguage(word)) ++otherLanguage;
+        }
+        if (otherLanguage * 2 > underlines.size()) underlines.clear();
+    }
     m_area->setExtraSelections(CodeEditArea::SpellingLayer, underlines);
     emit checked();
 }
@@ -193,6 +204,29 @@ std::optional<CodeEditSpelling::Misspelling> CodeEditSpelling::misspelledWordAt(
 void CodeEditSpelling::replaceWord(const Misspelling& misspelling, const QString& replacement) {
     if (!m_area || !m_area->document() || m_area->readOnly()) return;
     m_area->undoStack()->push(new ReplaceWordCommand(m_area, misspelling.start, misspelling.end, replacement));
+}
+
+// One dictionary for each installed language not in use, loaded the first
+// time it is needed and again when the languages in use change.
+bool CodeEditSpelling::inOtherLanguage(const QString& word) {
+    const QStringList inUse = m_checker.dictionaries();
+    if (!m_otherLanguages || m_otherLanguagesFor != inUse) {
+        QSet<QString> usedLanguages;
+        QStringList others;
+        const QList<Dictionary> installed = installedDictionaries();
+        for (const Dictionary& dictionary : installed)
+            if (inUse.contains(dictionary.name)) usedLanguages.insert(dictionary.language);
+        for (const Dictionary& dictionary : installed) {
+            if (usedLanguages.contains(dictionary.language)) continue;
+            usedLanguages.insert(dictionary.language);
+            others << dictionaryFor(dictionary.language);
+        }
+        m_otherLanguages = std::make_unique<SpellChecker>();
+        m_otherLanguages->setLanguages(others);
+        m_otherLanguagesFor = inUse;
+    }
+    // check() accepts everything when no dictionary is in use.
+    return m_otherLanguages->isReady() && m_otherLanguages->check(word);
 }
 
 void CodeEditSpelling::addToDictionary(const QString& word) {

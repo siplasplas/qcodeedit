@@ -7,6 +7,7 @@
 #include <QObject>
 #include <QPointer>
 
+#include <memory>
 #include <optional>
 
 class QTimer;
@@ -24,9 +25,11 @@ namespace qce::spell {
 /// be checked (CodeEditArea::spellCheckRanges(): comments, strings and
 /// documentation in code, all of plain text). The word being typed is
 /// checked once a space or punctuation ends it or the cursor leaves it. When
-/// most words are wrong (at least 5 checked) the text is taken to be in
-/// another language and nothing is underlined, e.g. before the application
-/// has detected the language of a new or pasted text. Gives the application what its context menu
+/// most words are wrong (at least 5 checked) and most of those are right in
+/// another installed language, the text is taken to be in that language and
+/// nothing is underlined, e.g. before the application has detected the
+/// language of a new or pasted text; wrong words no dictionary knows stay
+/// underlined, however many. Gives the application what its context menu
 /// needs: the misspelled word under the cursor, suggestions, replacing the
 /// word as one undo step, adding to the dictionary and ignoring.
 class CodeEditSpelling : public QObject {
@@ -81,6 +84,11 @@ private:
     QPointer<CodeEditArea> m_area;
     QPointer<ITextDocument> m_document;  // whose changes trigger a check
     SpellChecker m_checker;
+    /// Whether a word is right in an installed language not in use (to tell
+    /// a text in another language from one full of mistakes).
+    bool inOtherLanguage(const QString& word);
+    std::unique_ptr<SpellChecker> m_otherLanguages;
+    QStringList m_otherLanguagesFor;  ///< the dictionaries in use it was made for
     QTimer* m_timer = nullptr;
     QColor m_color{Qt::red};
     bool m_enabled = true;

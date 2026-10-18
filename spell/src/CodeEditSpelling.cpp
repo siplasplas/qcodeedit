@@ -294,18 +294,21 @@ QList<CodeEditSpelling::Misspelling> CodeEditSpelling::misspelledWords(TextCurso
 
 void CodeEditSpelling::replaceWords(const QList<QPair<Misspelling, QString>>& replacements) {
     if (!m_area || !m_area->document() || m_area->readOnly() || replacements.isEmpty()) return;
+    // The first of overlapping ranges wins.
+    QList<QPair<Misspelling, QString>> ordered;
+    for (const auto& replacement : replacements) {
+        const bool overlaps = std::any_of(ordered.cbegin(), ordered.cend(), [&](const auto& kept) {
+            return replacement.first.start < kept.first.end && kept.first.start < replacement.first.end;
+        });
+        if (!overlaps) ordered.append(replacement);
+    }
     // From the end, so that a replacement does not move the ranges before it.
-    QList<QPair<Misspelling, QString>> ordered = replacements;
     std::sort(ordered.begin(), ordered.end(),
               [](const auto& a, const auto& b) { return b.first.start < a.first.start; });
     QUndoStack* stack = m_area->undoStack();
     stack->beginMacro(QObject::tr("Correct Spelling"));
-    TextCursor limit{INT_MAX, INT_MAX};
-    for (const auto& [range, replacement] : ordered) {
-        if (limit < range.end) continue;  // overlaps the one after it
+    for (const auto& [range, replacement] : ordered)
         stack->push(new ReplaceWordCommand(m_area, range.start, range.end, replacement));
-        limit = range.start;
-    }
     stack->endMacro();
 }
 

@@ -78,7 +78,7 @@ public:
     /// underlines, also when most of them are right in another language.
     QList<Misspelling> misspelledWords(TextCursor from, TextCursor to);
     /// Replaces several words (or phrases), each with its replacement, as one
-    /// undo step; ranges overlapping an earlier one are skipped.
+    /// undo step; a range overlapping one earlier in the list is skipped.
     void replaceWords(const QList<QPair<Misspelling, QString>>& replacements);
     /// Corrections of a space missing or in the wrong place: the misspelled
     /// word joined with the word before or after it on its line (also one

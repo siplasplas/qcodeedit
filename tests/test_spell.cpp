@@ -182,6 +182,38 @@ private slots:
         QVERIFY(second.check(QStringLiteral("gicioriański")));
     }
 
+    // A list of forms with counts becomes stem counts in the cache, and common
+    // words then come before rare ones ("dialac": działać, not dialach).
+    void wordFrequenciesFromFormCounts() {
+        if (!installed(QStringLiteral("pl"))) QSKIP("No Polish dictionary (hunspell-pl)");
+        if (hasWordFrequencies(QStringLiteral("pl"))) QSKIP("Polish word frequencies installed system-wide");
+        SpellChecker checker;
+        checker.setLanguages({QStringLiteral("pl")});
+        // The forms of the dictionary are needed for the ranking (a few seconds).
+        QTRY_VERIFY_WITH_TIMEOUT(checker.suggestionIndexReady(), 60000);
+        QCOMPARE(checker.suggestions(QStringLiteral("dialac")).value(0), QStringLiteral("dialach"));
+
+        const QString counts = m_home.filePath(QStringLiteral("pl_counts.txt"));
+        QFile list(counts);
+        QVERIFY(list.open(QIODevice::WriteOnly | QIODevice::Text));
+        // rzeczy: two stems (rzecz, rzeczy); xyzzyq: unknown; dial: below 98 %.
+        list.write("działać 6000\ndziałają 3000\nrzeczy 1000\nxyzzyq 500\ndial 1\n");
+        list.close();
+        QString error;
+        QVERIFY2(buildWordFrequencies(QStringLiteral("pl_PL"), counts, &error), qPrintable(error));
+        QVERIFY(hasWordFrequencies(QStringLiteral("pl")));
+
+        QFile file(m_home.filePath(QStringLiteral("cache/siplasplas/spell/freq/pl.lemma.freq")));
+        QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QStringList lines = QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        QCOMPARE(lines, (QStringList{QStringLiteral("# 10501 words in pl_counts.txt, 10001 known to pl_PL"),
+                                     QStringLiteral("działać\t9000"), QStringLiteral("rzecz\t500"),
+                                     QStringLiteral("rzeczy\t500")}));
+
+        // Read at the next suggestions, without a restart.
+        QCOMPARE(checker.suggestions(QStringLiteral("dialac")).value(0), QStringLiteral("działać"));
+    }
+
     // As the area's child (no parent given) the spelling is deleted after the
     // area's own part; it must not touch the area then. Needs no dictionary.
     void deletedWithItsArea() {

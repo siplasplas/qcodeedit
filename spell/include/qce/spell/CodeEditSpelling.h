@@ -65,6 +65,13 @@ public:
     }
     /// Replaces a misspelled word as one undo step.
     void replaceWord(const Misspelling& misspelling, const QString& replacement);
+    /// All misspelled words in [from, to), in order, where checking applies
+    /// (e.g. for reviewing the whole text or the selection); unlike the
+    /// underlines, also when most of them are right in another language.
+    QList<Misspelling> misspelledWords(TextCursor from, TextCursor to);
+    /// Replaces several words (or phrases), each with its replacement, as one
+    /// undo step; ranges overlapping an earlier one are skipped.
+    void replaceWords(const QList<QPair<Misspelling, QString>>& replacements);
     /// Corrections of a space missing or in the wrong place: the misspelled
     /// word joined with the word before or after it on its line (also one
     /// letter long) and split into two right words ("n aoknie" → "na

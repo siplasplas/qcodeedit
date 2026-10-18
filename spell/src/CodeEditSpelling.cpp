@@ -206,6 +206,43 @@ void CodeEditSpelling::replaceWord(const Misspelling& misspelling, const QString
     m_area->undoStack()->push(new ReplaceWordCommand(m_area, misspelling.start, misspelling.end, replacement));
 }
 
+QList<CodeEditSpelling::Misspelling> CodeEditSpelling::misspelledWords(TextCursor from, TextCursor to) {
+    QList<Misspelling> result;
+    if (!m_area || !m_area->document() || !m_enabled || !m_checker.isReady()) return result;
+    m_checker.refreshUserDictionary();
+    ITextDocument* doc = m_area->document();
+    const int lastLine = qMin(to.line, doc->lineCount() - 1);
+    for (int line = qMax(0, from.line); line <= lastLine; ++line) {
+        const QString text = doc->lineAt(line);
+        for (const auto& range : m_area->spellCheckRanges(line)) {
+            for (const auto& word : checkableWords(text, range.first, range.second)) {
+                const TextCursor start{line, word.first}, end{line, word.first + word.second};
+                if (start < from || to < end) continue;
+                const QString found = text.mid(word.first, word.second);
+                if (!m_checker.check(found)) result.append({start, end, found});
+            }
+        }
+    }
+    return result;
+}
+
+void CodeEditSpelling::replaceWords(const QList<QPair<Misspelling, QString>>& replacements) {
+    if (!m_area || !m_area->document() || m_area->readOnly() || replacements.isEmpty()) return;
+    // From the end, so that a replacement does not move the ranges before it.
+    QList<QPair<Misspelling, QString>> ordered = replacements;
+    std::sort(ordered.begin(), ordered.end(),
+              [](const auto& a, const auto& b) { return b.first.start < a.first.start; });
+    QUndoStack* stack = m_area->undoStack();
+    stack->beginMacro(QObject::tr("Correct Spelling"));
+    TextCursor limit{INT_MAX, INT_MAX};
+    for (const auto& [range, replacement] : ordered) {
+        if (limit < range.end) continue;  // overlaps the one after it
+        stack->push(new ReplaceWordCommand(m_area, range.start, range.end, replacement));
+        limit = range.start;
+    }
+    stack->endMacro();
+}
+
 QList<CodeEditSpelling::PhraseCorrection> CodeEditSpelling::phraseCorrections(const Misspelling& misspelling,
                                                                               int maxCount) const {
     QList<PhraseCorrection> result;

@@ -149,3 +149,9 @@ a single letter) and splits the letters elsewhere into two right words
 `replaceWord()` as one undo step; the space moved least comes first. A split
 that also needs a correction ("daj eodległosc" → "daje odległość") is not
 found yet.
+
+For reviewing a whole text or a selection, `CodeEditSpelling::misspelledWords()`
+lists every misspelled word of a range (also lines never shown; unlike the
+underlines, even when most of them are right in another language), and
+`replaceWords()` replaces several words or phrases, each with its correction,
+as one undo step.

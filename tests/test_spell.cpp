@@ -35,6 +35,8 @@ private slots:
         m_cppSyntax = kateSyntaxPath(QStringLiteral("cpp.xml"));
         QVERIFY(m_home.isValid());
         qputenv("XDG_DATA_HOME", m_home.path().toLocal8Bit());
+        // The suggestions' form files, too, stay out of the user's cache.
+        qputenv("XDG_CACHE_HOME", m_home.filePath(QStringLiteral("cache")).toLocal8Bit());
     }
 
     void dictionariesAndLanguageKeys() {

@@ -68,8 +68,17 @@ public:
     /// True when the word is right in any dictionary, ignored, or nothing is
     /// in use.
     bool check(const QString& word) const;
-    /// Up to `maxCount` suggestions, from the dictionaries in order.
+    /// Up to `maxCount` suggestions, best first and only those close to the
+    /// best. Ranked by a distance that makes swapped letters, missing Polish
+    /// diacritics and held-AltGr characters cheap, over all forms of the
+    /// dictionaries (a cache file in ~/.cache/siplasplas/spell, built in the
+    /// background the first time) together with hunspell's suggestions;
+    /// hunspell's alone until the file is ready or for a dictionary it does
+    /// not support.
     QStringList suggestions(const QString& word, int maxCount = 8) const;
+    /// The suggestion files of the dictionaries in use are ready (or not
+    /// possible for them); starts building them when needed.
+    bool suggestionIndexReady() const;
 
     /// Adds the word to the shared user dictionary of the first dictionary in
     /// use (and to that dictionary now, in every checker of the program).

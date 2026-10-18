@@ -1,6 +1,11 @@
 #include <qce/spell/SpellChecker.h>
 
+#include "FormIndex.h"
+
 #include <hunspell.hxx>
+
+#include <QThreadPool>
+#include <atomic>
 
 #include <QDateTime>
 #include <QDir>
@@ -54,11 +59,35 @@ QString qtEncodingName(const std::string& hunspellName) {
 // A dictionary loaded once for the program, with the shared user dictionary.
 struct Loaded {
     std::unique_ptr<Hunspell> hunspell;
+    QString name;
+    QString affPath;
+    QString dicPath;
     QString encoding;
     bool utf8 = false;
     QString userPath;
     QDateTime userModified;
     QSet<QString> userWords;
+    // All word forms by class, for suggestions (see FormIndex.h): the cache
+    // file, built in the background the first time; 0 not started, 1
+    // building, 2 done (the file may still be missing: dictionary not
+    // supported).
+    std::unique_ptr<detail::FormIndex> index;
+    std::shared_ptr<std::atomic<int>> indexState = std::make_shared<std::atomic<int>>(0);
+
+    const detail::FormIndex* formIndex() {
+        if (index) return index.get();
+        const int state = indexState->load();
+        if (state == 1) return nullptr;
+        const QString path = detail::formIndexPath(name);
+        index = detail::FormIndex::open(path, affPath, dicPath);
+        if (index || state == 2) return index.get();
+        indexState->store(1);
+        QThreadPool::globalInstance()->start([state = indexState, aff = affPath, dic = dicPath, path]() {
+            detail::buildFormIndex(aff, dic, path);
+            state->store(2);
+        });
+        return nullptr;
+    }
 
     std::string encode(const QString& word) const {
         if (utf8) return word.toStdString();
@@ -102,6 +131,9 @@ struct Registry {
         for (const Dictionary& dictionary : installedDictionaries()) {
             if (dictionary.name != name) continue;
             result = std::make_shared<Loaded>();
+            result->name = name;
+            result->affPath = dictionary.affPath;
+            result->dicPath = dictionary.dicPath;
             result->hunspell = std::make_unique<Hunspell>(QFile::encodeName(dictionary.affPath).constData(),
                                                           QFile::encodeName(dictionary.dicPath).constData());
             result->encoding = qtEncodingName(result->hunspell->get_dict_encoding());
@@ -277,18 +309,48 @@ bool SpellChecker::check(const QString& word) const {
     return right;
 }
 
+// Hunspell's suggestions of every dictionary, and the similar forms of the
+// dictionaries' form indexes, ranked together by our distance; hunspell's
+// order breaks ties. Without any index (still being built, or a dictionary
+// it does not support) hunspell's suggestions in its order.
 QStringList SpellChecker::suggestions(const QString& word, int maxCount) const {
-    QStringList result;
+    QStringList hunspellOrder;
     for (const auto& loaded : d->dictionaries) {
         const std::string encoded = loaded->encode(word);
         if (encoded.empty()) continue;
         for (const std::string& suggestion : loaded->hunspell->suggest(encoded)) {
             const QString text = loaded->decode(suggestion);
-            if (!text.isEmpty() && !result.contains(text)) result << text;
-            if (result.size() >= maxCount) return result;
+            if (!text.isEmpty() && !hunspellOrder.contains(text)) hunspellOrder << text;
         }
     }
-    return result;
+    std::vector<std::pair<double, QString>> candidates;
+    bool indexed = false;
+    for (const auto& loaded : d->dictionaries) {
+        if (const detail::FormIndex* index = loaded->formIndex()) {
+            indexed = true;
+            auto found = index->candidates(word, detail::kSuggestionLimit);
+            candidates.insert(candidates.end(), std::make_move_iterator(found.begin()),
+                              std::make_move_iterator(found.end()));
+        }
+    }
+    if (!indexed) return hunspellOrder.mid(0, maxCount);
+    // Hunspell's own (e.g. words of the user dictionary) count with our distance too.
+    QSet<QString> known;
+    for (const auto& candidate : candidates) known.insert(candidate.second.toLower());
+    for (const QString& suggestion : hunspellOrder) {
+        if (known.contains(suggestion.toLower())) continue;
+        const double dist = detail::score(word, suggestion, detail::kSuggestionLimit);
+        if (dist <= detail::kSuggestionLimit) candidates.emplace_back(dist, suggestion);
+    }
+    return detail::rankSuggestions(word, std::move(candidates), maxCount, hunspellOrder);
+}
+
+bool SpellChecker::suggestionIndexReady() const {
+    for (const auto& loaded : d->dictionaries) {
+        loaded->formIndex();
+        if (!loaded->index && loaded->indexState->load() != 2) return false;
+    }
+    return true;
 }
 
 void SpellChecker::addToDictionary(const QString& word) {

@@ -15,6 +15,8 @@ endif()
 add_library(qcodeedit-spell STATIC
     src/SpellChecker.cpp
     src/CodeEditSpelling.cpp
+    src/FormIndex.cpp
+    src/FormIndex.h
     include/qce/spell/SpellChecker.h
     include/qce/spell/CodeEditSpelling.h
 )

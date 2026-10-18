@@ -80,3 +80,29 @@ each check (`SpellChecker::refreshUserDictionary()`).
 
 `SpellChecker` can be used on its own (`check()`, `suggestions()`,
 `addToDictionary()`, `ignore()`); it is not thread-safe.
+
+## Suggestions
+
+Checking a word is hunspell's. The suggestions come from all forms of the
+dictionary: its stems with every affix rule applied (pl_PL: about 3.7 million
+forms), kept in a cache file, `~/.cache/siplasplas/spell/<name>.forms`, built
+in the background the first time (a few seconds), rebuilt when the dictionary
+changes, and memory-mapped (shared by all programs, read on demand). Until it
+is ready, and for a dictionary whose `.aff` uses what the expansion does not
+implement (long or numeric flags, flag aliases, NEEDAFFIX, CIRCUMFIX,
+continuation classes, e.g. French), hunspell's own suggestions are shown.
+
+The forms are grouped by class: the letters of a word in lower case, without
+Polish diacritics, with the AltGr characters of the Polish keyboard as the
+letter of their key (`ð` → d, `©` → r, `ß` → t, `œ` → w), sorted. Swapped
+letters, missing diacritics and a held AltGr keep the class; a letter too
+many, too few or wrong is a neighbouring class. Only those classes are
+ranked, by a weighted edit distance from the typed word: a missing diacritic
+0.3 (a typed one removed 0.6, or 0.3 right after another such letter: AltGr
+held, "żę" → "że"), two adjacent letters swapped 0.5, a missing letter 0.9,
+a letter too many 1, another letter 1.5, plus 1 for a split into two words and
+0.4 for a capital (a proper name) the typed word does not have. Hunspell's
+suggestions are ranked the same way and break ties. Only suggestions close to
+the best are shown (within 1.2), at most the requested number. On a list of
+96 real typing mistakes 91 were first (hunspell alone: 71), in about 25 ms
+each.

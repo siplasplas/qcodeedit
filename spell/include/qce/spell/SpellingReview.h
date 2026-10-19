@@ -21,11 +21,14 @@ namespace qce::spell {
 
 /// What the review window checks when it opens.
 enum class CheckedAtFirst {
-    Sure,    ///< a single suggestion close to the word (SpellChecker::isConfident())
-    Single,  ///< a single suggestion, close or not
-    Every,   ///< every word with its first correction
+    Sure,               ///< a single suggestion close to the word (SpellChecker::isConfident())
+    Single,             ///< a single suggestion, close or not
+    Every,              ///< every word with its first correction
+    SeveralFirstClose,  ///< only the words with several suggestions, the first close (SpellChecker::isClose())
+    Several,            ///< only the words with several suggestions
 };
-/// "sure", "single", "every", e.g. for an application's settings.
+/// "sure", "single", "every", "severalFirstClose", "several", e.g. for an
+/// application's settings.
 QString checkedAtFirstName(CheckedAtFirst checked);
 /// The name's value; Sure for an unknown one.
 CheckedAtFirst checkedAtFirstFromName(const QString& name);
@@ -55,9 +58,10 @@ struct SpellingReviewItem {
 /// first as CheckedAtFirst says (the user may change it). "Show" lists all
 /// words, only the checked ones (to look them over) or only the unchecked
 /// ones (left to decide), applied when chosen, so a word checked or
-/// unchecked meanwhile stays in sight; or only the words without suggestions,
-/// those with several, or those with several whose first is close (would be
-/// sure alone). Only the check boxes decide which
+/// unchecked meanwhile stays in sight; or only the words without suggestions.
+/// The kinds of words are chosen in "Checked at first" (with several
+/// suggestions too: checked with their first one, to look them over with
+/// "Show: Checked words"). Only the check boxes decide which
 /// words are corrected, unless "Picking a correction checks the word" is on:
 /// then picking one, also the one shown, checks the word. With `spelling`, "Add to Dictionary" and "Ignore" take the
 /// selected word out of the list, every occurrence of it ("careta" written on

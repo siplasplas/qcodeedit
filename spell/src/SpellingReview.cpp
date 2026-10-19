@@ -61,7 +61,8 @@ public:
 };
 
 const QStringList& checkedAtFirstNames() {
-    static const QStringList names = {QStringLiteral("sure"), QStringLiteral("single"), QStringLiteral("every")};
+    static const QStringList names = {QStringLiteral("sure"), QStringLiteral("single"), QStringLiteral("every"),
+                                      QStringLiteral("severalFirstClose"), QStringLiteral("several")};
     return names;
 }
 
@@ -152,12 +153,22 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     auto* options = new QHBoxLayout;
     options->addWidget(new QLabel(tr("Checked at first:"), this));
     m_checkAtFirst = new QComboBox(this);
-    m_checkAtFirst->addItem(tr("Sure corrections only"));
-    m_checkAtFirst->addItem(tr("Words with a single suggestion"));
-    m_checkAtFirst->addItem(tr("Every word, with its first correction"));
-    m_checkAtFirst->setItemData(0, tr("A single suggestion close to the word, e.g. \"bhyc\" → być"), Qt::ToolTipRole);
-    m_checkAtFirst->setItemData(1, tr("Also when it is not that close, e.g. \"agents\" → agent"), Qt::ToolTipRole);
-    m_checkAtFirst->setCurrentIndex(int(checkedAtFirst));
+    // The kinds of words, from the surest; the value is the CheckedAtFirst.
+    const auto addKind = [this](const QString& text, CheckedAtFirst kind, const QString& tip) {
+        m_checkAtFirst->addItem(text, int(kind));
+        m_checkAtFirst->setItemData(m_checkAtFirst->count() - 1, tip, Qt::ToolTipRole);
+    };
+    addKind(tr("Sure corrections only"), CheckedAtFirst::Sure,
+            tr("A single suggestion close to the word, e.g. \"bhyc\" → być"));
+    addKind(tr("Words with a single suggestion"), CheckedAtFirst::Single,
+            tr("Also when it is not that close, e.g. \"agents\" → agent"));
+    addKind(tr("Several, first close"), CheckedAtFirst::SeveralFirstClose,
+            tr("Only the words with several suggestions whose first is close enough to be sure if it were the only "
+               "one, with that one"));
+    addKind(tr("Several"), CheckedAtFirst::Several,
+            tr("Only the words with several suggestions, close or not, with the first one"));
+    addKind(tr("Every word, with its first correction"), CheckedAtFirst::Every, QString());
+    m_checkAtFirst->setCurrentIndex(qMax(0, m_checkAtFirst->findData(int(checkedAtFirst))));
     options->addWidget(m_checkAtFirst);
     options->addSpacing(12);
     options->addWidget(new QLabel(tr("Sort:"), this));
@@ -176,11 +187,6 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     m_show->addItem(tr("Checked words"));
     m_show->addItem(tr("Unchecked words"));
     m_show->addItem(tr("Words without suggestions"));
-    m_show->addItem(tr("Several, first close"));
-    m_show->addItem(tr("Several"));
-    m_show->setItemData(4, tr("Several suggestions, the first close enough to be sure if it were the only one"),
-                        Qt::ToolTipRole);
-    m_show->setItemData(5, tr("Several suggestions, close or not"), Qt::ToolTipRole);
     m_show->setToolTip(tr("Checked: to look over the corrections that will be made; unchecked: those left to "
                           "decide (several suggestions, or not sure); without suggestions: to add them to the "
                           "dictionary or give them your own correction"));
@@ -346,7 +352,7 @@ QList<QPair<SpellingReviewItem::Range, QString>> SpellingReviewDialog::chosenRep
 }
 
 CheckedAtFirst SpellingReviewDialog::checkedAtFirst() const {
-    return CheckedAtFirst(qMax(0, m_checkAtFirst->currentIndex()));
+    return CheckedAtFirst(m_checkAtFirst->currentData().toInt());
 }
 
 void SpellingReviewDialog::setSearchTime(qint64 milliseconds) {
@@ -364,8 +370,16 @@ void SpellingReviewDialog::checkAtFirst() {
             QTreeWidgetItem* row = m_list->topLevelItem(i);
             if (!(row->flags() & Qt::ItemIsUserCheckable)) continue;
             const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
-            const bool check = mode == CheckedAtFirst::Every || (mode == CheckedAtFirst::Single && item.single)
-                || item.confident;
+            const bool several = item.choices.size() > 1;
+            bool check = false;
+            switch (mode) {
+            case CheckedAtFirst::Sure: check = item.confident; break;
+            case CheckedAtFirst::Single: check = item.single; break;
+            case CheckedAtFirst::Every: check = true; break;
+            // Those kinds alone, to look them over.
+            case CheckedAtFirst::SeveralFirstClose: check = several && item.firstClose; break;
+            case CheckedAtFirst::Several: check = several; break;
+            }
             row->setCheckState(WordColumn, check ? Qt::Checked : Qt::Unchecked);
             if (auto* choice = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn)))
                 choice->setCurrentIndex(0);
@@ -375,18 +389,13 @@ void SpellingReviewDialog::checkAtFirst() {
 }
 
 void SpellingReviewDialog::filter() {
-    // All, checked, unchecked, without suggestions, several with the first
-    // close, several.
+    // All, checked, unchecked, without suggestions.
     const int show = m_show->currentIndex();
     for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
         QTreeWidgetItem* row = m_list->topLevelItem(i);
-        const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
         const bool checked = row->checkState(WordColumn) == Qt::Checked;
         const bool suggested = m_list->itemWidget(row, CorrectionColumn) != nullptr;
-        const bool several = item.choices.size() > 1;
-        const bool hidden = (show == 1 && !checked) || (show == 2 && checked) || (show == 3 && suggested)
-            || (show == 4 && !(several && item.firstClose)) || (show == 5 && !several);
-        row->setHidden(hidden);
+        row->setHidden((show == 1 && !checked) || (show == 2 && checked) || (show == 3 && suggested));
     }
     showCurrent();
 }

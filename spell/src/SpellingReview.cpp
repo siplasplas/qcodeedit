@@ -62,7 +62,8 @@ public:
 
 const QStringList& checkedAtFirstNames() {
     static const QStringList names = {QStringLiteral("sure"), QStringLiteral("single"), QStringLiteral("every"),
-                                      QStringLiteral("severalFirstClose"), QStringLiteral("several")};
+                                      QStringLiteral("severalFirstClose"), QStringLiteral("several"),
+                                      QStringLiteral("noSuggestions")};
     return names;
 }
 
@@ -167,6 +168,9 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
                "one, with that one"));
     addKind(tr("Several"), CheckedAtFirst::Several,
             tr("Only the words with several suggestions, close or not, with the first one"));
+    addKind(tr("Words without suggestions"), CheckedAtFirst::NoSuggestions,
+            tr("Only the words without suggestions, those given your own correction (Own Correction); sorted by "
+               "score, the others are last"));
     addKind(tr("Every word, with its first correction"), CheckedAtFirst::Every, QString());
     m_checkAtFirst->setCurrentIndex(qMax(0, m_checkAtFirst->findData(int(checkedAtFirst))));
     options->addWidget(m_checkAtFirst);
@@ -186,10 +190,8 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     m_show->addItem(tr("All words"));
     m_show->addItem(tr("Checked words"));
     m_show->addItem(tr("Unchecked words"));
-    m_show->addItem(tr("Words without suggestions"));
     m_show->setToolTip(tr("Checked: to look over the corrections that will be made; unchecked: those left to "
-                          "decide (several suggestions, or not sure); without suggestions: to add them to the "
-                          "dictionary or give them your own correction"));
+                          "decide"));
     showLabel->setBuddy(m_show);
     options->addWidget(m_show);
     layout->addLayout(options);
@@ -379,6 +381,7 @@ void SpellingReviewDialog::checkAtFirst() {
             // Those kinds alone, to look them over.
             case CheckedAtFirst::SeveralFirstClose: check = several && item.firstClose; break;
             case CheckedAtFirst::Several: check = several; break;
+            case CheckedAtFirst::NoSuggestions: check = item.noSuggestions; break;
             }
             row->setCheckState(WordColumn, check ? Qt::Checked : Qt::Unchecked);
             if (auto* choice = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn)))
@@ -389,13 +392,12 @@ void SpellingReviewDialog::checkAtFirst() {
 }
 
 void SpellingReviewDialog::filter() {
-    // All, checked, unchecked, without suggestions.
+    // All, checked, unchecked.
     const int show = m_show->currentIndex();
     for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
         QTreeWidgetItem* row = m_list->topLevelItem(i);
         const bool checked = row->checkState(WordColumn) == Qt::Checked;
-        const bool suggested = m_list->itemWidget(row, CorrectionColumn) != nullptr;
-        row->setHidden((show == 1 && !checked) || (show == 2 && checked) || (show == 3 && suggested));
+        row->setHidden((show == 1 && !checked) || (show == 2 && checked));
     }
     showCurrent();
 }
@@ -602,6 +604,7 @@ std::optional<Review> collectReview(CodeEditSpelling& spelling, QWidget* parent)
         item.single = phrases.isEmpty() && found.value().size() == 1;
         item.confident = item.single && SpellChecker::isConfident(word.word, found.value());
         item.firstClose = !found.value().isEmpty() && SpellChecker::isClose(word.word, found.value().front());
+        item.noSuggestions = item.choices.isEmpty();
         review.items.append(item);
     }
     progress.setValue(int(words.size()));

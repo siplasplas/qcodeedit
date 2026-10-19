@@ -26,9 +26,10 @@ enum class CheckedAtFirst {
     Every,              ///< every word with its first correction
     SeveralFirstClose,  ///< only the words with several suggestions, the first close (SpellChecker::isClose())
     Several,            ///< only the words with several suggestions
+    NoSuggestions,      ///< only the words without suggestions given the user's own correction
 };
-/// "sure", "single", "every", "severalFirstClose", "several", e.g. for an
-/// application's settings.
+/// "sure", "single", "every", "severalFirstClose", "several", "noSuggestions",
+/// e.g. for an application's settings.
 QString checkedAtFirstName(CheckedAtFirst checked);
 /// The name's value; Sure for an unknown one.
 CheckedAtFirst checkedAtFirstFromName(const QString& name);
@@ -48,6 +49,7 @@ struct SpellingReviewItem {
     bool confident = false;   ///< a single close suggestion and no moved space
     bool single = false;      ///< a single suggestion and no moved space, close or not
     bool firstClose = false;  ///< the first suggestion is close (SpellChecker::isClose())
+    bool noSuggestions = false; ///< found without suggestions (it may get the user's own)
     double score = -1;        ///< the first choice's score (lower: closer); -1 without one
 };
 
@@ -58,10 +60,10 @@ struct SpellingReviewItem {
 /// first as CheckedAtFirst says (the user may change it). "Show" lists all
 /// words, only the checked ones (to look them over) or only the unchecked
 /// ones (left to decide), applied when chosen, so a word checked or
-/// unchecked meanwhile stays in sight; or only the words without suggestions.
-/// The kinds of words are chosen in "Checked at first" (with several
-/// suggestions too: checked with their first one, to look them over with
-/// "Show: Checked words"). Only the check boxes decide which
+/// unchecked meanwhile stays in sight. The kinds of words are chosen in
+/// "Checked at first" (with several suggestions, or without suggestions but
+/// given an own correction, too: to look them over with "Show: Checked
+/// words"). Only the check boxes decide which
 /// words are corrected, unless "Picking a correction checks the word" is on:
 /// then picking one, also the one shown, checks the word. With `spelling`, "Add to Dictionary" and "Ignore" take the
 /// selected word out of the list, every occurrence of it ("careta" written on

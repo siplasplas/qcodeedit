@@ -72,8 +72,9 @@ struct SpellingReviewItem {
 /// correction as the user's own (score 0 from now on, every row of it
 /// checked); "Own Correction" asks for the user's own one and keeps it the
 /// same way, also for a word without suggestions; "User Dictionary" shows the user's words and corrections. Ctrl+C
-/// or the context menu copies the selected rows, separated
-/// by tabs, or their lines of text. Correct accepts; chosenReplacements()
+/// or the context menu copies the selected row, separated by tabs, or its
+/// line of text. One row is selected at a time; Up and Down move between
+/// rows, Alt+Down opens the row's corrections. Correct accepts; chosenReplacements()
 /// gives the checked words.
 class SpellingReviewDialog : public QDialog {
     Q_OBJECT
@@ -87,6 +88,9 @@ public:
     CheckedAtFirst checkedAtFirst() const;
     /// How long finding the corrections took, shown with the time a word.
     void setSearchTime(qint64 milliseconds);
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 signals:
     /// openSpellingReview()'s window closed: how many words were corrected,
@@ -107,8 +111,10 @@ private:
     /// (SpellChecker::addCorrection()): every row of the word gets it, score
     /// 0, checked.
     void rememberCorrection();
-    /// Asks for the user's own correction of the selected word and keeps it
-    /// like rememberCorrection(), also for a word without suggestions.
+    /// Asks for the user's own correction of the selected word (starting from
+    /// the word as typed) and keeps it like rememberCorrection(), also for a
+    /// word without suggestions; or, with the words before and after it,
+    /// replaces those three here only (not remembered).
     void ownCorrection();
     /// The box of a row's corrections (m_items[index].choices).
     void addChoiceBox(QTreeWidgetItem* row, int index);

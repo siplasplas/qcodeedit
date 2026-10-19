@@ -204,8 +204,10 @@ it (an English word or a coined one written on purpose); "Remember Correction"
 keeps the selected word's chosen correction as the user's own
 (`SpellChecker::addCorrection()`, `~/.local/share/siplasplas/spell/<language>.corrections`,
 shared by programs): from then on it is the word's only suggestion, score 0, so
-sure, also while typing; "Own Correction" asks for one of the user's own and
-keeps it the same way, also for a word without suggestions (which "Show" can
+sure, also while typing; "Own Correction" asks for one of the user's own
+(starting from the word as typed) and keeps it the same way, also for a word
+without suggestions, or replaces the word with the words before and after it
+here only (which "Show" can
 list alone). "User Dictionary" (`UserDictionaryDialog`) shows the
 user's words and corrections and removes them. The checked words are replaced
 as one undo step.

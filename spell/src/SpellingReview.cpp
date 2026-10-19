@@ -17,6 +17,7 @@
 #include <QHash>
 #include <QHeaderView>
 #include <QInputDialog>
+#include <QKeyEvent>
 #include <QLineEdit>
 #include <QLabel>
 #include <QMessageBox>
@@ -199,7 +200,9 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
 
     m_list = new QTreeWidget(this);
     m_list->setRootIsDecorated(false);
-    m_list->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_list->setSelectionMode(QAbstractItemView::SingleSelection);
+    // Up and Down go from row to row; Alt+Down opens the row's corrections.
+    m_list->installEventFilter(this);
     // Copying rows, e.g. to keep a word and its context: Ctrl+C or the
     // context menu.
     auto* copy = new QShortcut(QKeySequence::Copy, m_list, nullptr, nullptr, Qt::WidgetShortcut);
@@ -415,8 +418,23 @@ void SpellingReviewDialog::showCurrent() {
     if (current && !current->isHidden()) m_list->scrollToItem(current, QAbstractItemView::PositionAtCenter);
 }
 
+bool SpellingReviewDialog::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == m_list && event->type() == QEvent::KeyPress) {
+        const auto* key = static_cast<QKeyEvent*>(event);
+        if (key->key() == Qt::Key_Down && (key->modifiers() & Qt::AltModifier)) {
+            if (QTreeWidgetItem* current = m_list->currentItem())
+                if (auto* box = qobject_cast<QComboBox*>(m_list->itemWidget(current, CorrectionColumn)))
+                    box->showPopup();
+            return true;
+        }
+    }
+    return QDialog::eventFilter(watched, event);
+}
+
 void SpellingReviewDialog::addChoiceBox(QTreeWidgetItem* row, int index) {
     auto* choice = new QComboBox(m_list);
+    // Not in the keyboard's way: arrows move between rows, Alt+Down opens it.
+    choice->setFocusPolicy(Qt::NoFocus);
     for (const auto& correction : m_items[index].choices) choice->addItem(correction.label);
     // Picking a correction, also the one shown, checks the word only when
     // asked for ("Picking a correction checks the word").
@@ -435,14 +453,69 @@ void SpellingReviewDialog::ownCorrection() {
     QTreeWidgetItem* current = m_list->currentItem();
     if (!current || !m_spelling) return;
     const QString word = current->text(WordColumn);
-    const auto* box = qobject_cast<QComboBox*>(m_list->itemWidget(current, CorrectionColumn));
-    bool given = false;
-    const QString correction = QInputDialog::getText(this, tr("Own Correction"),
-                                                     tr("Correct \"%1\" to (remembered: the word's only "
-                                                        "correction from now on, score 0):").arg(word),
-                                                     QLineEdit::Normal, box ? box->currentText() : word, &given)
-                                   .trimmed();
-    if (!given || correction.isEmpty() || correction == word) return;
+    const int currentIndex = current->data(WordColumn, Qt::UserRole).toInt();
+    const SpellingReviewItem& currentItem = m_items[currentIndex];
+    // The word with its neighbours on the line: the text up to the space
+    // before the word before it and after the word after it.
+    const QString& line = currentItem.lineText;
+    int from = currentItem.word.start.column, to = currentItem.word.end.column;
+    while (from > 0 && line[from - 1].isSpace()) --from;
+    while (from > 0 && !line[from - 1].isSpace()) --from;
+    while (to < line.size() && line[to].isSpace()) ++to;
+    while (to < line.size() && !line[to].isSpace()) ++to;
+    const QString phrase = line.mid(from, to - from);
+
+    QDialog ask(this);
+    ask.setWindowTitle(tr("Own Correction"));
+    auto* layout = new QVBoxLayout(&ask);
+    auto* label = new QLabel(&ask);
+    label->setWordWrap(true);
+    auto* edit = new QLineEdit(word, &ask);
+    edit->selectAll();
+    auto* withNeighbours = new QCheckBox(tr("&With the words before and after (only here, not remembered)"), &ask);
+    withNeighbours->setEnabled(phrase != word);
+    const auto describe = [&]() {
+        label->setText(withNeighbours->isChecked()
+            ? tr("Replace \"%1\" here with:").arg(phrase)
+            : tr("Correct \"%1\" to (remembered: the word's only correction from now on, score 0):").arg(word));
+    };
+    connect(withNeighbours, &QCheckBox::toggled, &ask, [&](bool on) {
+        edit->setText(on ? phrase : word);
+        edit->selectAll();
+        describe();
+    });
+    describe();
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &ask);
+    connect(buttons, &QDialogButtonBox::accepted, &ask, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &ask, &QDialog::reject);
+    layout->addWidget(label);
+    layout->addWidget(edit);
+    layout->addWidget(withNeighbours);
+    layout->addWidget(buttons);
+    ask.resize(qMax(ask.sizeHint().width(), 460), ask.sizeHint().height());
+    if (ask.exec() != QDialog::Accepted) return;
+    const QString correction = edit->text().trimmed();
+    if (withNeighbours->isChecked()) {
+        // This place only: a choice of this row replacing the three words.
+        if (correction.isEmpty() || correction == phrase) return;
+        SpellingReviewItem& item = m_items[currentIndex];
+        const SpellingReviewItem::Range range{{item.word.start.line, from}, {item.word.end.line, to}, phrase};
+        item.choices.prepend({range, correction, QStringLiteral("%1 → %2").arg(phrase, correction), 0});
+        if (auto* box = qobject_cast<QComboBox*>(m_list->itemWidget(current, CorrectionColumn))) {
+            box->insertItem(0, item.choices.front().label);
+            box->setCurrentIndex(0);
+        } else {
+            current->setText(CorrectionColumn, QString());
+            current->setFlags(current->flags() | Qt::ItemIsUserCheckable);
+            addChoiceBox(current, currentIndex);
+        }
+        showScore(current, 0);
+        current->setCheckState(WordColumn, Qt::Checked);
+        updateSummary();
+        if (m_updateButtons) m_updateButtons();
+        return;
+    }
+    if (correction.isEmpty() || correction == word) return;
     m_spelling->checker().addCorrection(word, correction);
     m_bulkChange = true;
     // Every row of the word: that correction first, score 0, checked.

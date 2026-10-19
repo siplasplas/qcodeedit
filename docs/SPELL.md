@@ -107,8 +107,9 @@ letter also lacking its diacritic adds 0.3, "dzielci" → dzielić), a missing
 letter 1, a letter too many 0.9, or 0.5 when its key touches both meant
 letters around it or repeats one ("bhyc": h between b and y) and 0.7 when it
 touches one, another letter 1.5, for a capital inside the word that the
-suggestion has not 0.2 right after the capitals the word begins with (Shift
-held: "POłączyłem" → Połączyłem, which follows the word's capital) and 1 after
+suggestion has not 0.35 right after the capitals the word begins with (Shift
+held: "POłączyłem" → Połączyłem, which follows the word's capital; over three
+letters still sure, over four not) and 1 after
 a small letter (camelCase rather: "PołąCzyłem", "PoŁączyłem"), plus 1 for a
 split into two words and
 0.4 for a capital (a proper name) the typed word does not have. Hunspell's

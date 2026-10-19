@@ -70,8 +70,10 @@ double distance(const QString& a, const QString& b, double limit);
 /// A capital inside the typed word that the candidate has not there: right
 /// after the capitals the word begins with, Shift held a letter too long
 /// ("POłączyłem" → Połączyłem); after a small letter, camelCase more likely
-/// written on purpose ("PołąCzyłem", "PoŁączyłem"), so never sure.
-constexpr double kShiftHeldCost = 0.2;
+/// written on purpose ("PołąCzyłem", "PoŁączyłem"), so never sure. Shift
+/// held over three letters (two capitals too many) is still sure, just
+/// ("POŁączyłem": 0.7), over four not (1.05).
+constexpr double kShiftHeldCost = 0.35;
 constexpr double kInnerCapitalCost = 1.0;
 
 /// distance() plus 1 for a candidate split into two words (space or hyphen),

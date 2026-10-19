@@ -298,11 +298,18 @@ double score(const QString& word, const QString& candidate, double limit) {
         d += 1.0;
     // A capital letter (e.g. a proper name) where the word has none.
     if (candidate != candidate.toLower() && word == word.toLower()) d += 0.4;
-    // A capital inside the word the candidate has not there: Shift held a
-    // letter too long ("POłączyłem").
+    // A capital inside the word the candidate has not there: right after
+    // the capitals the word begins with, Shift held a letter too long
+    // ("POłączyłem", cheap); after a small letter rather camelCase written on
+    // purpose ("PołąCzyłem", "PoŁączyłem": never sure).
     if (word.size() > 1 && word != word.toUpper()) {
-        for (int i = 1; i < word.size(); ++i)
-            if (word[i].isUpper() && !(i < candidate.size() && candidate[i].isUpper())) d += kShiftHeldCost;
+        bool leadingCapitals = word[0].isUpper();
+        for (int i = 1; i < word.size(); ++i) {
+            const bool upper = word[i].isUpper();
+            if (upper && !(i < candidate.size() && candidate[i].isUpper()))
+                d += leadingCapitals ? kShiftHeldCost : kInnerCapitalCost;
+            leadingCapitals = leadingCapitals && upper;
+        }
     }
     return d;
 }

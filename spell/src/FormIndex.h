@@ -67,13 +67,17 @@ constexpr double kMoveAgainCost = 0.5;
 /// another letter 1.5. Returns more than `limit` once it exceeds it.
 double distance(const QString& a, const QString& b, double limit);
 
-/// A capital inside the typed word that the candidate has not there (Shift
-/// held a letter too long, "POłączyłem" → Połączyłem).
+/// A capital inside the typed word that the candidate has not there: right
+/// after the capitals the word begins with, Shift held a letter too long
+/// ("POłączyłem" → Połączyłem); after a small letter, camelCase more likely
+/// written on purpose ("PołąCzyłem", "PoŁączyłem"), so never sure.
 constexpr double kShiftHeldCost = 0.2;
+constexpr double kInnerCapitalCost = 1.0;
 
 /// distance() plus 1 for a candidate split into two words (space or hyphen),
 /// 0.4 for a capital letter (a proper name) when the word has none, and
-/// kShiftHeldCost for each capital inside the word the candidate has not.
+/// kShiftHeldCost or kInnerCapitalCost for each capital inside the word the
+/// candidate has not.
 double score(const QString& word, const QString& candidate, double limit);
 
 /// All word forms of a dictionary; empty, with `supported` false, when its

@@ -333,6 +333,9 @@ private slots:
         const auto shift = checker.scoredSuggestions(QStringLiteral("BHyc"));
         QCOMPARE(shift.value(0).text, QStringLiteral("Być"));
         QVERIFY(shift.value(0).score > bhyc.value(0).score);
+        // A capital after a small letter is camelCase rather: much more.
+        QVERIFY(checker.scoredSuggestions(QStringLiteral("bhYc")).value(0).score
+                >= bhyc.value(0).score + 0.9);
         // A letter too many that touches neither neighbour: offered, not sure.
         const auto agents = checker.scoredSuggestions(QStringLiteral("agents"));
         QCOMPARE(agents.size(), 1);

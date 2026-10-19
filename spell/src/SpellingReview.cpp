@@ -189,12 +189,13 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     auto* showLabel = new QLabel(tr("Sh&ow:"), this);
     options->addWidget(showLabel);
     m_show = new QComboBox(this);
-    m_show->addItem(tr("All words"));
-    m_show->addItem(tr("Checked words"));
-    m_show->addItem(tr("Unchecked words"));
-    m_show->setToolTip(tr("Checked: to look over the corrections that will be made; unchecked: the words of the "
-                          "kind chosen in Checked at first left unchecked (e.g. without suggestions: those still "
-                          "without your own correction)"));
+    m_show->addItem(tr("This kind"));
+    m_show->addItem(tr("This kind, checked"));
+    m_show->addItem(tr("This kind, unchecked"));
+    m_show->addItem(tr("Every word"));
+    m_show->setToolTip(tr("The words of the kind chosen in Checked at first: all, the checked ones (to look over "
+                          "the corrections that will be made) or the unchecked ones (e.g. without suggestions: "
+                          "those still without your own correction); or every word"));
     showLabel->setBuddy(m_show);
     options->addWidget(m_show);
     layout->addLayout(options);
@@ -408,16 +409,18 @@ bool SpellingReviewDialog::ofKind(const SpellingReviewItem& item, CheckedAtFirst
 }
 
 void SpellingReviewDialog::filter() {
-    // All, checked, unchecked; the unchecked ones of the kind chosen in
-    // "Checked at first" (e.g. the words without suggestions still without
-    // an own correction).
+    // The words of the kind chosen in "Checked at first": all, checked or
+    // unchecked (e.g. the words without suggestions still without an own
+    // correction); or every word.
     const int show = m_show->currentIndex();
     const CheckedAtFirst kind = checkedAtFirst();
     for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
         QTreeWidgetItem* row = m_list->topLevelItem(i);
         const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
         const bool checked = row->checkState(WordColumn) == Qt::Checked;
-        row->setHidden((show == 1 && !checked) || (show == 2 && (checked || !ofKind(item, kind))));
+        const bool hidden = show != 3
+            && (!ofKind(item, kind) || (show == 1 && !checked) || (show == 2 && checked));
+        row->setHidden(hidden);
     }
     showCurrent();
 }

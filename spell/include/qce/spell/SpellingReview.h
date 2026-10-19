@@ -57,11 +57,11 @@ struct SpellingReviewItem {
 /// choose, the chosen correction's score (how far it is: the lower, the
 /// closer), line and
 /// context, sorted as in the text, alphabetically or by score. Checked at
-/// first as CheckedAtFirst says (the user may change it). "Show" lists all
-/// words, only the checked ones (to look them over) or only the unchecked
-/// ones (left to decide), applied when chosen, so a word checked or
-/// unchecked meanwhile stays in sight; the unchecked ones are those of the
-/// kind chosen in "Checked at first". The kinds of words are chosen in
+/// first as CheckedAtFirst says (the user may change it); the list shows the
+/// words of that kind: all, the checked ones (to look them over) or the
+/// unchecked ones (left to decide), as "Show" says, or every word. "Show" is
+/// applied when chosen, so a word checked or unchecked meanwhile stays in
+/// sight. The kinds of words are chosen in
 /// "Checked at first" (with several suggestions, or without suggestions but
 /// given an own correction, too: to look them over with "Show: Checked
 /// words"). Only the check boxes decide which

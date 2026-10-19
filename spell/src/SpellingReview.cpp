@@ -176,6 +176,11 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     m_show->addItem(tr("Checked words"));
     m_show->addItem(tr("Unchecked words"));
     m_show->addItem(tr("Words without suggestions"));
+    m_show->addItem(tr("Several, first close"));
+    m_show->addItem(tr("Several"));
+    m_show->setItemData(4, tr("Several suggestions, the first close enough to be sure if it were the only one"),
+                        Qt::ToolTipRole);
+    m_show->setItemData(5, tr("Several suggestions, close or not"), Qt::ToolTipRole);
     m_show->setToolTip(tr("Checked: to look over the corrections that will be made; unchecked: those left to "
                           "decide (several suggestions, or not sure); without suggestions: to add them to the "
                           "dictionary or give them your own correction"));
@@ -370,12 +375,18 @@ void SpellingReviewDialog::checkAtFirst() {
 }
 
 void SpellingReviewDialog::filter() {
-    const int show = m_show->currentIndex();  // all, checked, unchecked, without suggestions
+    // All, checked, unchecked, without suggestions, several with the first
+    // close, several.
+    const int show = m_show->currentIndex();
     for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
         QTreeWidgetItem* row = m_list->topLevelItem(i);
+        const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
         const bool checked = row->checkState(WordColumn) == Qt::Checked;
         const bool suggested = m_list->itemWidget(row, CorrectionColumn) != nullptr;
-        row->setHidden((show == 1 && !checked) || (show == 2 && checked) || (show == 3 && suggested));
+        const bool several = item.choices.size() > 1;
+        const bool hidden = (show == 1 && !checked) || (show == 2 && checked) || (show == 3 && suggested)
+            || (show == 4 && !(several && item.firstClose)) || (show == 5 && !several);
+        row->setHidden(hidden);
     }
     showCurrent();
 }
@@ -581,6 +592,7 @@ std::optional<Review> collectReview(CodeEditSpelling& spelling, QWidget* parent)
             item.choices.append({phrase.range, phrase.replacement, spaceCorrectionLabel(phrase.range.word, phrase.replacement)});
         item.single = phrases.isEmpty() && found.value().size() == 1;
         item.confident = item.single && SpellChecker::isConfident(word.word, found.value());
+        item.firstClose = !found.value().isEmpty() && SpellChecker::isClose(word.word, found.value().front());
         review.items.append(item);
     }
     progress.setValue(int(words.size()));

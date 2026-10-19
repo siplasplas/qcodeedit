@@ -44,6 +44,7 @@ struct SpellingReviewItem {
     QList<Choice> choices;    ///< best first; a moved space after the word's own suggestions
     bool confident = false;   ///< a single close suggestion and no moved space
     bool single = false;      ///< a single suggestion and no moved space, close or not
+    bool firstClose = false;  ///< the first suggestion is close (SpellChecker::isClose())
     double score = -1;        ///< the first choice's score (lower: closer); -1 without one
 };
 
@@ -54,7 +55,9 @@ struct SpellingReviewItem {
 /// first as CheckedAtFirst says (the user may change it). "Show" lists all
 /// words, only the checked ones (to look them over) or only the unchecked
 /// ones (left to decide), applied when chosen, so a word checked or
-/// unchecked meanwhile stays in sight; or only the words without suggestions. Only the check boxes decide which
+/// unchecked meanwhile stays in sight; or only the words without suggestions,
+/// those with several, or those with several whose first is close (would be
+/// sure alone). Only the check boxes decide which
 /// words are corrected, unless "Picking a correction checks the word" is on:
 /// then picking one, also the one shown, checks the word. With `spelling`, "Add to Dictionary" and "Ignore" take the
 /// selected word out of the list, every occurrence of it ("careta" written on

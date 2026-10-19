@@ -634,12 +634,14 @@ QList<SpellChecker::Suggestion> SpellChecker::findSuggestions(const QString& wor
 }
 
 bool SpellChecker::isConfident(const QString& word, const QList<Suggestion>& suggestions) {
-    if (suggestions.size() != 1 || suggestions.front().distance > detail::kConfidentDistance + 1e-9
-            || suggestions.front().score > detail::kConfidentScore + 1e-9)
+    return suggestions.size() == 1 && isClose(word, suggestions.front());
+}
+
+bool SpellChecker::isClose(const QString& word, const Suggestion& suggestion) {
+    if (suggestion.distance > detail::kConfidentDistance + 1e-9 || suggestion.score > detail::kConfidentScore + 1e-9)
         return false;
     // A capital the word has not (a proper name, "serach" → Serach) is asked.
-    const QString& text = suggestions.front().text;
-    return !(word == word.toLower() && text != text.toLower());
+    return !(word == word.toLower() && suggestion.text != suggestion.text.toLower());
 }
 
 bool SpellChecker::hasFrequencies() const {

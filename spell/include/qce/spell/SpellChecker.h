@@ -122,6 +122,9 @@ public:
     /// bookami, "agents" → agent) is only offered, and so is a capital the
     /// typed word has not ("serach" → Serach, a name).
     static bool isConfident(const QString& word, const QList<Suggestion>& suggestions);
+    /// One suggestion close enough to be sure if it were the only one (the
+    /// distance and score limits of isConfident()).
+    static bool isClose(const QString& word, const Suggestion& suggestion);
     /// Whether hunspell's own suggestions are added to those from the forms:
     /// only when the forms have no candidate (the default), or always. They
     /// take most of the time of a suggestion (about 18 of 25 ms a word); on

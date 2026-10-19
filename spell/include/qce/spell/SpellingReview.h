@@ -27,9 +27,10 @@ enum class CheckedAtFirst {
     SeveralFirstClose,  ///< only the words with several suggestions, the first close (SpellChecker::isClose())
     Several,            ///< only the words with several suggestions
     NoSuggestions,      ///< only the words without suggestions given the user's own correction
+    None,               ///< nothing: every word, to check by hand
 };
 /// "sure", "single", "every", "severalFirstClose", "several", "noSuggestions",
-/// e.g. for an application's settings.
+/// "none", e.g. for an application's settings.
 QString checkedAtFirstName(CheckedAtFirst checked);
 /// The name's value; Sure for an unknown one.
 CheckedAtFirst checkedAtFirstFromName(const QString& name);

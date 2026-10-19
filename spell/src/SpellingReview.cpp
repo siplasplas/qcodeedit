@@ -610,9 +610,26 @@ void SpellingReviewDialog::acceptWord(bool addToDictionary) {
     const QString word = current->text(WordColumn);
     if (addToDictionary) m_spelling->addToDictionary(word);
     else m_spelling->ignore(word);
-    for (int i = m_list->topLevelItemCount() - 1; i >= 0; --i)
-        if (m_list->topLevelItem(i)->text(WordColumn) == word) delete m_list->takeTopLevelItem(i);
+    // The rows of the word go; the selection moves on to the next row left
+    // (else the one before), to go on with the next word.
+    int next = m_list->indexOfTopLevelItem(current);
+    for (int i = m_list->topLevelItemCount() - 1; i >= 0; --i) {
+        if (m_list->topLevelItem(i)->text(WordColumn) != word) continue;
+        delete m_list->takeTopLevelItem(i);
+        if (i < next) --next;
+    }
+    QTreeWidgetItem* following = nullptr;
+    for (int i = next; i < m_list->topLevelItemCount() && !following; ++i)
+        if (!m_list->topLevelItem(i)->isHidden()) following = m_list->topLevelItem(i);
+    for (int i = qMin(next, m_list->topLevelItemCount()) - 1; i >= 0 && !following; --i)
+        if (!m_list->topLevelItem(i)->isHidden()) following = m_list->topLevelItem(i);
+    if (following) {
+        m_list->setCurrentItem(following);
+        m_list->scrollToItem(following);
+    }
+    m_list->setFocus();
     updateSummary();
+    if (m_updateButtons) m_updateButtons();
 }
 
 void SpellingReviewDialog::updateSummary() {

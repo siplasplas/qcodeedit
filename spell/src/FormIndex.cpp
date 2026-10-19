@@ -291,7 +291,26 @@ double distance(const QString& a, const QString& b, double limit) {
 }
 
 double score(const QString& word, const QString& candidate, double limit) {
-    double d = distance(word, candidate, limit);
+    // Shift held over the first letters, maybe with AltGr ("ÞÓŁączyłęm" for
+    // Połączyłem: P and O with AltGr too, and AltGr on after ł): one slip of
+    // held keys, so a diacritic or AltGr character of the same key on those
+    // letters, or right after another such letter, costs nothing of its own;
+    // only the capitals do (below).
+    QString typed = word;
+    int leading = 0;
+    while (leading < typed.size() && typed[leading].isUpper()) ++leading;
+    if (leading >= 2 && leading < typed.size()) {
+        for (int i = 0; i < typed.size() && i < candidate.size(); ++i) {
+            const bool sameKey = typed[i].toLower() != candidate[i].toLower()
+                && foldChar(typed[i]) == foldChar(candidate[i]);
+            // In the held letters, and AltGr held on after them further on
+            // (a diacritic right after another: "łę" for "łe").
+            const bool held = i < leading
+                || (typed[i].unicode() > 0x7F && typed[i - 1].unicode() > 0x7F);
+            if (sameKey && held) typed[i] = candidate[i];
+        }
+    }
+    double d = distance(typed, candidate, limit);
     // A split into two words, when the word was one.
     if ((candidate.contains(QLatin1Char(' ')) && !word.contains(QLatin1Char(' ')))
             || (candidate.contains(QLatin1Char('-')) && !word.contains(QLatin1Char('-'))))

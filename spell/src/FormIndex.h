@@ -72,7 +72,9 @@ double distance(const QString& a, const QString& b, double limit);
 /// ("POłączyłem" → Połączyłem); after a small letter, camelCase more likely
 /// written on purpose ("PołąCzyłem", "PoŁączyłem"), so never sure. Shift
 /// held over three letters (two capitals too many) is still sure, just
-/// ("POŁączyłem": 0.7), over four not (1.05).
+/// ("POŁączyłem": 0.7), over four not (1.05). AltGr held with Shift on those
+/// letters, or held on after a diacritic further in the word, is the same
+/// slip and costs nothing more ("ÞÓŁączyłęm": 0.7).
 constexpr double kShiftHeldCost = 0.35;
 constexpr double kInnerCapitalCost = 1.0;
 

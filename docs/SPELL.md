@@ -109,7 +109,9 @@ letters around it or repeats one ("bhyc": h between b and y) and 0.7 when it
 touches one, another letter 1.5, for a capital inside the word that the
 suggestion has not 0.35 right after the capitals the word begins with (Shift
 held: "POłączyłem" → Połączyłem, which follows the word's capital; over three
-letters still sure, over four not) and 1 after
+letters still sure, over four not; AltGr held with it, on those letters or
+on after a diacritic further in the word, costs nothing more: "ÞÓŁączyłęm"
+scores as "POŁączyłem") and 1 after
 a small letter (camelCase rather: "PołąCzyłem", "PoŁączyłem"), plus 1 for a
 split into two words and
 0.4 for a capital (a proper name) the typed word does not have. Hunspell's

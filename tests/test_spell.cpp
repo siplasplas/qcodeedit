@@ -333,6 +333,10 @@ private slots:
         const auto shift = checker.scoredSuggestions(QStringLiteral("BHyc"));
         QCOMPARE(shift.value(0).text, QStringLiteral("Być"));
         QVERIFY(shift.value(0).score > bhyc.value(0).score);
+        // Shift and AltGr held together are one slip: no more than Shift alone.
+        const auto held = checker.scoredSuggestions(QStringLiteral("ÞÓŁączyłęm"));
+        QCOMPARE(held.value(0).text, QStringLiteral("Połączyłem"));
+        QCOMPARE(held.value(0).score, checker.scoredSuggestions(QStringLiteral("POŁączyłem")).value(0).score);
         // A capital after a small letter is camelCase rather: much more.
         QVERIFY(checker.scoredSuggestions(QStringLiteral("bhYc")).value(0).score
                 >= bhyc.value(0).score + 0.9);

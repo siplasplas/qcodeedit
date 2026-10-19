@@ -13,6 +13,7 @@
 #include <QShortcut>
 #include <QDialogButtonBox>
 #include <QElapsedTimer>
+#include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QHash>
 #include <QHeaderView>
@@ -481,6 +482,8 @@ void SpellingReviewDialog::ownCorrection() {
     auto* label = new QLabel(&ask);
     label->setWordWrap(true);
     auto* edit = new QLineEdit(word, &ask);
+    // Monospaced: each letter, space and punctuation mark stands out.
+    edit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     edit->selectAll();
     auto* withNeighbours = new QCheckBox(tr("&With the words before and after (only here, not remembered)"), &ask);
     withNeighbours->setEnabled(phrase != word);

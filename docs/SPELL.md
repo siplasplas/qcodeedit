@@ -106,7 +106,9 @@ after another adds 0.5, so "dziłaja" gives działają before działaj; a moved
 letter also lacking its diacritic adds 0.3, "dzielci" → dzielić), a missing
 letter 1, a letter too many 0.9, or 0.5 when its key touches both meant
 letters around it or repeats one ("bhyc": h between b and y) and 0.7 when it
-touches one, another letter 1.5, plus 1 for a split into two words and
+touches one, another letter 1.5, 0.2 for a capital inside the word that the
+suggestion has not (Shift held: "POłączyłem" → Połączyłem, which follows the
+word's capital), plus 1 for a split into two words and
 0.4 for a capital (a proper name) the typed word does not have. Hunspell's
 suggestions are ranked the same way and break ties. Only suggestions close to
 the best are shown (at most 0.6 worse), three at most (or the requested number

@@ -67,8 +67,13 @@ constexpr double kMoveAgainCost = 0.5;
 /// another letter 1.5. Returns more than `limit` once it exceeds it.
 double distance(const QString& a, const QString& b, double limit);
 
-/// distance() plus 1 for a candidate split into two words (space or hyphen)
-/// and 0.4 for a capital letter (a proper name) when the word has none.
+/// A capital inside the typed word that the candidate has not there (Shift
+/// held a letter too long, "POłączyłem" → Połączyłem).
+constexpr double kShiftHeldCost = 0.2;
+
+/// distance() plus 1 for a candidate split into two words (space or hyphen),
+/// 0.4 for a capital letter (a proper name) when the word has none, and
+/// kShiftHeldCost for each capital inside the word the candidate has not.
 double score(const QString& word, const QString& candidate, double limit);
 
 /// All word forms of a dictionary; empty, with `supported` false, when its

@@ -329,6 +329,10 @@ private slots:
         const auto bhyc = checker.scoredSuggestions(QStringLiteral("bhyc"));
         QCOMPARE(checker.suggestions(QStringLiteral("bhyc")), QStringList{QStringLiteral("być")});
         QVERIFY(SpellChecker::isConfident(QStringLiteral("bhyc"), bhyc));
+        // Shift held a letter too long: the word's own case, a small cost.
+        const auto shift = checker.scoredSuggestions(QStringLiteral("BHyc"));
+        QCOMPARE(shift.value(0).text, QStringLiteral("Być"));
+        QVERIFY(shift.value(0).score > bhyc.value(0).score);
         // A letter too many that touches neither neighbour: offered, not sure.
         const auto agents = checker.scoredSuggestions(QStringLiteral("agents"));
         QCOMPARE(agents.size(), 1);

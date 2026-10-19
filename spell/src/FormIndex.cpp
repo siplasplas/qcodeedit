@@ -298,6 +298,12 @@ double score(const QString& word, const QString& candidate, double limit) {
         d += 1.0;
     // A capital letter (e.g. a proper name) where the word has none.
     if (candidate != candidate.toLower() && word == word.toLower()) d += 0.4;
+    // A capital inside the word the candidate has not there: Shift held a
+    // letter too long ("POłączyłem").
+    if (word.size() > 1 && word != word.toUpper()) {
+        for (int i = 1; i < word.size(); ++i)
+            if (word[i].isUpper() && !(i < candidate.size() && candidate[i].isUpper())) d += kShiftHeldCost;
+    }
     return d;
 }
 
@@ -644,10 +650,10 @@ std::vector<std::pair<double, QString>> rankSuggestions(const QString& word,
         if (int(result.size()) >= std::min(maxCount, kMaxShown)
                 || dist > candidates.front().first + closeToBest + 1e-9 || dist > kShownLimit + 1e-9)
             break;
-        // A candidate differing only in case keeps its own ("warszawa" →
-        // Warszawa); the others follow the word's.
+        // A name differing only in case keeps its own ("warszawa" →
+        // Warszawa); the others follow the word's ("POłączyłem" → Połączyłem).
         QString form = candidate;
-        if (form.compare(word, Qt::CaseInsensitive) == 0) {
+        if (form.compare(word, Qt::CaseInsensitive) == 0 && form != form.toLower()) {
         } else if (allCaps) {
             form = form.toUpper();
         } else if (capitalized) {

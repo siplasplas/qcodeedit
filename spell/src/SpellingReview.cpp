@@ -218,6 +218,14 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
         menu.exec(m_list->viewport()->mapToGlobal(position));
     });
     m_list->setUniformRowHeights(true);
+    // Rows as high as a correction box from the start: otherwise the view
+    // measures the first row by its text and grows it later (e.g. when a
+    // check box changes), leaving the boxes as low as they were.
+    {
+        QComboBox probe;
+        probe.addItem(QStringLiteral("Ag"));
+        m_rowHeight = qMax(probe.sizeHint().height(), m_list->fontMetrics().height() + 6);
+    }
     m_list->setItemDelegateForColumn(ContextColumn, new ContextDelegate(m_list));
     m_list->setHeaderLabels({tr("Word"), tr("Correction"), tr("Score"), tr("Line"), tr("Context")});
     m_list->headerItem()->setToolTip(ScoreColumn, tr("How far the word is from its first correction: the lower, the "
@@ -227,6 +235,7 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     for (int i = 0; i < m_items.size(); ++i) {
         const SpellingReviewItem& item = m_items[i];
         auto* row = new ReviewRow(m_list);
+        row->setSizeHint(CorrectionColumn, QSize(0, m_rowHeight));
         row->setText(WordColumn, item.word.word);
         row->setData(WordColumn, kSortRole, item.word.word);
         row->setData(LineColumn, kSortRole, double(item.word.start.line) * 1e6 + item.word.start.column);
@@ -435,6 +444,7 @@ void SpellingReviewDialog::addChoiceBox(QTreeWidgetItem* row, int index) {
     auto* choice = new QComboBox(m_list);
     // Not in the keyboard's way: arrows move between rows, Alt+Down opens it.
     choice->setFocusPolicy(Qt::NoFocus);
+    choice->setFixedHeight(m_rowHeight);
     for (const auto& correction : m_items[index].choices) choice->addItem(correction.label);
     // Picking a correction, also the one shown, checks the word only when
     // asked for ("Picking a correction checks the word").

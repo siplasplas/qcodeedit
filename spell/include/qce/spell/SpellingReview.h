@@ -135,6 +135,7 @@ private:
     QPointer<CodeEditSpelling> m_spelling;
     std::function<void()> m_updateButtons;
     bool m_bulkChange = false;  ///< many rows change: the summary waits
+    int m_rowHeight = 0;        ///< of every row: a correction box fits
 };
 
 /// Reviews the misspelled words of the selection of the spelling's editor, or

@@ -190,8 +190,9 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     m_show->addItem(tr("All words"));
     m_show->addItem(tr("Checked words"));
     m_show->addItem(tr("Unchecked words"));
-    m_show->setToolTip(tr("Checked: to look over the corrections that will be made; unchecked: those left to "
-                          "decide"));
+    m_show->setToolTip(tr("Checked: to look over the corrections that will be made; unchecked: the words of the "
+                          "kind chosen in Checked at first left unchecked (e.g. without suggestions: those still "
+                          "without your own correction)"));
     showLabel->setBuddy(m_show);
     options->addWidget(m_show);
     layout->addLayout(options);
@@ -372,18 +373,7 @@ void SpellingReviewDialog::checkAtFirst() {
             QTreeWidgetItem* row = m_list->topLevelItem(i);
             if (!(row->flags() & Qt::ItemIsUserCheckable)) continue;
             const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
-            const bool several = item.choices.size() > 1;
-            bool check = false;
-            switch (mode) {
-            case CheckedAtFirst::Sure: check = item.confident; break;
-            case CheckedAtFirst::Single: check = item.single; break;
-            case CheckedAtFirst::Every: check = true; break;
-            // Those kinds alone, to look them over.
-            case CheckedAtFirst::SeveralFirstClose: check = several && item.firstClose; break;
-            case CheckedAtFirst::Several: check = several; break;
-            case CheckedAtFirst::NoSuggestions: check = item.noSuggestions; break;
-            }
-            row->setCheckState(WordColumn, check ? Qt::Checked : Qt::Unchecked);
+            row->setCheckState(WordColumn, ofKind(item, mode) ? Qt::Checked : Qt::Unchecked);
             if (auto* choice = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn)))
                 choice->setCurrentIndex(0);
         }
@@ -391,13 +381,30 @@ void SpellingReviewDialog::checkAtFirst() {
     updateSummary();
 }
 
+bool SpellingReviewDialog::ofKind(const SpellingReviewItem& item, CheckedAtFirst kind) {
+    const bool several = item.choices.size() > 1;
+    switch (kind) {
+    case CheckedAtFirst::Sure: return item.confident;
+    case CheckedAtFirst::Single: return item.single;
+    case CheckedAtFirst::Every: return true;
+    case CheckedAtFirst::SeveralFirstClose: return several && item.firstClose;
+    case CheckedAtFirst::Several: return several;
+    case CheckedAtFirst::NoSuggestions: return item.noSuggestions;
+    }
+    return false;
+}
+
 void SpellingReviewDialog::filter() {
-    // All, checked, unchecked.
+    // All, checked, unchecked; the unchecked ones of the kind chosen in
+    // "Checked at first" (e.g. the words without suggestions still without
+    // an own correction).
     const int show = m_show->currentIndex();
+    const CheckedAtFirst kind = checkedAtFirst();
     for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
         QTreeWidgetItem* row = m_list->topLevelItem(i);
+        const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
         const bool checked = row->checkState(WordColumn) == Qt::Checked;
-        row->setHidden((show == 1 && !checked) || (show == 2 && checked));
+        row->setHidden((show == 1 && !checked) || (show == 2 && (checked || !ofKind(item, kind))));
     }
     showCurrent();
 }

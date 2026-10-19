@@ -60,7 +60,8 @@ struct SpellingReviewItem {
 /// first as CheckedAtFirst says (the user may change it). "Show" lists all
 /// words, only the checked ones (to look them over) or only the unchecked
 /// ones (left to decide), applied when chosen, so a word checked or
-/// unchecked meanwhile stays in sight. The kinds of words are chosen in
+/// unchecked meanwhile stays in sight; the unchecked ones are those of the
+/// kind chosen in "Checked at first". The kinds of words are chosen in
 /// "Checked at first" (with several suggestions, or without suggestions but
 /// given an own correction, too: to look them over with "Show: Checked
 /// words"). Only the check boxes decide which
@@ -97,6 +98,8 @@ private:
     void checkAtFirst();
     void filter();
     void showCurrent();
+    /// The item is of the kind (what that choice of "Checked at first" checks).
+    static bool ofKind(const SpellingReviewItem& item, CheckedAtFirst kind);
     /// Adds the selected word to the dictionary (or ignores it) and removes
     /// its rows.
     void acceptWord(bool addToDictionary);

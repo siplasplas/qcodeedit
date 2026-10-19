@@ -191,7 +191,8 @@ the selection's misspelled words (or the whole text's) and shows
 context, sorted as in the text, alphabetically or by score,
 checked at first as `CheckedAtFirst` says (sure corrections, words with a
 single suggestion, or every word; the application keeps the user's choice),
-"Show" all words, only the checked ones or only the unchecked ones; "Checked
+"Show" all words, only the checked ones or only the unchecked ones of the kind
+chosen in "Checked at first"; "Checked
 at first" also picks only the words with several suggestions ("Several"), with
 several whose first would be sure alone ("Several, first close"), checked with
 their first one, or without suggestions but given an own correction ("Words

@@ -618,7 +618,8 @@ QList<SpellChecker::Suggestion> SpellChecker::findSuggestions(const QString& wor
     QList<Suggestion> result;
     for (const auto& [score, text] : detail::rankSuggestions(word, std::move(candidates), maxCount, hunspellOrder,
                                                         withFrequency ? detail::kCloseToBestWithFrequency
-                                                                      : detail::kCloseToBest))
+                                                                      : detail::kCloseToBest,
+                                                        &distances))
         result.append({text, score, distances.value(text.toLower(), score)});
     return result;
 }

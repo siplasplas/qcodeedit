@@ -996,7 +996,7 @@ double frequencyPenalty(double perMillion) {
 std::vector<std::pair<double, QString>> rankSuggestions(const QString& word,
                                                         std::vector<std::pair<double, QString>> candidates,
                                                         int maxCount, const QStringList& preferred,
-                                                        double closeToBest) {
+                                                        double closeToBest, const QHash<QString, double>* distances) {
     const auto rank = [&preferred](const QString& form) {
         const qsizetype i = preferred.indexOf(form);
         return i < 0 ? preferred.size() : i;
@@ -1017,13 +1017,24 @@ std::vector<std::pair<double, QString>> rankSuggestions(const QString& word,
     };
     const bool allCaps = word.size() > 1 && word == word.toUpper();
     const bool capitalized = !allCaps && !word.isEmpty() && word[0].isUpper();
+    // The spelling distance of a candidate (without the frequency penalty).
+    const auto spelling = [distances](const QString& form, double dist) {
+        return distances ? distances->value(form.toLower(), dist) : dist;
+    };
+    double farthestShown = -1;
     for (const auto& [dist, candidate] : candidates) {
+        if (int(result.size()) >= std::min(maxCount, kMaxShown)) break;
         // Close to the best only: usually one suggestion, not always maxCount.
         // (The small allowance keeps a candidate exactly kCloseToBest behind,
-        // e.g. 0.3 + 0.6 summed as 0.9000001.)
-        if (int(result.size()) >= std::min(maxCount, kMaxShown)
-                || dist > candidates.front().first + closeToBest + 1e-9 || dist > kShownLimit + 1e-9)
-            break;
+        // e.g. 0.3 + 0.6 summed as 0.9000001.) Rarer words fall behind, but
+        // one spelled as close as a shown one is still shown when it is in
+        // the frequency table: "fiunding" is funding as much as finding;
+        // "bhyc" stays być, not the very rare hyc.
+        const bool close = dist <= candidates.front().first + closeToBest + 1e-9 && dist <= kShownLimit + 1e-9;
+        const bool counted = dist - spelling(candidate, dist) < frequencyPenalty(0) - 1e-9;
+        const bool asNear = !result.empty() && counted && spelling(candidate, dist) <= farthestShown + 1e-9;
+        if (!close && !asNear) continue;
+        farthestShown = std::max(farthestShown, spelling(candidate, dist));
         // A name differing only in case keeps its own ("warszawa" →
         // Warszawa); the others follow the word's ("POłączyłem" → Połączyłem).
         QString form = candidate;

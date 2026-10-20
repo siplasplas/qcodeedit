@@ -166,11 +166,16 @@ constexpr double kConfidentScore = 1.0;
 /// those at most `closeToBest` worse than the best (a threshold, not always
 /// maxCount) and at most kShownLimit; ties keep the order of `preferred`
 /// (e.g. hunspell's suggestions), then the shorter. The case follows `word`
-/// (Capitalized, ALL CAPS).
+/// (Capitalized, ALL CAPS). With `distances` (spelling distances without the
+/// frequency penalty, by lower-case form) a candidate spelled at most as far
+/// as a shown one is shown too when the frequency table has it: frequency
+/// orders such rivals but does not hide them, so a single suggestion is not
+/// sure by mistake; a word missing from the table (very rare) still is.
 std::vector<std::pair<double, QString>> rankSuggestions(const QString& word,
                                                         std::vector<std::pair<double, QString>> candidates,
                                                         int maxCount, const QStringList& preferred,
-                                                        double closeToBest = kCloseToBest);
+                                                        double closeToBest = kCloseToBest,
+                                                        const QHash<QString, double>* distances = nullptr);
 
 class FormIndex {
 public:

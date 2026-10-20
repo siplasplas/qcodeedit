@@ -126,7 +126,9 @@ scores as "POŁączyłem") and 1 after
 a small letter (camelCase rather: "PołąCzyłem", "PoŁączyłem"), plus 1 for a
 split into two words and
 0.4 for a capital (a proper name) the typed word does not have. Hunspell's
-suggestions are ranked the same way and break ties. Only suggestions close to
+suggestions are ranked the same way and break ties. The user's words are not
+among the forms; being few, each is compared with the typed word too
+("gemnini" → an added "gemini"). Only suggestions close to
 the best are shown (at most 0.6 worse), three at most (or the requested number
 if smaller), and none scoring more than 2.6 (with the frequency penalty
 below), so a word far from every dictionary word ("bookamrk" without an
@@ -214,13 +216,15 @@ selected rows, separated by tabs, or their lines of text. "Add to
 Dictionary" and "Ignore" take the selected word out of the list, every row of
 it (an English word or a coined one written on purpose); "Remember Correction"
 keeps the selected word's chosen correction as the user's own
-(`SpellChecker::addCorrection()`, `~/.local/share/siplasplas/spell/<language>.corrections`,
-shared by programs): from then on it is the word's only suggestion, score 0, so
-sure, also while typing; "Own Correction" asks for one of the user's own
-(starting from the word as typed) and keeps it the same way, also for a word
-without suggestions, or replaces the word with the words before and after it
-here only (which "Show" can
-list alone). "User Dictionary" (`UserDictionaryDialog`) shows the
+(`SpellChecker::addCorrection()`, in the database above, shared by programs):
+from then on it is the word's only suggestion, score 0, so
+sure, also while typing; "Own Correction" (Ctrl+F6) asks for one of the
+user's own (starting from the word as typed) and keeps it the same way, also
+for a word without suggestions, or replaces the word with the words before and
+after it here only (which "Show" can
+list alone). The words of an own correction that neither the dictionaries nor
+the user's words know (a name, a term) are ignored in the document, so in its
+file when it has one. "User Dictionary" (`UserDictionaryDialog`) shows the
 user's words and corrections and removes them. The checked words are replaced
 as one undo step.
 

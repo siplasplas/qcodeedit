@@ -26,6 +26,7 @@
 #include <QPainter>
 #include <QPointer>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScopedValueRollback>
 #include <QStyledItemDelegate>
 #include <QTextDocument>
@@ -297,7 +298,10 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
                                 "correction, score 0, here and from now on (also while typing)"));
         auto* own = new QPushButton(tr("&Own Correction..."), this);
         own->setToolTip(tr("Your own correction of the selected word, also one without suggestions: remembered "
-                           "as its only correction, score 0"));
+                           "as its only correction, score 0; its words unknown to the dictionary are ignored in "
+                           "this file (Ctrl+F6)"));
+        auto* ownShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_F6), this);
+        connect(ownShortcut, &QShortcut::activated, own, &QPushButton::click);
         auto* userDictionary = new QPushButton(tr("&User Dictionary..."), this);
         userDictionary->setToolTip(tr("Your own words and corrections, to look over or remove"));
         for (QPushButton* button : {add, ignore, remember, own, userDictionary}) {
@@ -469,6 +473,18 @@ void SpellingReviewDialog::addChoiceBox(QTreeWidgetItem* row, int index) {
     m_list->setItemWidget(row, CorrectionColumn, choice);
 }
 
+void SpellingReviewDialog::ignoreUnknownWords(const QString& text) {
+    // Words of one's own correction that neither the dictionaries nor the
+    // user's words know (a name, a term) are right in this text: ignored in
+    // its file, not added to the dictionary.
+    static const QRegularExpression wordPattern(QStringLiteral("[\\p{L}\\p{M}]+(?:['\\x{2019}][\\p{L}\\p{M}]+)*"));
+    SpellChecker& checker = m_spelling->checker();
+    for (auto it = wordPattern.globalMatch(text); it.hasNext();) {
+        const QString word = it.next().captured();
+        if (!checker.check(word)) checker.ignore(word);
+    }
+}
+
 void SpellingReviewDialog::ownCorrection() {
     QTreeWidgetItem* current = m_list->currentItem();
     if (!current || !m_spelling) return;
@@ -517,6 +533,7 @@ void SpellingReviewDialog::ownCorrection() {
     ask.resize(qMax(ask.sizeHint().width(), 460), ask.sizeHint().height());
     if (ask.exec() != QDialog::Accepted) return;
     const QString correction = edit->text().trimmed();
+    ignoreUnknownWords(correction);
     if (withNeighbours->isChecked()) {
         // This place only: a choice of this row replacing the three words.
         if (correction.isEmpty() || correction == phrase) return;

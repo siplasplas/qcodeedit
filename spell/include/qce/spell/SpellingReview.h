@@ -115,8 +115,11 @@ private:
     /// Asks for the user's own correction of the selected word (starting from
     /// the word as typed) and keeps it like rememberCorrection(), also for a
     /// word without suggestions; or, with the words before and after it,
-    /// replaces those three here only (not remembered).
+    /// replaces those three here only (not remembered). Ctrl+F6.
     void ownCorrection();
+    /// Ignores in the document (its file) the words of `text` that neither the
+    /// dictionaries nor the user's words know.
+    void ignoreUnknownWords(const QString& text);
     /// The box of a row's corrections (m_items[index].choices).
     void addChoiceBox(QTreeWidgetItem* row, int index);
     /// The selected rows to the clipboard, one a line: word, correction,

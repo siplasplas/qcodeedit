@@ -138,7 +138,9 @@ void CodeEditSpelling::correctTypedWord(TextCursor at, QChar typed) {
 }
 
 CodeEditSpelling::~CodeEditSpelling() {
-    if (m_area) m_area->setExtraSelections(CodeEditArea::SpellingLayer, {});
+    if (!m_area) return;
+    m_area->setExtraSelections(CodeEditArea::SpellingLayer, {});
+    m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
 }
 
 void CodeEditSpelling::setLanguages(const QStringList& languages) {
@@ -149,8 +151,71 @@ void CodeEditSpelling::setLanguages(const QStringList& languages) {
 void CodeEditSpelling::setEnabled(bool enabled) {
     if (m_enabled == enabled) return;
     m_enabled = enabled;
-    if (!enabled && m_area) m_area->setExtraSelections(CodeEditArea::SpellingLayer, {});
+    if (!enabled && m_area) {
+        m_area->setExtraSelections(CodeEditArea::SpellingLayer, {});
+        m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
+    }
     scheduleCheck();
+}
+
+void CodeEditSpelling::setGrammarChecker(std::shared_ptr<GrammarChecker> checker) {
+    m_grammar = std::move(checker);
+    if (!m_grammar && m_area) m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
+    scheduleCheck();
+}
+
+void CodeEditSpelling::setGrammarUnderlineColor(const QColor& color) {
+    m_grammarColor = color;
+    scheduleCheck();
+}
+
+bool CodeEditSpelling::grammarActive() const {
+    if (!m_grammar || !m_checker.isReady()) return false;
+    const QString language = m_grammar->language();
+    for (const QString& dictionary : m_checker.dictionaries())
+        if (dictionary.section(QLatin1Char('_'), 0, 0).compare(language, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+QList<CodeEditSpelling::GrammarMistake> CodeEditSpelling::grammarMistakes(int line) {
+    QList<GrammarMistake> result;
+    ITextDocument* doc = m_area->document();
+    const QString text = doc->lineAt(line);
+    for (const auto& range : m_area->spellCheckRanges(line)) {
+        for (const GrammarIssue& found : m_grammar->check(text.mid(range.first, range.second - range.first))) {
+            GrammarMistake mistake;
+            mistake.issue = found;
+            mistake.issue.start += range.first;
+            mistake.issue.end += range.first;
+            if (mistake.issue.start < range.first || mistake.issue.end > range.second
+                    || mistake.issue.start >= mistake.issue.end)
+                continue;
+            // Spelling first: every word of it right.
+            bool spelled = true;
+            for (const auto& word : m_checker.checkableWords(text, mistake.issue.start, mistake.issue.end))
+                spelled = spelled && m_checker.check(text.mid(word.first, word.second));
+            if (!spelled) continue;
+            mistake.start = {line, mistake.issue.start};
+            mistake.end = {line, mistake.issue.end};
+            for (GrammarIssue::Replacement& replacement : mistake.issue.replacements) {
+                replacement.start += range.first;
+                replacement.end += range.first;
+                const Misspelling replaced{{line, replacement.start}, {line, replacement.end},
+                                           text.mid(replacement.start, replacement.end - replacement.start)};
+                mistake.corrections.append({replaced, replacement.text});
+            }
+            result.append(mistake);
+        }
+    }
+    return result;
+}
+
+std::optional<CodeEditSpelling::GrammarMistake> CodeEditSpelling::grammarMistakeAt(TextCursor position) {
+    if (!m_area || !m_area->document() || !m_enabled || !grammarActive()) return std::nullopt;
+    if (position.line < 0 || position.line >= m_area->document()->lineCount()) return std::nullopt;
+    for (const GrammarMistake& mistake : grammarMistakes(position.line))
+        if (position.column >= mistake.start.column && position.column <= mistake.end.column) return mistake;
+    return std::nullopt;
 }
 
 void CodeEditSpelling::setUnderlineColor(const QColor& color) {
@@ -206,6 +271,7 @@ void CodeEditSpelling::recheck() {
     if (edited) m_typedWord = {};
     if (!m_checker.isReady()) {
         m_area->setExtraSelections(CodeEditArea::SpellingLayer, {});
+        m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
         emit checked();
         return;
     }
@@ -238,6 +304,7 @@ void CodeEditSpelling::recheck() {
     // the text is in that language (e.g. before the application has detected
     // it), not full of mistakes. Wrong words no dictionary knows stay
     // underlined, however many.
+    bool otherLanguageText = false;
     if (words >= kLanguageWords && underlines.size() * 2 > words) {
         int otherLanguage = 0;
         for (const ExtraSelection& underline : underlines) {
@@ -245,9 +312,29 @@ void CodeEditSpelling::recheck() {
                                      .mid(underline.start.column, underline.end.column - underline.start.column);
             if (inOtherLanguage(word)) ++otherLanguage;
         }
-        if (otherLanguage * 2 > underlines.size()) underlines.clear();
+        if (otherLanguage * 2 > underlines.size()) {
+            underlines.clear();
+            otherLanguageText = true;
+        }
     }
     m_area->setExtraSelections(CodeEditArea::SpellingLayer, underlines);
+    // Grammar, of the same lines; not in the word being typed, and not in a
+    // text of another language (no spelling underlines either).
+    QVector<ExtraSelection> grammar;
+    if (grammarActive() && !otherLanguageText) {
+        for (int line = first; line <= last; ++line)
+            for (const GrammarMistake& mistake : grammarMistakes(line)) {
+                if (line == m_typedWord.line && mistake.start.column <= m_typedWord.end
+                        && mistake.end.column >= m_typedWord.start)
+                    continue;
+                ExtraSelection underline;
+                underline.start = mistake.start;
+                underline.end = mistake.end;
+                underline.underline = m_grammarColor;
+                grammar.append(underline);
+            }
+    }
+    m_area->setExtraSelections(CodeEditArea::GrammarLayer, grammar);
     emit checked();
 }
 

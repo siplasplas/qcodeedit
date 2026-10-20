@@ -53,6 +53,31 @@ if (auto word = spelling->misspelledWordAt(area->cursorPosition())) {
 `setEnabled(false)` removes the underlines; `isReady()` is false when no
 dictionary for the languages is installed.
 
+### Grammar
+
+qcodeedit has no grammar checker of its own, only the interface
+`qce::spell::GrammarChecker` (`GrammarChecker.h`): the language it checks and
+the mistakes of a piece of text, each with the words in question, the rule
+and replacements. A program that has one (e.g. an adapter of the spellmorf
+library) gives it to the editor:
+
+```cpp
+spelling->setGrammarChecker(std::make_shared<MyGrammar>());
+```
+
+Then, when a dictionary of the checker's language is in use, mistakes whose
+words are all spelled right are underlined in their own color (blue by
+default, `setGrammarUnderlineColor()`) in `CodeEditArea::GrammarLayer`:
+spelling comes first, a misspelled word keeps its red line only. Not in the
+word being typed, nor in a text found to be in another language. For the
+menu:
+
+```cpp
+if (auto mistake = spelling->grammarMistakeAt(area->cursorPosition()))
+    for (const auto& [range, text] : mistake->corrections)
+        menu.addAction(text, [=] { spelling->replaceWord(range, text); });
+```
+
 ## Dictionaries and languages
 
 ```cpp

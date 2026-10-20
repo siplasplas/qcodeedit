@@ -82,6 +82,8 @@ public:
     QVector<ExtraSelection> extraSelections(int layer) const { return m_selectionLayers.value(layer); }
     /// Layer used for spelling underlines by qcodeedit-spell.
     static constexpr int SpellingLayer = 100;
+    /// Layer used for grammar underlines by qcodeedit-spell.
+    static constexpr int GrammarLayer = 101;
 
     /// The parts of `line` that may be spell checked, as [start, end) columns
     /// in order: the whole line without a highlighter, otherwise the spans

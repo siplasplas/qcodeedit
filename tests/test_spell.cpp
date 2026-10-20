@@ -9,6 +9,7 @@
 #include "KateTestPaths.h"
 
 #include <QDir>
+#include <QRegularExpression>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QTextStream>
@@ -19,6 +20,31 @@
 
 using namespace qce;
 using namespace qce::spell;
+
+namespace {
+
+// A stand-in grammar for Polish: "ze" before any word is a mistake, mended
+// by "że" (a real checker knows which words take "ze").
+class FakeGrammar : public GrammarChecker {
+public:
+    QString language() const override { return QStringLiteral("pl"); }
+    QList<GrammarIssue> check(const QString& text) const override {
+        QList<GrammarIssue> issues;
+        static const QRegularExpression pattern(QStringLiteral("\\bze (\\w+)"));
+        for (auto it = pattern.globalMatch(text); it.hasNext();) {
+            const auto match = it.next();
+            GrammarIssue issue;
+            issue.start = int(match.capturedStart());
+            issue.end = int(match.capturedEnd());
+            issue.rule = QStringLiteral("government");
+            issue.replacements.append({issue.start, issue.start + 2, QStringLiteral("że")});
+            issues.append(issue);
+        }
+        return issues;
+    }
+};
+
+} // namespace
 
 // Uses the system's hunspell dictionaries; tests needing Polish or English
 // skip when they are not installed. The user dictionary goes to a temporary
@@ -162,6 +188,54 @@ private slots:
                                                           underline.end.column - underline.start.column),
                      QStringLiteral("błendem"));
         area.setHighlighter(nullptr);
+    }
+
+    void grammarOnRightWordsOnly() {
+        if (!installed(QStringLiteral("pl"))) QSKIP("No Polish dictionary (hunspell-pl)");
+        SimpleTextDocument doc;
+        doc.setText(QStringLiteral("Wiem, ze jest dobrze.\nWiem, ze jestt dobrze."));
+        CodeEditArea area;
+        area.setDocument(&doc);
+        area.resize(600, 200);
+        CodeEditSpelling spelling(&area);
+        spelling.setLanguages({QStringLiteral("pl")});
+        spelling.recheck();
+        QVERIFY(area.extraSelections(CodeEditArea::GrammarLayer).isEmpty());  // no checker yet
+
+        spelling.setGrammarChecker(std::make_shared<FakeGrammar>());
+        spelling.recheck();
+        // The second line has a misspelled word: spelling first.
+        const auto grammar = area.extraSelections(CodeEditArea::GrammarLayer);
+        QCOMPARE(grammar.size(), 1);
+        QCOMPARE(grammar.front().start, (TextCursor{0, 6}));
+        QCOMPARE(grammar.front().end, (TextCursor{0, 13}));
+        QCOMPARE(grammar.front().underline, spelling.grammarUnderlineColor());
+        QCOMPARE(area.extraSelections(CodeEditArea::SpellingLayer).size(), 1);
+
+        QVERIFY(!spelling.grammarMistakeAt({0, 2}).has_value());
+        QVERIFY(!spelling.grammarMistakeAt({1, 7}).has_value());
+        const auto mistake = spelling.grammarMistakeAt({0, 7});
+        QVERIFY(mistake.has_value());
+        QCOMPARE(mistake->issue.rule, QStringLiteral("government"));
+        QCOMPARE(mistake->corrections.size(), 1);
+        QCOMPARE(mistake->corrections.front().first.word, QStringLiteral("ze"));
+        spelling.replaceWord(mistake->corrections.front().first, mistake->corrections.front().second);
+        QCOMPARE(doc.lineAt(0), QStringLiteral("Wiem, że jest dobrze."));
+        spelling.recheck();
+        QVERIFY(area.extraSelections(CodeEditArea::GrammarLayer).isEmpty());
+
+        // Only for its language; and gone with the checker.
+        doc.setText(QStringLiteral("Wiem, ze jest dobrze."));
+        if (installed(QStringLiteral("en"))) {
+            spelling.setLanguages({QStringLiteral("en")});
+            spelling.recheck();
+            QVERIFY(area.extraSelections(CodeEditArea::GrammarLayer).isEmpty());
+            spelling.setLanguages({QStringLiteral("pl")});
+        }
+        spelling.recheck();
+        QCOMPARE(area.extraSelections(CodeEditArea::GrammarLayer).size(), 1);
+        spelling.setGrammarChecker(nullptr);
+        QVERIFY(area.extraSelections(CodeEditArea::GrammarLayer).isEmpty());
     }
 
     void underlinesSuggestsAndReplaces() {

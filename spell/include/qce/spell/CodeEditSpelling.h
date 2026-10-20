@@ -1,6 +1,7 @@
 #pragma once
 
 #include <qce/TextCursor.h>
+#include <qce/spell/GrammarChecker.h>
 #include <qce/spell/SpellChecker.h>
 
 #include <QColor>
@@ -113,6 +114,25 @@ public:
     /// The file whose text this is (SpellChecker::setDocumentPath()).
     void setDocumentPath(const QString& path);
 
+    /// Grammar checking, none by default (see GrammarChecker): a mistake
+    /// whose words are all spelled right is underlined in its own color, in
+    /// CodeEditArea::GrammarLayer, when a dictionary of the checker's
+    /// language is in use; spelling comes first.
+    void setGrammarChecker(std::shared_ptr<GrammarChecker> checker);
+    GrammarChecker* grammarChecker() const { return m_grammar.get(); }
+    void setGrammarUnderlineColor(const QColor& color);
+    QColor grammarUnderlineColor() const { return m_grammarColor; }
+    /// A grammar mistake in the editor, with its replacements ready for
+    /// replaceWord().
+    struct GrammarMistake {
+        TextCursor start;
+        TextCursor end;
+        GrammarIssue issue;
+        QList<QPair<Misspelling, QString>> corrections;
+    };
+    /// The grammar mistake at `position` (in its words or right after them), if any.
+    std::optional<GrammarMistake> grammarMistakeAt(TextCursor position);
+
     /// Checks the visible lines now (normally done by a timer).
     void recheck();
 
@@ -129,6 +149,10 @@ private:
     void correctTypedWord(TextCursor at, QChar typed);
     void scheduleCheck();
     void onCursorMoved(TextCursor position);
+    // Grammar checking applies: a checker, and a dictionary of its language in use.
+    bool grammarActive() const;
+    // The grammar mistakes of a line whose words are all spelled right.
+    QList<GrammarMistake> grammarMistakes(int line);
 
     QPointer<CodeEditArea> m_area;
     QPointer<ITextDocument> m_document;  // whose changes trigger a check
@@ -140,6 +164,8 @@ private:
     QStringList m_otherLanguagesFor;  ///< the dictionaries in use it was made for
     QTimer* m_timer = nullptr;
     QColor m_color{Qt::red};
+    std::shared_ptr<GrammarChecker> m_grammar;
+    QColor m_grammarColor{0x20, 0x60, 0xff};
     bool m_enabled = true;
     bool m_correctWhileTyping = false;
     // The text changed since the last check.

@@ -3,7 +3,8 @@
 //
 // A hunspell dictionary is expanded into its word forms (the affix rules of
 // its .aff applied to the stems of its .dic) and kept as a cache file,
-// memory-mapped, shared by all programs. The forms are grouped in classes:
+// memory-mapped, shared by all programs: each form as its stem and rules, by
+// the hash of its class (see FormIndex.cpp). The forms are grouped in classes:
 // the letters of a word in lower case, diacritics (Polish, French é, ç, …)
 // and the AltGr characters of the Polish keyboard as their plain letters,
 // sorted. Swapped
@@ -87,7 +88,7 @@ double score(const QString& word, const QString& candidate, double limit);
 
 /// All word forms of a dictionary; empty, with `supported` false, when its
 /// .aff uses what is not implemented here (COMPLEXPREFIXES) or it has too
-/// many forms (Hungarian, Catalan). Flags of every FLAG kind, flag aliases
+/// many forms (Hungarian, Galician). Flags of every FLAG kind, flag aliases
 /// (AF), NEEDAFFIX, CIRCUMFIX, continuation classes (two suffixes, prefixes
 /// allowed by suffixes and the other way) and forbidden words are known;
 /// compound words are left to hunspell.

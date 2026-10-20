@@ -107,17 +107,23 @@ Checking a word is hunspell's. The suggestions come from all forms of the
 dictionary: its stems with every affix rule applied (pl_PL: about 3.7 million
 forms), kept in a cache file, `~/.cache/siplasplas/spell/<name>.forms`, built
 in the background the first time (a few seconds), rebuilt when the dictionary
-changes, and memory-mapped (shared by all programs, read on demand). Until it
-is ready, and for a dictionary with more than 8 million forms (Hungarian,
-Catalan, Galician, Arabic, Hebrew, Brazilian Portuguese) or using
+changes, and memory-mapped (shared by all programs, read on demand). The file
+keeps no form as text: each is its stem and the rules applied to it (a prefix,
+a suffix, a second suffix), 8 bytes, made again when read; the forms are
+ordered by the hash of their class, with 16 bits of it in each, so a class
+is found in its bucket at once (pl_PL: 43 MB, built with about 160 MB of
+memory; pt_BR with 10.5 million forms: 124 MB). Until it
+is ready, and for a dictionary with more than 30 million forms (Hungarian,
+Galician, Arabic, Hebrew) or using
 COMPLEXPREFIXES, hunspell's own suggestions are shown. Flags of every kind
 (one character, long, numeric, UTF-8), flag aliases, NEEDAFFIX, CIRCUMFIX,
 continuation classes (two suffixes; French elision, `l'aime`, as prefixes
 allowed by a suffix) and forbidden words are known, so e.g. French, German,
-Spanish, Czech, Slovak, Latvian, Croatian, Serbian and Turkish have their
-forms; compound words are hunspell's only. On a French text typed without
-accents 53 of 60 mistakes get the right first suggestion (hunspell alone: 47),
-1.4 suggestions on average instead of 3.2, in 29 ms a word instead of 91.
+Spanish, Portuguese, Catalan, Czech, Slovak, Latvian, Croatian, Serbian and
+Turkish have their forms; compound words are hunspell's only. On a French text
+typed without accents 53 of 60 mistakes get the right first suggestion
+(hunspell alone: 47), 1.4 suggestions on average instead of 3.2, in 24 ms a
+word instead of 91.
 
 The forms are grouped by class: the letters of a word in lower case, without
 diacritics (Polish, and the accents of other Latin letters: `é` → e, `ç` → c),

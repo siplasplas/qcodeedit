@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -90,7 +91,28 @@ struct Rule {
     // Continuation class: the flags of the form this rule makes (more
     // affixes it may take, CIRCUMFIX, NEEDAFFIX, ...).
     std::vector<quint32> cont;
+    quint32 id = 0;  // in RuleText's list
 };
+
+// What a rule does to a form: removes `strip` UTF-16 units (at the end for a
+// suffix, at the start for a prefix) and adds `add` there.
+struct RuleText {
+    int strip = 0;
+    QString add;
+};
+
+// A stem with a prefix, a suffix and a second suffix applied (rule ids, 0
+// for none).
+QString composeForm(QString form, const std::vector<RuleText>& rules, quint32 prefix, quint32 suffix,
+                    quint32 secondSuffix) {
+    for (const quint32 id : {suffix, secondSuffix}) {
+        if (!id) continue;
+        form.chop(rules[id].strip);
+        form += rules[id].add;
+    }
+    if (prefix) form = rules[prefix].add + form.mid(rules[prefix].strip);
+    return form;
+}
 
 struct Affix {
     bool cross = false;
@@ -126,32 +148,48 @@ QString encodingOf(const QString& affPath) {
 
 // --- Cache file ------------------------------------------------------------
 
-// '2': other accented letters fold to their base letter (classKey()).
-constexpr char kMagic[8] = {'Q', 'C', 'E', 'F', 'O', 'R', 'M', '2'};
+// '3': forms as a stem and the rules applied to it, by the hash of their class.
+constexpr char kMagic[8] = {'Q', 'C', 'E', 'F', 'O', 'R', 'M', '3'};
+
+// A form in the file: its stem (3 bytes), its combination of rules (3 bytes)
+// and 16 bits of its class's hash (2 bytes), little-endian.
+constexpr int kRecordSize = 8;
+constexpr quint32 kMaxIndex = 1u << 24;
 
 #pragma pack(push, 1)
 struct Header {
     char magic[8];
     quint32 formCount;
-    quint32 classCount;
+    quint32 bucketBits;     // 2^bucketBits buckets of forms, by class hash
+    quint32 stemCount;
+    quint32 ruleCount;      // rule 0 is "none"
+    quint32 comboCount;
+    quint32 alphabetSize;   // bytes
     quint64 dicSize;
     qint64 dicTime;
     quint64 affSize;
     qint64 affTime;
-    quint64 formOffsets;    // (formCount + 1) quint32 into the form text
-    quint64 formText;       // UTF-8, forms ordered by class
-    quint64 classOffsets;   // (classCount + 1) quint32 into the class text
-    quint64 classText;      // UTF-8 class keys, sorted by their bytes
-    quint64 classFirst;     // (classCount + 1) quint32: first form of each class
+    quint64 stemOffsets;    // (stemCount + 1) quint32 into the stem text
+    quint64 stemText;       // UTF-8, the .dic's words
+    quint64 ruleStrip;      // ruleCount quint16: UTF-16 units the rule removes
+    quint64 ruleAddOffsets; // (ruleCount + 1) quint32 into the rule text
+    quint64 ruleAddText;    // UTF-8, what each rule adds
+    quint64 combos;         // comboCount × 3 quint32: prefix, suffix, second suffix
+    quint64 records;        // formCount × kRecordSize, ordered by bucket
+    quint64 bucketStart;    // (2^bucketBits + 1) quint32: first record of each bucket
     quint64 alphabet;       // UTF-8: every letter of the class keys
-    quint32 alphabetSize;   // bytes
 };
 #pragma pack(pop)
 
-int compareBytes(const char* a, int aSize, const char* b, int bSize) {
-    const int common = std::min(aSize, bSize);
-    if (const int c = std::memcmp(a, b, size_t(common))) return c;
-    return aSize - bSize;
+// The hash of a class key (FNV-1a over its UTF-16 units): the same in every
+// program and Qt version, unlike qHash().
+quint64 classHash(const QString& key) {
+    quint64 h = 14695981039346656037ull;
+    for (const QChar c : key) {
+        h ^= c.unicode();
+        h *= 1099511628211ull;
+    }
+    return h;
 }
 
 } // namespace
@@ -361,9 +399,10 @@ namespace {
 // separated by commas (num), or one Unicode character (UTF-8).
 enum class FlagKind { Char, Long, Num, Utf8 };
 
-// More forms than this (over a gigabyte while building) are left to
+// More forms than this (16 bytes each while building) are left to
 // hunspell: e.g. Hungarian, whose suffixes follow each other by thousands.
-constexpr qsizetype kMaxForms = 8'000'000;
+constexpr qsizetype kMaxForms = 30'000'000;
+constexpr qsizetype kMaxFormsOfStem = 1'000'000;
 
 // A flag as a number: the character, the two characters of a long flag, the
 // number, or the code point.
@@ -403,8 +442,18 @@ Flag oneFlag(QStringView text, FlagKind kind) {
 
 } // namespace
 
-QStringList expandDictionary(const QString& affPath, const QString& dicPath, bool* supported) {
-    *supported = false;
+namespace {
+
+// A stem of the .dic (returns its number) and each form made of it.
+using StemSink = std::function<quint32(const QString& stem)>;
+using FormSink = std::function<void(quint32 stem, quint32 prefix, quint32 suffix, quint32 secondSuffix,
+                                    const QString& form)>;
+
+// Every form of a dictionary given to `onForm`, with the rules (`rules`,
+// rule 0 being none) that make it of its stem; false when not supported.
+bool expandForms(const QString& affPath, const QString& dicPath, std::vector<RuleText>& rules,
+                 const StemSink& onStem, const FormSink& onForm) {
+    rules.assign(1, RuleText{});
     const QString encoding = encodingOf(affPath);
     const QStringList affLines = readLines(affPath, encoding);
     // The kind of flags and their aliases first: affix rules use them too.
@@ -415,7 +464,7 @@ QStringList expandDictionary(const QString& affPath, const QString& dicPath, boo
         const QStringList t = rawLine.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
         if (t.isEmpty()) continue;
         // COMPLEXPREFIXES stands alone on its line.
-        if (t[0] == QLatin1String("COMPLEXPREFIXES") || t[0] == QLatin1String("PSEUDOROOT")) return {};
+        if (t[0] == QLatin1String("COMPLEXPREFIXES") || t[0] == QLatin1String("PSEUDOROOT")) return false;
         if (t.size() < 2) continue;
         if (t[0] == QLatin1String("FLAG")) {
             if (t[1] == QLatin1String("long")) flagKind = FlagKind::Long;
@@ -471,6 +520,8 @@ QStringList expandDictionary(const QString& affPath, const QString& dicPath, boo
         rule.add = add == QLatin1String("0") ? QString() : add;
         if (slash >= 0) readFlags(QStringView(t[3]).mid(slash + 1), rule.cont);
         rule.condition = Condition::parse(t.size() > 4 ? t[4] : QStringLiteral("."));
+        rule.id = quint32(rules.size());
+        rules.push_back({int(rule.strip.size()), rule.add});
         affix.rules.push_back(rule);
     }
 
@@ -494,12 +545,15 @@ QStringList expandDictionary(const QString& affPath, const QString& dicPath, boo
     // continuation class), as hunspell's twofold suffix stripping.
     struct Suffixed {
         QString form;
+        quint32 suffix, secondSuffix;  // rule ids
         bool cross;               // every suffix combines with prefixes
         bool circumfix;           // needs a CIRCUMFIX prefix
         bool needsMore;           // the outer suffix needs another affix
         std::vector<Flag> cont;   // the suffixes' continuation classes (prefixes they allow)
     };
-    // False when there are too many (kMaxForms).
+    qsizetype count = 0;  // forms given so far
+    // False when there are too many: kMaxForms in all, or kMaxFormsOfStem of
+    // one stem (Hungarian: thousands of suffixes after each other).
     const auto addSuffixes = [&](const QString& word, const std::vector<Flag>& allowed,
                                  std::vector<Suffixed>& out) -> bool {
         for (const Flag flag : allowed) {
@@ -509,8 +563,9 @@ QStringList expandDictionary(const QString& affPath, const QString& dicPath, boo
                 if (skipped(rule.cont)) continue;
                 const std::optional<QString> form = suffixed(word, rule);
                 if (!form) continue;
-                if (out.size() > size_t(kMaxForms)) return false;
-                out.push_back({*form, first->cross, has(rule.cont, circumfix), has(rule.cont, needAffix), rule.cont});
+                if (qsizetype(out.size()) > kMaxFormsOfStem || count + qsizetype(out.size()) > kMaxForms) return false;
+                out.push_back({*form, rule.id, 0, first->cross, has(rule.cont, circumfix), has(rule.cont, needAffix),
+                               rule.cont});
                 const Suffixed inner = out.back();
                 for (const Flag outerFlag : inner.cont) {
                     const auto second = suffixes.constFind(outerFlag);
@@ -521,7 +576,7 @@ QStringList expandDictionary(const QString& affPath, const QString& dicPath, boo
                         if (!twice) continue;
                         std::vector<Flag> cont = inner.cont;
                         cont.insert(cont.end(), outer.cont.cbegin(), outer.cont.cend());
-                        out.push_back({*twice, inner.cross && second->cross,
+                        out.push_back({*twice, inner.suffix, outer.id, inner.cross && second->cross,
                                        inner.circumfix || has(outer.cont, circumfix), has(outer.cont, needAffix),
                                        std::move(cont)});
                     }
@@ -531,25 +586,45 @@ QStringList expandDictionary(const QString& affPath, const QString& dicPath, boo
         return true;
     };
 
-    QStringList forms;
-    QSet<QString> forbiddenWords;
-    std::vector<Flag> flags, prefixFlags, extraSuffixFlags;
-    std::vector<Suffixed> withSuffixes, withPrefixSuffixes;
     const QStringList dic = readLines(dicPath, encoding);
-    for (int lineNumber = 1; lineNumber < dic.size(); ++lineNumber) {  // the first line is a count
+    std::vector<Flag> flags, prefixFlags, extraSuffixFlags;
+    // Each line's word and flags.
+    const auto readEntry = [&](int lineNumber, QString& word) {
         const QString entry = dic[lineNumber].section(QLatin1Char('\t'), 0, 0).section(QLatin1Char(' '), 0, 0).trimmed();
-        if (entry.isEmpty()) continue;
         const int slash = entry.indexOf(QLatin1Char('/'));
-        const QString word = slash < 0 ? entry : entry.left(slash);
+        word = slash < 0 ? entry : entry.left(slash);
         if (slash < 0) flags.clear();
         else readFlags(QStringView(entry).mid(slash + 1), flags);
-        if (has(flags, forbidden)) forbiddenWords.insert(word);
-        if (skipped(flags)) continue;
-        if (!has(flags, needAffix)) forms.append(word);
+    };
+    // A forbidden word in the .dic forbids the form whatever makes it
+    // ("Kongs" in Dutch), also one made of an earlier stem.
+    QSet<QString> forbiddenWords;
+    QString word;
+    if (forbidden)
+        for (int lineNumber = 1; lineNumber < dic.size(); ++lineNumber) {
+            readEntry(lineNumber, word);
+            if (has(flags, forbidden)) forbiddenWords.insert(word);
+        }
+    quint32 stem = 0;
+    // A form beginning or ending with a hyphen is a part of compound words
+    // only ("apk-").
+    const auto giveForm = [&](quint32 prefix, quint32 suffix, quint32 secondSuffix, const QString& form) {
+        if (form.startsWith(QLatin1Char('-')) || form.endsWith(QLatin1Char('-')) || forbiddenWords.contains(form))
+            return;
+        ++count;
+        onForm(stem, prefix, suffix, secondSuffix, form);
+    };
+
+    std::vector<Suffixed> withSuffixes, withPrefixSuffixes;
+    for (int lineNumber = 1; lineNumber < dic.size(); ++lineNumber) {  // the first line is a count
+        readEntry(lineNumber, word);
+        if (word.isEmpty() || skipped(flags)) continue;
+        stem = onStem(word);
+        if (!has(flags, needAffix)) giveForm(0, 0, 0, word);
         withSuffixes.clear();
-        if (!addSuffixes(word, flags, withSuffixes)) return {};
+        if (!addSuffixes(word, flags, withSuffixes)) return false;
         for (const Suffixed& s : withSuffixes)
-            if (!s.circumfix && !s.needsMore) forms.append(s.form);
+            if (!s.circumfix && !s.needsMore) giveForm(0, s.suffix, s.secondSuffix, s.form);
 
         // Prefixes of the word, or allowed by a suffix's continuation class.
         prefixFlags = flags;
@@ -564,11 +639,11 @@ QStringList expandDictionary(const QString& affPath, const QString& dicPath, boo
                 if (skipped(rule.cont)) continue;
                 const bool ruleCircumfix = has(rule.cont, circumfix);
                 if (onWord && !ruleCircumfix && !has(rule.cont, needAffix))
-                    if (const auto form = prefixed(word, rule)) forms.append(*form);
+                    if (const auto form = prefixed(word, rule)) giveForm(rule.id, 0, 0, *form);
                 const auto combine = [&](const Suffixed& s, bool needCross) {
                     if (s.circumfix != ruleCircumfix) return;
                     if (needCross && !(prefix->cross && s.cross)) return;
-                    if (const auto form = prefixed(s.form, rule)) forms.append(*form);
+                    if (const auto form = prefixed(s.form, rule)) giveForm(rule.id, s.suffix, s.secondSuffix, *form);
                 };
                 for (const Suffixed& s : withSuffixes)
                     if (onWord || std::find(s.cont.cbegin(), s.cont.cend(), flag) != s.cont.cend()) combine(s, true);
@@ -578,20 +653,25 @@ QStringList expandDictionary(const QString& affPath, const QString& dicPath, boo
                 for (const Flag f : rule.cont)
                     if (std::find(flags.cbegin(), flags.cend(), f) == flags.cend()) extraSuffixFlags.push_back(f);
                 withPrefixSuffixes.clear();
-                if (!addSuffixes(word, extraSuffixFlags, withPrefixSuffixes)) return {};
+                if (!addSuffixes(word, extraSuffixFlags, withPrefixSuffixes)) return false;
                 for (const Suffixed& s : withPrefixSuffixes) combine(s, false);
-                if (forms.size() > kMaxForms) return {};
+                if (count > kMaxForms) return false;
             }
         }
-        if (forms.size() > kMaxForms) return {};
+        if (count > kMaxForms) return false;
     }
-    // A forbidden word in the .dic forbids the form whatever makes it ("Kongs"
-    // in Dutch); a form beginning or ending with a hyphen is a part of
-    // compound words only ("apk-").
-    forms.removeIf([&](const QString& form) {
-        return forbiddenWords.contains(form) || form.startsWith(QLatin1Char('-')) || form.endsWith(QLatin1Char('-'));
-    });
-    *supported = true;
+    return true;
+}
+
+} // namespace
+
+QStringList expandDictionary(const QString& affPath, const QString& dicPath, bool* supported) {
+    QStringList forms;
+    std::vector<RuleText> rules;
+    quint32 stems = 0;
+    *supported = expandForms(affPath, dicPath, rules, [&](const QString&) { return stems++; },
+                             [&](quint32, quint32, quint32, quint32, const QString& form) { forms.append(form); });
+    if (!*supported) forms.clear();
     return forms;
 }
 
@@ -601,78 +681,130 @@ QString formIndexPath(const QString& dictionaryName) {
 }
 
 bool buildFormIndex(const QString& affPath, const QString& dicPath, const QString& indexPath) {
-    bool supported = false;
-    QStringList forms = expandDictionary(affPath, dicPath, &supported);
-    if (!supported || forms.isEmpty()) return false;
-    std::sort(forms.begin(), forms.end());
-    forms.erase(std::unique(forms.begin(), forms.end()), forms.end());
-
-    // Compact text and offsets; the forms are then ordered by their class.
-    std::string formBytes, keyBytes;
-    std::vector<quint32> formStart, keyStart;
-    formStart.reserve(size_t(forms.size()) + 1);
-    keyStart.reserve(size_t(forms.size()) + 1);
+    // Streamed: a form is kept as its stem, its rules and its class's hash
+    // (16 bytes), never as text, so even tens of millions fit.
+    struct Built {
+        quint64 hash;
+        quint32 stem;
+        quint32 combo;
+    };
+    std::vector<Built> built;
+    std::vector<RuleText> rules;
+    QByteArray stemText;
+    std::vector<quint32> stemOffsets;
+    std::vector<quint32> combos;  // 3 per combination
+    QHash<QByteArray, quint32> comboIds;
     QSet<QChar> letters;
-    for (const QString& form : forms) {
+    const auto onStem = [&](const QString& stem) {
+        stemOffsets.push_back(quint32(stemText.size()));
+        stemText += stem.toUtf8();
+        return quint32(stemOffsets.size() - 1);
+    };
+    const auto onForm = [&](quint32 stem, quint32 prefix, quint32 suffix, quint32 secondSuffix, const QString& form) {
+        const quint32 parts[3] = {prefix, suffix, secondSuffix};
+        const QByteArray comboKey(reinterpret_cast<const char*>(parts), sizeof parts);
+        auto it = comboIds.constFind(comboKey);
+        if (it == comboIds.cend()) {
+            it = comboIds.insert(comboKey, quint32(comboIds.size()));
+            combos.insert(combos.end(), std::begin(parts), std::end(parts));
+        }
         const QString key = classKey(form);
         for (const QChar c : key) letters.insert(c);
-        formStart.push_back(quint32(formBytes.size()));
-        formBytes += form.toStdString();
-        keyStart.push_back(quint32(keyBytes.size()));
-        keyBytes += key.toStdString();
-    }
-    formStart.push_back(quint32(formBytes.size()));
-    keyStart.push_back(quint32(keyBytes.size()));
-    forms.clear();
-    std::vector<quint32> order(formStart.size() - 1);
-    for (quint32 i = 0; i < order.size(); ++i) order[i] = i;
-    const auto keyOf = [&](quint32 i) { return std::make_pair(keyBytes.data() + keyStart[i], int(keyStart[i + 1] - keyStart[i])); };
-    std::sort(order.begin(), order.end(), [&](quint32 a, quint32 b) {
-        const auto ka = keyOf(a), kb = keyOf(b);
-        return compareBytes(ka.first, ka.second, kb.first, kb.second) < 0;
-    });
+        built.push_back({classHash(key), stem, it.value()});
+    };
+    if (!expandForms(affPath, dicPath, rules, onStem, onForm) || built.empty()) return false;
+    stemOffsets.push_back(quint32(stemText.size()));
+    if (stemOffsets.size() > kMaxIndex || comboIds.size() > qsizetype(kMaxIndex)) return false;
 
-    std::string outForms, outClasses;
-    std::vector<quint32> outFormOffsets, outClassOffsets, outClassFirst;
-    outFormOffsets.reserve(order.size() + 1);
-    for (quint32 index = 0; index < order.size(); ++index) {
-        const quint32 i = order[index];
-        const auto key = keyOf(i);
-        if (outClassOffsets.empty()
-                || compareBytes(key.first, key.second, outClasses.data() + outClassOffsets.back(),
-                                int(outClasses.size() - outClassOffsets.back())) != 0) {
-            outClassOffsets.push_back(quint32(outClasses.size()));
-            outClasses.append(key.first, size_t(key.second));
-            outClassFirst.push_back(index);
+    // Buckets by the low bits of the hash, about two forms each; within one,
+    // by the whole hash, so that a class's forms lie together.
+    quint32 bucketBits = 10;
+    while ((quint64(1) << bucketBits) < built.size() / 2) ++bucketBits;
+    const quint64 mask = (quint64(1) << bucketBits) - 1;
+    std::sort(built.begin(), built.end(), [mask](const Built& x, const Built& y) {
+        const quint64 bx = x.hash & mask, by = y.hash & mask;
+        return bx != by ? bx < by : x.hash != y.hash ? x.hash < y.hash : std::pair(x.stem, x.combo) < std::pair(y.stem, y.combo);
+    });
+    const auto stemAt = [&](quint32 i) {
+        return QString::fromUtf8(stemText.constData() + stemOffsets[i], stemOffsets[i + 1] - stemOffsets[i]);
+    };
+    const auto formOf = [&](const Built& f) {
+        return composeForm(stemAt(f.stem), rules, combos[3 * f.combo], combos[3 * f.combo + 1], combos[3 * f.combo + 2]);
+    };
+    // The same form made twice (two stems or rules): kept once. Equal forms
+    // have equal hashes, so only those runs are compared.
+    QByteArray records;
+    records.reserve(qsizetype(built.size()) * kRecordSize);
+    std::vector<quint32> bucketStart(size_t(mask) + 2, 0);
+    quint32 formCount = 0;
+    QSet<QString> seen;
+    for (size_t i = 0; i < built.size();) {
+        size_t end = i + 1;
+        while (end < built.size() && built[end].hash == built[i].hash) ++end;
+        seen.clear();
+        for (size_t k = i; k < end; ++k) {
+            if (end - i > 1) {
+                const QString form = formOf(built[k]);
+                if (seen.contains(form)) continue;
+                seen.insert(form);
+            }
+            const Built& f = built[k];
+            const quint16 fingerprint = quint16(f.hash >> 48);
+            const char record[kRecordSize] = {
+                char(f.stem), char(f.stem >> 8), char(f.stem >> 16),
+                char(f.combo), char(f.combo >> 8), char(f.combo >> 16),
+                char(fingerprint), char(fingerprint >> 8)};
+            records.append(record, kRecordSize);
+            ++bucketStart[size_t(f.hash & mask) + 1];
+            ++formCount;
         }
-        outFormOffsets.push_back(quint32(outForms.size()));
-        outForms.append(formBytes.data() + formStart[i], formStart[i + 1] - formStart[i]);
+        i = end;
     }
-    outFormOffsets.push_back(quint32(outForms.size()));
-    outClassOffsets.push_back(quint32(outClasses.size()));
-    outClassFirst.push_back(quint32(order.size()));
+    built.clear();
+    built.shrink_to_fit();
+    for (size_t b = 1; b < bucketStart.size(); ++b) bucketStart[b] += bucketStart[b - 1];
+
+    std::vector<quint16> ruleStrip;
+    std::vector<quint32> ruleAddOffsets;
+    QByteArray ruleAddText;
+    for (const RuleText& rule : rules) {
+        ruleStrip.push_back(quint16(rule.strip));
+        ruleAddOffsets.push_back(quint32(ruleAddText.size()));
+        ruleAddText += rule.add.toUtf8();
+    }
+    ruleAddOffsets.push_back(quint32(ruleAddText.size()));
     QString alphabet;
     for (const QChar c : letters) alphabet.append(c);
     std::sort(alphabet.begin(), alphabet.end());
-    const std::string alphabetBytes = alphabet.toStdString();
+    const QByteArray alphabetBytes = alphabet.toUtf8();
 
-    Header header;
+    Header header{};
     std::memcpy(header.magic, kMagic, sizeof kMagic);
-    header.formCount = quint32(order.size());
-    header.classCount = quint32(outClassFirst.size() - 1);
+    header.formCount = formCount;
+    header.bucketBits = bucketBits;
+    header.stemCount = quint32(stemOffsets.size() - 1);
+    header.ruleCount = quint32(rules.size());
+    header.comboCount = quint32(combos.size() / 3);
+    header.alphabetSize = quint32(alphabetBytes.size());
     const QFileInfo dic(dicPath), aff(affPath);
     header.dicSize = quint64(dic.size());
     header.dicTime = dic.lastModified().toMSecsSinceEpoch();
     header.affSize = quint64(aff.size());
     header.affTime = aff.lastModified().toMSecsSinceEpoch();
     quint64 pos = sizeof(Header);
-    header.formOffsets = pos; pos += outFormOffsets.size() * sizeof(quint32);
-    header.formText = pos; pos += outForms.size();
-    header.classOffsets = pos; pos += outClassOffsets.size() * sizeof(quint32);
-    header.classText = pos; pos += outClasses.size();
-    header.classFirst = pos; pos += outClassFirst.size() * sizeof(quint32);
-    header.alphabet = pos;
-    header.alphabetSize = quint32(alphabetBytes.size());
+    const auto place = [&pos](quint64& field, size_t size) {
+        field = pos;
+        pos += size;
+    };
+    place(header.stemOffsets, stemOffsets.size() * sizeof(quint32));
+    place(header.stemText, size_t(stemText.size()));
+    place(header.ruleStrip, ruleStrip.size() * sizeof(quint16));
+    place(header.ruleAddOffsets, ruleAddOffsets.size() * sizeof(quint32));
+    place(header.ruleAddText, size_t(ruleAddText.size()));
+    place(header.combos, combos.size() * sizeof(quint32));
+    place(header.records, size_t(records.size()));
+    place(header.bucketStart, bucketStart.size() * sizeof(quint32));
+    place(header.alphabet, size_t(alphabetBytes.size()));
 
     QDir().mkpath(QFileInfo(indexPath).absolutePath());
     QSaveFile file(indexPath);
@@ -681,12 +813,15 @@ bool buildFormIndex(const QString& affPath, const QString& dicPath, const QStrin
         return file.write(static_cast<const char*>(data), qint64(size)) == qint64(size);
     };
     const bool ok = write(&header, sizeof header)
-        && write(outFormOffsets.data(), outFormOffsets.size() * sizeof(quint32))
-        && write(outForms.data(), outForms.size())
-        && write(outClassOffsets.data(), outClassOffsets.size() * sizeof(quint32))
-        && write(outClasses.data(), outClasses.size())
-        && write(outClassFirst.data(), outClassFirst.size() * sizeof(quint32))
-        && write(alphabetBytes.data(), alphabetBytes.size());
+        && write(stemOffsets.data(), stemOffsets.size() * sizeof(quint32))
+        && write(stemText.constData(), size_t(stemText.size()))
+        && write(ruleStrip.data(), ruleStrip.size() * sizeof(quint16))
+        && write(ruleAddOffsets.data(), ruleAddOffsets.size() * sizeof(quint32))
+        && write(ruleAddText.constData(), size_t(ruleAddText.size()))
+        && write(combos.data(), combos.size() * sizeof(quint32))
+        && write(records.constData(), size_t(records.size()))
+        && write(bucketStart.data(), bucketStart.size() * sizeof(quint32))
+        && write(alphabetBytes.constData(), size_t(alphabetBytes.size()));
     return ok && file.commit();
 }
 
@@ -697,28 +832,31 @@ struct FormIndex::Private {
     const uchar* data = nullptr;
     Header header{};
     QString alphabet;
+    std::vector<RuleText> rules;  // few: read once
 
-    const quint32* formOffsets() const { return reinterpret_cast<const quint32*>(data + header.formOffsets); }
-    const quint32* classOffsets() const { return reinterpret_cast<const quint32*>(data + header.classOffsets); }
-    const quint32* classFirst() const { return reinterpret_cast<const quint32*>(data + header.classFirst); }
-    QString form(quint32 i) const {
-        const char* text = reinterpret_cast<const char*>(data + header.formText);
-        return QString::fromUtf8(text + formOffsets()[i], int(formOffsets()[i + 1] - formOffsets()[i]));
+    template <typename T>
+    const T* at(quint64 offset) const { return reinterpret_cast<const T*>(data + offset); }
+    static quint32 read24(const uchar* p) { return quint32(p[0]) | quint32(p[1]) << 8 | quint32(p[2]) << 16; }
+
+    const uchar* record(quint32 i) const { return data + header.records + quint64(i) * kRecordSize; }
+    quint16 fingerprint(quint32 i) const {
+        const uchar* r = record(i);
+        return quint16(r[6] | r[7] << 8);
     }
-    // The class with this key: [first, end) forms; first == end when none.
-    std::pair<quint32, quint32> findClass(const QByteArray& key) const {
-        const char* text = reinterpret_cast<const char*>(data + header.classText);
-        const quint32* offsets = classOffsets();
-        quint32 low = 0, high = header.classCount;
-        while (low < high) {
-            const quint32 mid = low + (high - low) / 2;
-            const int c = compareBytes(text + offsets[mid], int(offsets[mid + 1] - offsets[mid]),
-                                       key.constData(), int(key.size()));
-            if (c < 0) low = mid + 1;
-            else if (c > 0) high = mid;
-            else return {classFirst()[mid], classFirst()[mid + 1]};
-        }
-        return {0, 0};
+    QString form(quint32 i) const {
+        const uchar* r = record(i);
+        const quint32 stem = read24(r), combo = read24(r + 3);
+        const quint32* stemOffsets = at<quint32>(header.stemOffsets);
+        const QString stemText = QString::fromUtf8(at<char>(header.stemText) + stemOffsets[stem],
+                                                   qsizetype(stemOffsets[stem + 1] - stemOffsets[stem]));
+        const quint32* parts = at<quint32>(header.combos) + 3 * quint64(combo);
+        return composeForm(stemText, rules, parts[0], parts[1], parts[2]);
+    }
+    // The records of a class's bucket: [first, end).
+    std::pair<quint32, quint32> bucket(quint64 hash) const {
+        const quint32* start = at<quint32>(header.bucketStart);
+        const quint64 b = hash & ((quint64(1) << header.bucketBits) - 1);
+        return {start[b], start[b + 1]};
     }
 };
 
@@ -737,10 +875,15 @@ std::unique_ptr<FormIndex> FormIndex::open(const QString& indexPath, const QStri
             || p.header.dicTime != dic.lastModified().toMSecsSinceEpoch()
             || p.header.affSize != quint64(aff.size())
             || p.header.affTime != aff.lastModified().toMSecsSinceEpoch()
+            || p.header.bucketBits > 31
             || p.header.alphabet + p.header.alphabetSize > quint64(p.file.size()))
         return nullptr;
-    p.alphabet = QString::fromUtf8(reinterpret_cast<const char*>(p.data + p.header.alphabet),
-                                   int(p.header.alphabetSize));
+    p.alphabet = QString::fromUtf8(p.at<char>(p.header.alphabet), qsizetype(p.header.alphabetSize));
+    const quint16* strip = p.at<quint16>(p.header.ruleStrip);
+    const quint32* addOffsets = p.at<quint32>(p.header.ruleAddOffsets);
+    for (quint32 r = 0; r < p.header.ruleCount; ++r)
+        p.rules.push_back({strip[r], QString::fromUtf8(p.at<char>(p.header.ruleAddText) + addOffsets[r],
+                                                       qsizetype(addOffsets[r + 1] - addOffsets[r]))});
     return index;
 }
 
@@ -780,9 +923,15 @@ std::vector<std::pair<double, QString>> FormIndex::candidates(const QString& wor
     }
     std::vector<std::pair<double, QString>> result;
     for (const QString& probe : probes) {
-        const auto [first, end] = d->findClass(probe.toUtf8());
+        const quint64 hash = classHash(probe);
+        const quint16 fingerprint = quint16(hash >> 48);
+        const auto [first, end] = d->bucket(hash);
         for (quint32 i = first; i < end; ++i) {
+            // Another class in the bucket: told by the fingerprint, rarely
+            // only by the form's own class.
+            if (d->fingerprint(i) != fingerprint) continue;
             QString form = d->form(i);
+            if (classKey(form) != probe) continue;
             const double dist = score(word, form, limit);
             if (dist <= limit) result.emplace_back(dist, std::move(form));
         }

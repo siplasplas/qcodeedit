@@ -211,6 +211,39 @@ private slots:
         QVERIFY(score(QStringLiteral("societe"), QStringLiteral("société"), kSuggestionLimit) < 1.0);
     }
 
+    void indexFindsEveryForm() {
+        // The file keeps a form as its stem and rules: each is made again
+        // exactly, found in its class, and kept once when two stems make it.
+        const QByteArray aff = "SET UTF-8\n"
+                               "PFX U Y 1\n"
+                               "PFX U 0 un .\n"
+                               "SFX X Y 1\n"
+                               "SFX X 0 able/Y .\n"
+                               "SFX Y Y 1\n"
+                               "SFX Y 0 s .\n"
+                               "SFX E Y 1\n"
+                               "SFX E e ing e\n";
+        // "drinkable" is a stem too, and drink + able.
+        const QByteArray dic = "4\ndrink/XU\nmake/EU\nmakes\ndrinkable\n";
+        const QStringList forms = expand(aff, dic);
+        const QString base = m_dir.filePath(QString::number(m_count));
+        const QString indexPath = base + QStringLiteral(".forms");
+        QVERIFY(buildFormIndex(base + QStringLiteral(".aff"), base + QStringLiteral(".dic"), indexPath));
+        const auto index = FormIndex::open(indexPath, base + QStringLiteral(".aff"), base + QStringLiteral(".dic"));
+        QVERIFY(index);
+        QCOMPARE(index->formCount(), int(forms.size()));
+        QVERIFY(forms.contains(QStringLiteral("undrinkables")));
+        for (const QString& form : forms) {
+            QStringList found;
+            for (const auto& [dist, text] : index->candidates(form, 0.01)) found << text;
+            QCOMPARE(found, QStringList{form});
+        }
+        // A typing mistake finds its form in a neighbouring class.
+        QStringList near;
+        for (const auto& [dist, text] : index->candidates(QStringLiteral("unmakign"), kSuggestionLimit)) near << text;
+        QVERIFY(near.contains(QStringLiteral("unmaking")));
+    }
+
     void unsupportedLeftToHunspell() {
         bool supported = true;
         QVERIFY(expand("SET UTF-8\nCOMPLEXPREFIXES\n", "1\nword\n", &supported).isEmpty());

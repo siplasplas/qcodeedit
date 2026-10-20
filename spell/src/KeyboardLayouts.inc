@@ -4,15 +4,15 @@
 
 const KeyboardLayoutData kKeyboardLayouts[] = {
     {"pl", {u"qwertyuiop[]", u"asdfghjkl;'", u"zxcvbnm,./"},
-     u"πqΩqœwŒwęeĘe©r®rßt™t←y¥y↓u↑u→i↔ióoÓoþpÞpąaĄaśsŚsðdÐdæfÆfŋgŊgəjƏjłlŁlżzŻzźxŹxćcĆcńnŃnµm∞m"},
+     u"πqΩqœwŒwęeĘe©r®rßt™t←y¥y↓u↑u→i↔ióoÓoþpÞpąaĄaśsŚsðdÐdæfÆfŋgŊg’h•həjƏj…kłlŁlżzŻzźxŹxćcĆc„v‘v”b“bńnŃnµm∞m"},
     {"us", {u"qwertyuiop[]", u"asdfghjkl;'", u"zxcvbnm,./"},
      u""},
     {"de", {u"qwertzuiopü+", u"asdfghjklöä", u"yxcvbnm,.-"},
-     u"Ωqſw€e®rŧtŦt←z¥z↓u↑u→iıiøoØoþpÞpæaÆaẞsðdÐdđfªfŋgŊgħhĦhĸkłlŁl¢c©cµm"},
+     u"Ωqſw§w€e¶r®rŧtŦt←z¥z↓u↑u→iıiøoØoþpÞpæaÆaẞsðdÐdđfªfŋgŊgħhĦhĸkłlŁl›y‹x¢c©c„v‚v“b‘b”n’nµm"},
     {"fr", {u"azertyuiop $", u"qsdfghjklmù", u"wxcvbn,;:!"},
-     u"æaÆa€e¢e®rŧtŦt←y¥y↓u↑u→iıiøoØoþpÞpΩqßsẞsðdÐdđfªfŋgŊgħhĦhĸkłlŁlµm©c"},
+     u"æaÆa€e¢e¶r®rŧtŦt←y¥y↓u↑u→iıiøoØoþpÞpΩqßsẞsðdÐdđfªfŋgŊgħhĦhĸkłlŁlµm©c„v‚v“b‘b”n’n"},
     {"es", {u"qwertyuiop +", u"asdfghjklñ ", u"zxcvbnm,.-"},
-     u"Ωqſw€e¢e®rŧtŦt←y¥y↓u↑u→iıiøoØoþpÞpæaÆaßsẞsðdÐdđfªfŋgŊgħhĦhĸkłlŁl©cµm"},
+     u"Ωqſw§w€e¢e¶r®rŧtŦt←y¥y↓u↑u→iıiøoØoþpÞpæaÆaßsẞsðdÐdđfªfŋgŊgħhĦhĸkłlŁl©c„v‚v“b‘b”n’nµm"},
     {"pl-windows", {u"qwertyuiop[]", u"asdfghjkl;'", u"zxcvbnm,./"},
      u"ąaĄaćcĆcęeĘełlŁlńnŃnóoÓośsŚsźxŹxżzŻz"},
 };

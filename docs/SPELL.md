@@ -147,8 +147,12 @@ on Windows `pl-windows`), else `us`. A checker uses the layout of its first
 dictionary's language; `setKeyboardLayout()` chooses one for every text.
 It tells which keys neighbour and
 which hand types them, and what AltGr held types: a character AltGr typed
-on a letter key after a letter does not end the word, so "któ©re" (AltGr not
-let go after ó) is one word, corrected to które for sure. The forms file is
+on a letter key between letters does not end the word, so "któ©re" (AltGr
+not let go after ó) is one word, corrected to które for sure (at a word's end
+it may be the sign itself: "Firma©"); so does a
+punctuation mark AltGr types on a letter key right after a letter with a
+diacritic ("zró”" → zrób: ” is AltGr+b), unless it closes a quotation opened
+before it („zrób”). The forms file is
 kept per layout (`<name>-<layout>.forms`). Swapped
 letters, missing diacritics and a held AltGr keep the class; a letter too
 many, too few or wrong is a neighbouring class. Only those classes are

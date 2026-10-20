@@ -65,6 +65,13 @@ private:
 /// layout in use or one of the desktop's: a slip inside a word, so it does
 /// not end the word.
 bool typedOnLetterKey(QChar c);
+/// Punctuation AltGr types on a letter key („ on v, ” on b of the Polish
+/// keyboard): after a letter typed with AltGr, AltGr not let go ("zró”"),
+/// unless it closes a quotation.
+bool punctuationOnLetterKey(QChar c);
+/// Any character AltGr types on a letter key of the layout in use or the
+/// desktop's.
+bool onLetterKey(QChar c);
 /// The class of a word: foldChar() of its letters, sorted.
 QString classKey(const QString& word);
 

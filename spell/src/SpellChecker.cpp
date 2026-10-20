@@ -930,6 +930,24 @@ void SpellChecker::unignore(const QString& word) {
     if (!d->documentPath.isEmpty()) detail::UserStore::instance().removeIgnored(d->documentPath, word);
 }
 
+// Punctuation typed with AltGr on a letter key right after a letter typed
+// with AltGr ("zró”": ” is AltGr+b on the Polish keyboard): AltGr not let
+// go, part of the word; but a closing quotation mark when a quotation („ “ «)
+// is open before it in the text.
+bool altGrHeldOn(const QString& text, int at) {
+    if (at <= 0 || !detail::punctuationOnLetterKey(text[at])) return false;
+    const QChar before = text[at - 1];
+    if (!before.isLetter() || detail::foldChar(before) == before.toLower()) return false;
+    if (at + 1 < text.size() && text[at + 1].isLetter()) return true;
+    int open = 0;
+    for (int i = 0; i < at; ++i) {
+        const char16_t c = text[i].unicode();
+        if (c == u'„' || c == u'“' || c == u'«') ++open;
+        else if ((c == u'”' || c == u'»') && open > 0) --open;
+    }
+    return open == 0;
+}
+
 QList<QPair<int, int>> checkableWords(const QString& text, int start, int end) {
     QList<QPair<int, int>> words;
     start = qBound(0, start, int(text.size()));
@@ -948,9 +966,14 @@ QList<QPair<int, int>> checkableWords(const QString& text, int start, int end) {
             while (j < token.size() && !isWordChar(token[j])) ++j;
             const int wordStart = j;
             while (j < token.size()) {
-                // A character AltGr typed on a letter key after a letter ("któ©re")
-            // is a slip inside the word, not its end.
-            if (isWordChar(token[j]) || (j > wordStart && detail::typedOnLetterKey(token[j]))) ++j;
+                if (isWordChar(token[j])) ++j;
+            // A symbol AltGr types on a letter key between letters is AltGr
+            // not let go ("któ©re"); at the word's end it may be the sign
+            // itself ("Firma©").
+            else if (j > wordStart && j + 1 < token.size() && token[j + 1].isLetter()
+                     && detail::typedOnLetterKey(token[j]))
+                ++j;
+            else if (j > wordStart && altGrHeldOn(text, tokenStart + j)) ++j;
                 else if (isApostrophe(token[j]) && j > wordStart && j + 1 < token.size()
                          && token[j - 1].isLetter() && token[j + 1].isLetter())
                     ++j;

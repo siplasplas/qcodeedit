@@ -3,7 +3,7 @@
 
 For each layout: the base letters of the three letter rows (for neighbouring
 keys and hands), and every other character of a letter key (Shift, AltGr,
-Shift+AltGr; neither ASCII nor punctuation) with the key's base letter, so
+Shift+AltGr; not ASCII) with the key's base letter, so
 that a character typed with AltGr held ("©" for "r" on the Polish keyboard)
 is known as that key.
 
@@ -13,7 +13,6 @@ Reads /usr/share/X11/xkb/symbols and /usr/include/X11/keysymdef.h.
 
 import re
 import sys
-import unicodedata
 
 SYMBOLS = "/usr/share/X11/xkb/symbols"
 KEYSYMDEF = "/usr/include/X11/keysymdef.h"
@@ -116,9 +115,11 @@ def main():
                     continue
                 base = levels[0]
                 for c in levels[1:4]:
-                    # Not ASCII (Shift's own symbols) nor punctuation (quotes,
-                    # apostrophes, dashes): those never stand for a letter.
-                    if not c or ord(c) < 0x80 or unicodedata.category(c).startswith("P"):
+                    # Not ASCII: Shift's own symbols never stand for a letter.
+                    # Punctuation (quotes: „ on v, ” on b of the Polish
+                    # keyboard) is kept too: after a letter with AltGr it is
+                    # AltGr not let go ("zró”" for zrób).
+                    if not c or ord(c) < 0x80:
                         continue
                     if c.lower() != base and c not in pairs[0::2]:
                         pairs += [c, base]

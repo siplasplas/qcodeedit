@@ -118,15 +118,23 @@ private slots:
         QCOMPARE(words, (QStringList{QStringLiteral("Zwykłe"), QStringLiteral("słowa"), QStringLiteral("don't")}));
         // Only inside the given columns.
         QCOMPARE(checkableWords(text, 7, 12).size(), 1);
-        // On the Polish keyboard © is AltGr+r: after a letter a slip inside
-        // the word, alone not a word.
+        // On the Polish keyboard © is AltGr+r: between letters a slip inside
+        // the word; alone or at a word's end the sign itself.
         const QString before = keyboardLayout();
         QVERIFY(setKeyboardLayout(QStringLiteral("pl")));
-        const QString held = QStringLiteral("Słowa któ©re © i");
+        const QString held = QStringLiteral("Słowa któ©re © Firma© i");
         words.clear();
         for (const auto& word : checkableWords(held, 0, int(held.size())))
             words << held.mid(word.first, word.second);
-        QCOMPARE(words, (QStringList{QStringLiteral("Słowa"), QStringLiteral("któ©re")}));
+        QCOMPARE(words, (QStringList{QStringLiteral("Słowa"), QStringLiteral("któ©re"), QStringLiteral("Firma")}));
+        // ” is AltGr+b: after ó AltGr not let go, part of the word; closing an
+        // open „ a quotation mark.
+        const QString quoted = QStringLiteral("Mam zró” to, „zrób” i");
+        words.clear();
+        for (const auto& word : checkableWords(quoted, 0, int(quoted.size())))
+            words << quoted.mid(word.first, word.second);
+        QCOMPARE(words, (QStringList{QStringLiteral("Mam"), QStringLiteral("zró”"), QStringLiteral("to"),
+                                     QStringLiteral("zrób")}));
         setKeyboardLayout(before);
     }
 

@@ -145,6 +145,10 @@ CodeEditSpelling::~CodeEditSpelling() {
 
 void CodeEditSpelling::setLanguages(const QStringList& languages) {
     m_checker.setLanguages(languages);
+    // The built-in grammar of the first language that has its data files.
+    m_builtinGrammar.reset();
+    for (const QString& dictionary : m_checker.dictionaries())
+        if ((m_builtinGrammar = builtinGrammarChecker(dictionary))) break;
     scheduleCheck();
 }
 
@@ -160,7 +164,13 @@ void CodeEditSpelling::setEnabled(bool enabled) {
 
 void CodeEditSpelling::setGrammarChecker(std::shared_ptr<GrammarChecker> checker) {
     m_grammar = std::move(checker);
-    if (!m_grammar && m_area) m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
+    if (!currentGrammar() && m_area) m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
+    scheduleCheck();
+}
+
+void CodeEditSpelling::setGrammarEnabled(bool enabled) {
+    m_grammarEnabled = enabled;
+    if (!enabled && m_area) m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
     scheduleCheck();
 }
 
@@ -170,8 +180,9 @@ void CodeEditSpelling::setGrammarUnderlineColor(const QColor& color) {
 }
 
 bool CodeEditSpelling::grammarActive() const {
-    if (!m_grammar || !m_checker.isReady()) return false;
-    const QString language = m_grammar->language();
+    GrammarChecker* grammar = currentGrammar();
+    if (!m_grammarEnabled || !grammar || !m_checker.isReady()) return false;
+    const QString language = grammar->language();
     for (const QString& dictionary : m_checker.dictionaries())
         if (dictionary.section(QLatin1Char('_'), 0, 0).compare(language, Qt::CaseInsensitive) == 0) return true;
     return false;
@@ -182,7 +193,7 @@ QList<CodeEditSpelling::GrammarMistake> CodeEditSpelling::grammarMistakes(int li
     ITextDocument* doc = m_area->document();
     const QString text = doc->lineAt(line);
     for (const auto& range : m_area->spellCheckRanges(line)) {
-        for (const GrammarIssue& found : m_grammar->check(text.mid(range.first, range.second - range.first))) {
+        for (const GrammarIssue& found : currentGrammar()->check(text.mid(range.first, range.second - range.first))) {
             GrammarMistake mistake;
             mistake.issue = found;
             mistake.issue.start += range.first;

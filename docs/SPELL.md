@@ -55,17 +55,24 @@ dictionary for the languages is installed.
 
 ### Grammar
 
-qcodeedit has no grammar checker of its own, only the interface
-`qce::spell::GrammarChecker` (`GrammarChecker.h`): the language it checks and
-the mistakes of a piece of text, each with the words in question, the rule
-and replacements. A program that has one (e.g. an adapter of the spellmorf
-library) gives it to the editor:
+Grammar comes through the interface `qce::spell::GrammarChecker`
+(`GrammarChecker.h`): the language it checks and the mistakes of a piece of
+text, each with the words in question, the rule, a message and replacements.
+Built with `qcodeedit-grammar` (see [GRAMMAR.md](GRAMMAR.md)), qcodeedit-spell
+has one of its own, `builtinGrammarChecker()`, used by itself when its data
+files are in `grammarDataDir()` (on Linux
+`~/.local/share/siplasplas/spell/grammar`): `pl.morph` is needed,
+`pl.forms.tsv` and `pl.complements.tsv` improve the rules, and the rules file
+`pl.grammar` installed with qcodeedit-grammar is used unless one is there.
+The spellmorf tools make the files. A program may give its own checker
+instead, or turn grammar off:
 
 ```cpp
 spelling->setGrammarChecker(std::make_shared<MyGrammar>());
+spelling->setGrammarEnabled(false);
 ```
 
-Then, when a dictionary of the checker's language is in use, mistakes whose
+When a dictionary of the checker's language is in use, mistakes whose
 words are all spelled right are underlined in their own color (blue by
 default, `setGrammarUnderlineColor()`) in `CodeEditArea::GrammarLayer`:
 spelling comes first, a misspelled word keeps its red line only. Not in the

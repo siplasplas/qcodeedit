@@ -19,6 +19,7 @@ add_library(qcodeedit-spell STATIC
     src/SpellChecker.cpp
     src/CodeEditSpelling.cpp
     src/FormIndex.cpp
+    src/BuiltinGrammar.cpp
     src/FormIndex.h
     src/SpellingReview.cpp
     src/UserDictionaryDialog.cpp
@@ -41,6 +42,16 @@ target_link_libraries(qcodeedit-spell
     PUBLIC  qcodeedit::qcodeedit Qt6::Widgets
     PRIVATE PkgConfig::HUNSPELL PkgConfig::SQLITE3
 )
+
+# The built-in grammar (builtinGrammarChecker()), with qcodeedit-grammar.
+set(QCE_SPELL_WITH_GRAMMAR OFF)
+if(TARGET qcodeedit-grammar)
+    set(QCE_SPELL_WITH_GRAMMAR ON)
+    target_link_libraries(qcodeedit-spell PRIVATE qcodeedit-grammar)
+    target_compile_definitions(qcodeedit-spell PRIVATE
+        QCE_SPELL_GRAMMAR
+        QCE_GRAMMAR_DATA_DIR="${QCE_GRAMMAR_DATA_DIR}")
+endif()
 
 add_library(qcodeedit::spell ALIAS qcodeedit-spell)
 set_target_properties(qcodeedit-spell PROPERTIES EXPORT_NAME spell)

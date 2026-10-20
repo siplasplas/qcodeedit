@@ -3,6 +3,8 @@
 #include <QList>
 #include <QString>
 
+#include <memory>
+
 namespace qce::spell {
 
 /// A grammar mistake in a piece of text: the words in question as [start,
@@ -36,5 +38,20 @@ public:
     /// all spelled right: spelling comes first.
     virtual QList<GrammarIssue> check(const QString& text) const = 0;
 };
+
+/// Where the built-in grammar's data files are:
+/// <GenericDataLocation>/siplasplas/spell/grammar (on Linux
+/// ~/.local/share/siplasplas/spell/grammar): <language>.morph, the
+/// morphology (needed); <language>.forms.tsv and <language>.complements.tsv,
+/// corpus counts that improve the rules (optional); <language>.grammar, the
+/// language's rules file, when it should replace the one installed with
+/// qcodeedit-grammar. The spellmorf tools make them.
+QString grammarDataDir();
+
+/// The grammar of qcodeedit-grammar for `language` ("pl", "pl_PL"), when
+/// its morphology file and rules file are there; null otherwise, or when
+/// qcodeedit-spell was built without qcodeedit-grammar. Loaded once and
+/// shared by all callers.
+std::shared_ptr<GrammarChecker> builtinGrammarChecker(const QString& language);
 
 } // namespace qce::spell

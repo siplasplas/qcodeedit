@@ -8,6 +8,10 @@
 
 #include "KateTestPaths.h"
 
+#ifdef QCE_TEST_GRAMMAR
+#include <qce/grammar/Morphology.h>
+#endif
+
 #include <QDir>
 #include <QRegularExpression>
 #include <QFile>
@@ -633,6 +637,56 @@ private slots:
         spelling->recheck();
         delete area;
     }
+
+#ifdef QCE_TEST_GRAMMAR
+    // The built-in grammar comes by itself with its data files (last: it
+    // leaves no files behind for the tests above).
+    void builtinGrammar() {
+        if (!installed(QStringLiteral("pl"))) QSKIP("No Polish dictionary (hunspell-pl)");
+        QVERIFY(!builtinGrammarChecker(QStringLiteral("pl")));  // no files yet
+        QDir dir(grammarDataDir());
+        QVERIFY(dir.mkpath(QStringLiteral(".")));
+        qce::grammar::MorphologyBuilder builder;
+        QVERIFY(builder.add("ze", "z", "prep:gen:wok"));
+        QVERIFY(builder.add("ze", "z", "prep:inst:wok"));
+        QVERIFY(builder.add("że", "że", "comp"));
+        QVERIFY(builder.add("wiem", "wiedzieć", "fin:sg:pri:imperf"));
+        QVERIFY(builder.add("jest", "być", "fin:sg:ter:imperf"));
+        QVERIFY(builder.add("dobrze", "dobrze", "adv:pos"));
+        std::string error;
+        QVERIFY(builder.write(QFile::encodeName(dir.filePath(QStringLiteral("pl.morph"))).toStdString(), nullptr, &error));
+        QVERIFY(QFile::copy(QStringLiteral(QCE_GRAMMAR_SOURCE_DATA_DIR "/pl.grammar"), dir.filePath(QStringLiteral("pl.grammar"))));
+
+        SimpleTextDocument doc;
+        doc.setText(QStringLiteral("Wiem, ze jest dobrze."));
+        CodeEditArea area;
+        area.setDocument(&doc);
+        area.resize(600, 200);
+        CodeEditSpelling spelling(&area);
+        spelling.setLanguages({QStringLiteral("pl")});
+        QVERIFY(spelling.grammarChecker());
+        spelling.recheck();
+        const auto grammar = area.extraSelections(CodeEditArea::GrammarLayer);
+        QCOMPARE(grammar.size(), 1);
+        QCOMPARE(grammar.front().start, (TextCursor{0, 6}));
+        QCOMPARE(grammar.front().end, (TextCursor{0, 13}));
+        const auto mistake = spelling.grammarMistakeAt({0, 7});
+        QVERIFY(mistake.has_value());
+        QCOMPARE(mistake->issue.rule, QStringLiteral("government"));
+        QVERIFY(!mistake->issue.message.isEmpty());
+        QCOMPARE(mistake->corrections.size(), 1);
+        QCOMPARE(mistake->corrections.front().first.word, QStringLiteral("ze"));
+        QCOMPARE(mistake->corrections.front().second, QStringLiteral("że"));
+
+        // Off, and back on.
+        spelling.setGrammarEnabled(false);
+        QVERIFY(area.extraSelections(CodeEditArea::GrammarLayer).isEmpty());
+        spelling.setGrammarEnabled(true);
+        spelling.recheck();
+        QCOMPARE(area.extraSelections(CodeEditArea::GrammarLayer).size(), 1);
+        dir.removeRecursively();
+    }
+#endif
 };
 
 QTEST_MAIN(TestSpell)

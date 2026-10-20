@@ -114,12 +114,18 @@ public:
     /// The file whose text this is (SpellChecker::setDocumentPath()).
     void setDocumentPath(const QString& path);
 
-    /// Grammar checking, none by default (see GrammarChecker): a mistake
-    /// whose words are all spelled right is underlined in its own color, in
+    /// Grammar checking (see GrammarChecker): a mistake whose words are all
+    /// spelled right is underlined in its own color, in
     /// CodeEditArea::GrammarLayer, when a dictionary of the checker's
-    /// language is in use; spelling comes first.
+    /// language is in use; spelling comes first. The checker given here, or
+    /// else the built-in one of the first language that has its data files
+    /// (builtinGrammarChecker(), looked up by setLanguages()).
     void setGrammarChecker(std::shared_ptr<GrammarChecker> checker);
-    GrammarChecker* grammarChecker() const { return m_grammar.get(); }
+    /// The checker in use: the one given, or the built-in one; null when none.
+    GrammarChecker* grammarChecker() const { return currentGrammar(); }
+    /// On by default; off removes the grammar underlines.
+    void setGrammarEnabled(bool enabled);
+    bool isGrammarEnabled() const { return m_grammarEnabled; }
     void setGrammarUnderlineColor(const QColor& color);
     QColor grammarUnderlineColor() const { return m_grammarColor; }
     /// A grammar mistake in the editor, with its replacements ready for
@@ -149,8 +155,9 @@ private:
     void correctTypedWord(TextCursor at, QChar typed);
     void scheduleCheck();
     void onCursorMoved(TextCursor position);
-    // Grammar checking applies: a checker, and a dictionary of its language in use.
+    // Grammar checking applies: enabled, a checker, and a dictionary of its language in use.
     bool grammarActive() const;
+    GrammarChecker* currentGrammar() const { return m_grammar ? m_grammar.get() : m_builtinGrammar.get(); }
     // The grammar mistakes of a line whose words are all spelled right.
     QList<GrammarMistake> grammarMistakes(int line);
 
@@ -164,7 +171,9 @@ private:
     QStringList m_otherLanguagesFor;  ///< the dictionaries in use it was made for
     QTimer* m_timer = nullptr;
     QColor m_color{Qt::red};
-    std::shared_ptr<GrammarChecker> m_grammar;
+    std::shared_ptr<GrammarChecker> m_grammar;         // given by the program
+    std::shared_ptr<GrammarChecker> m_builtinGrammar;  // of the languages, when none is given
+    bool m_grammarEnabled = true;
     QColor m_grammarColor{0x20, 0x60, 0xff};
     bool m_enabled = true;
     bool m_correctWhileTyping = false;

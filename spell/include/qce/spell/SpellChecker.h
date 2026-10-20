@@ -211,6 +211,9 @@ private:
     /// scoredSuggestions() of a plain word, kept per checker.
     QList<Suggestion> cachedSuggestions(const QString& word, int maxCount) const;
     QList<Suggestion> findSuggestions(const QString& word, int maxCount, bool* indexed) const;
+    /// Candidates within `limit` (distance), shown within `shownLimit` (score).
+    QList<Suggestion> findSuggestionsWithin(const QString& word, int maxCount, bool* indexed, double limit,
+                                            double shownLimit) const;
     bool hasFrequencies() const;
     /// Occurrences per million of the word's stem; negative when no
     /// dictionary with frequencies knows the word.

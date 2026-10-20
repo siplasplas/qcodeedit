@@ -134,6 +134,10 @@ Options:
   (FrequencyWords, from film subtitles, under 1 MB) when the application
   asks, and turns it into the stem counts that put common words before rare
   ones in suggestions. Needs Qt Network and Qt Concurrent.
+- `QCE_BUILD_SPELLTUNE=OFF` (default) — builds `tools/spelltune`, which fits
+  the costs and limits of the spelling suggestions to real typing mistakes
+  (pairs made by `tools/spelltune/pairs.py` from a text as typed and
+  corrected); not installed.
 - `QCE_BUILD_DIFF=ON` (default) — builds `qcodeedit-diff`: in a program
   linked with it, `SimpleTextDocument::setText()` changes only the lines that
   differ (found by DiffMerge's libdiffcore), so a new text, e.g. a file

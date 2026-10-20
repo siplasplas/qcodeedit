@@ -446,7 +446,8 @@ double distance(const QString& a, const QString& b, double limit) {
     // Cells reached by moving a letter: a move right after another costs more.
     std::vector<char> moved(dist.size(), 0);
     const auto at = [width](int i, int j) { return size_t(i) * width + size_t(j); };
-    for (int j = 0; j <= m; ++j) dist[at(0, j)] = j * kInsertCost;
+    // Letters missing before the first typed one: the word's beginning.
+    for (int j = 0; j <= m; ++j) dist[at(0, j)] = j * kInsertCost + (j > 0 ? kInsertAtStartCost : 0);
     QString la = a.toLower(), lb = b.toLower();
     // A typed letter with a diacritic or from the AltGr level (not ASCII).
     const auto marked = [](QChar c) { return c.unicode() > 0x7F; };
@@ -471,7 +472,7 @@ double distance(const QString& a, const QString& b, double limit) {
         for (int p = 0; p <= k; ++p) {
             const int t = i - k - 1 + p;
             const int q = early ? (p == 0 ? j - 1 : j - k - 1 + p - 1) : (p == k ? j - k - 1 : j - k - 1 + p + 1);
-            if (la[t] != lb[q]) cost += 0.3;
+            if (la[t] != lb[q]) cost += kMovedDiacriticCost;
         }
         return cost;
     };
@@ -500,7 +501,7 @@ double distance(const QString& a, const QString& b, double limit) {
                 // pressed on purpose) costs more, unless AltGr was still held
                 // from the letter before ("żę" for "że").
                 const bool removesTyped = marked(x) && !marked(y);
-                change = removesTyped && !(i > 1 && marked(la[i - 2])) ? 0.6 : 0.3;
+                change = removesTyped && !(i > 1 && marked(la[i - 2])) ? kTypedDiacriticCost : kMissingDiacriticCost;
             }
             double v = std::min({dist[at(i - 1, j)] + deleteCost(i, j), dist[at(i, j - 1)] + kInsertCost,
                                  dist[at(i - 1, j - 1)] + change});
@@ -547,9 +548,9 @@ double score(const QString& word, const QString& candidate, double limit) {
     // A split into two words, when the word was one.
     if ((candidate.contains(QLatin1Char(' ')) && !word.contains(QLatin1Char(' ')))
             || (candidate.contains(QLatin1Char('-')) && !word.contains(QLatin1Char('-'))))
-        d += 1.0;
+        d += kSplitCost;
     // A capital letter (e.g. a proper name) where the word has none.
-    if (candidate != candidate.toLower() && word == word.toLower()) d += 0.4;
+    if (candidate != candidate.toLower() && word == word.toLower()) d += kNewCapitalCost;
     // A capital inside the word the candidate has not there: right after
     // the capitals the word begins with, Shift held a letter too long
     // ("POłączyłem", cheap); after a small letter rather camelCase written on
@@ -1170,7 +1171,8 @@ double frequencyPenalty(double perMillion) {
 std::vector<std::pair<double, QString>> rankSuggestions(const QString& word,
                                                         std::vector<std::pair<double, QString>> candidates,
                                                         int maxCount, const QStringList& preferred,
-                                                        double closeToBest, const QHash<QString, double>* distances) {
+                                                        double closeToBest, const QHash<QString, double>* distances,
+                                                        double shownLimit) {
     const auto rank = [&preferred](const QString& form) {
         const qsizetype i = preferred.indexOf(form);
         return i < 0 ? preferred.size() : i;
@@ -1206,7 +1208,7 @@ std::vector<std::pair<double, QString>> rankSuggestions(const QString& word,
         // as much as finding; "bhyc" stays być, not the thousands of times
         // rarer hyc.
         const double penalty = dist - spelling(candidate, dist);
-        const bool close = dist <= candidates.front().first + closeToBest + 1e-9 && dist <= kShownLimit + 1e-9;
+        const bool close = dist <= candidates.front().first + closeToBest + 1e-9 && dist <= shownLimit + 1e-9;
         const bool asNear = !result.empty() && spelling(candidate, dist) <= farthestShown + 1e-9
             && penalty <= bestPenalty + kRivalPenaltyGap + 1e-9;
         if (!close && !asNear) continue;

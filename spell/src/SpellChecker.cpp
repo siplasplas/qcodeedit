@@ -663,6 +663,18 @@ QList<SpellChecker::Suggestion> SpellChecker::cachedSuggestions(const QString& w
 }
 
 QList<SpellChecker::Suggestion> SpellChecker::findSuggestions(const QString& word, int maxCount, bool* indexedOut) const {
+    QList<Suggestion> result = findSuggestionsWithin(word, maxCount, indexedOut, detail::kSuggestionLimit,
+                                                     detail::kShownLimit);
+    // Nothing close: farther ones rather than none (never sure).
+    if (result.isEmpty() && *indexedOut && detail::kFallbackShownLimit > detail::kShownLimit + 1e-9)
+        result = findSuggestionsWithin(word, maxCount, indexedOut,
+                                       std::max(detail::kSuggestionLimit, detail::kFallbackShownLimit),
+                                       detail::kFallbackShownLimit);
+    return result;
+}
+
+QList<SpellChecker::Suggestion> SpellChecker::findSuggestionsWithin(const QString& word, int maxCount, bool* indexedOut,
+                                                                    double limit, double shownLimit) const {
     std::vector<std::pair<double, QString>> candidates;
     bool indexed = false;
     const QString layout = keyboardLayout();
@@ -671,7 +683,7 @@ QList<SpellChecker::Suggestion> SpellChecker::findSuggestions(const QString& wor
             indexed = true;
             // The user's words are not among the forms of the dictionary
             // files: looked up in the same classes ("gemnini" → an added "gemini").
-            auto found = index->candidates(word, detail::kSuggestionLimit, &loaded->userClasses);
+            auto found = index->candidates(word, limit, &loaded->userClasses);
             candidates.insert(candidates.end(), std::make_move_iterator(found.begin()),
                               std::make_move_iterator(found.end()));
         }
@@ -683,7 +695,7 @@ QList<SpellChecker::Suggestion> SpellChecker::findSuggestions(const QString& wor
     if (leading >= 2 && leading < word.size()) {
         const QString oneCapital = word.left(1) + word.mid(1).toLower();
         if (check(oneCapital))
-            candidates.emplace_back(detail::score(word, oneCapital, detail::kSuggestionLimit), oneCapital);
+            candidates.emplace_back(detail::score(word, oneCapital, limit), oneCapital);
     }
     // Hunspell's suggestions take most of the time; they may be left out
     // when the forms already have candidates, unless the dictionary makes
@@ -705,7 +717,7 @@ QList<SpellChecker::Suggestion> SpellChecker::findSuggestions(const QString& wor
     if (!indexed) {
         QList<Suggestion> result;
         for (const QString& suggestion : hunspellOrder.mid(0, maxCount)) {
-            const double score = detail::score(word, suggestion, detail::kSuggestionLimit);
+            const double score = detail::score(word, suggestion, limit);
             result.append({suggestion, score, score});
         }
         return result;
@@ -715,8 +727,8 @@ QList<SpellChecker::Suggestion> SpellChecker::findSuggestions(const QString& wor
     for (const auto& candidate : candidates) known.insert(candidate.second.toLower());
     for (const QString& suggestion : hunspellOrder) {
         if (known.contains(suggestion.toLower())) continue;
-        const double dist = detail::score(word, suggestion, detail::kSuggestionLimit);
-        if (dist <= detail::kSuggestionLimit) candidates.emplace_back(dist, suggestion);
+        const double dist = detail::score(word, suggestion, limit);
+        if (dist <= limit) candidates.emplace_back(dist, suggestion);
     }
     // Rare words behind common ones: a penalty by the frequency of the stem
     // (none from the dictionaries without frequencies or not knowing the
@@ -747,7 +759,7 @@ QList<SpellChecker::Suggestion> SpellChecker::findSuggestions(const QString& wor
     for (const auto& [score, text] : detail::rankSuggestions(word, std::move(candidates), maxCount, hunspellOrder,
                                                         withFrequency ? detail::kCloseToBestWithFrequency
                                                                       : detail::kCloseToBest,
-                                                        &distances))
+                                                        &distances, shownLimit))
         result.append({text, score, distances.value(text.toLower(), score)});
     return result;
 }

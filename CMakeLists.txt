@@ -14,6 +14,8 @@ option(QCE_BUILD_SPELL
        "Build qcodeedit-spell (spell checking; needs hunspell, skipped without it)" ON)
 option(QCE_BUILD_SPELL_DOWNLOADER
        "Build qcodeedit-spelldata (downloads word frequency lists for suggestions; needs Qt Network)" ON)
+option(QCE_BUILD_SPELLTUNE
+       "Build tools/spelltune (fits the spelling suggestions' costs to typing mistakes; not installed)" OFF)
 option(QCE_BUILD_DIFF
        "Build qcodeedit-diff (setText changes only the differing lines; needs DiffMerge's libdiffcore)" ON)
 
@@ -214,6 +216,10 @@ endif()
 
 if(QCE_BUILD_DIFF)
     add_subdirectory(diff)
+endif()
+
+if(QCE_BUILD_SPELLTUNE AND TARGET qcodeedit-spell)
+    add_subdirectory(tools/spelltune)
 endif()
 
 if(QCE_BUILD_DEMO)

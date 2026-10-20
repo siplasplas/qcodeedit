@@ -127,8 +127,9 @@ a small letter (camelCase rather: "PołąCzyłem", "PoŁączyłem"), plus 1 for 
 split into two words and
 0.4 for a capital (a proper name) the typed word does not have. Hunspell's
 suggestions are ranked the same way and break ties. The user's words are not
-among the forms; being few, each is compared with the typed word too
-("gemnini" → an added "gemini"). Only suggestions close to
+among the forms; kept by class in memory, they are looked up in the same
+classes ("gemnini" → an added "gemini"), so even thousands of them cost
+nothing. Only suggestions close to
 the best are shown (at most 0.6 worse), three at most (or the requested number
 if smaller), and none scoring more than 2.6 (with the frequency penalty
 below), so a word far from every dictionary word ("bookamrk" without an

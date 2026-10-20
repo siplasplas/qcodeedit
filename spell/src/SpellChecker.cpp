@@ -75,6 +75,8 @@ struct Loaded {
     // from the shared store (UserStore.h); read again when it changes.
     QString language;
     QSet<QString> userWords;
+    // The same words by detail::classKey(), for suggestions (FormIndex::candidates()).
+    QHash<QString, QStringList> userClasses;
     qint64 userStamp = -1;
     QHash<QString, QString> corrections;
     qint64 correctionsStamp = -1;
@@ -175,6 +177,8 @@ struct Loaded {
         for (const QString& word : std::as_const(userWords))
             if (!now.contains(word)) hunspell->remove(encode(word));
         userWords = now;
+        userClasses.clear();
+        for (const QString& word : now) userClasses[detail::classKey(word)].append(word);
         return true;
     }
     void refreshCorrections() {
@@ -549,19 +553,12 @@ QList<SpellChecker::Suggestion> SpellChecker::findSuggestions(const QString& wor
     for (const auto& loaded : d->dictionaries) {
         if (const detail::FormIndex* index = loaded->formIndex()) {
             indexed = true;
-            auto found = index->candidates(word, detail::kSuggestionLimit);
+            // The user's words are not among the forms of the dictionary
+            // files: looked up in the same classes ("gemnini" → an added "gemini").
+            auto found = index->candidates(word, detail::kSuggestionLimit, &loaded->userClasses);
             candidates.insert(candidates.end(), std::make_move_iterator(found.begin()),
                               std::make_move_iterator(found.end()));
         }
-    }
-    // The user's words are not among the forms of the dictionary files; they
-    // are few, so each is compared ("gemnini" → the added "gemini").
-    if (indexed) {
-        for (const auto& loaded : d->dictionaries)
-            for (const QString& userWord : std::as_const(loaded->userWords)) {
-                const double dist = detail::score(word, userWord, detail::kSuggestionLimit);
-                if (dist <= detail::kSuggestionLimit) candidates.emplace_back(dist, userWord);
-            }
     }
     // Hunspell's suggestions take most of the time; they may be left out
     // when the forms already have candidates.

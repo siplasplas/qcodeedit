@@ -558,7 +558,8 @@ int FormIndex::formCount() const {
     return int(d->header.formCount);
 }
 
-std::vector<std::pair<double, QString>> FormIndex::candidates(const QString& word, double limit) const {
+std::vector<std::pair<double, QString>> FormIndex::candidates(const QString& word, double limit,
+                                                              const QHash<QString, QStringList>* extraClasses) const {
     const QString key = classKey(word);
     if (key.isEmpty()) return {};
     // Neighbouring classes: up to three letters removed or added in all (a
@@ -593,6 +594,12 @@ std::vector<std::pair<double, QString>> FormIndex::candidates(const QString& wor
             const double dist = score(word, form, limit);
             if (dist <= limit) result.emplace_back(dist, std::move(form));
         }
+        if (!extraClasses) continue;
+        if (auto it = extraClasses->constFind(probe); it != extraClasses->cend())
+            for (const QString& extra : it.value()) {
+                const double dist = score(word, extra, limit);
+                if (dist <= limit) result.emplace_back(dist, extra);
+            }
     }
     return result;
 }

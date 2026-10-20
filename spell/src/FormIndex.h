@@ -176,8 +176,10 @@ public:
     ~FormIndex();
 
     /// Forms similar to `word` (in its class and the neighbouring ones) with
-    /// their distance(), at most `limit`; unordered.
-    std::vector<std::pair<double, QString>> candidates(const QString& word, double limit) const;
+    /// their distance(), at most `limit`; unordered. `extraClasses` (words by
+    /// classKey(), e.g. the user's) are looked up in the same classes.
+    std::vector<std::pair<double, QString>> candidates(const QString& word, double limit,
+                                                       const QHash<QString, QStringList>* extraClasses = nullptr) const;
 
     int formCount() const;
 

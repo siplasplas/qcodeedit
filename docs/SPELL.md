@@ -133,10 +133,15 @@ letter of their key (Polish keyboard: `ð` → d, `©` → r, `ß` → t, `œ` �
 The keyboard is one of the layouts in `spell/src/KeyboardLayouts.inc`, made
 from the X keyboard layouts by `tools/gen_keyboard_layouts.py`: `pl`, `us`,
 `de` (QWERTZ), `fr` (AZERTY), `es`, and `pl-windows` (Windows' Polish
-programmers, where AltGr gives only Polish letters). By default it is the
-desktop's (KDE's or GNOME's setting, else `/etc/default/keyboard`; on Windows
-the input language), else the system language's, else `us`;
-`setKeyboardLayout()` chooses another. It tells which keys neighbour and
+programmers, where AltGr gives only Polish letters). The layout follows the
+text's language and the system's keyboards (`keyboardLayoutFor()`): one of
+the desktop's layouts for that language (KDE's or GNOME's setting, else
+`/etc/default/keyboard`; on Windows the input language), else the desktop's
+first, so an English text on a Polish keyboard is typed on `pl` whatever the
+system's language; without the desktop's, the language's own layout (`pl`,
+on Windows `pl-windows`), else `us`. A checker uses the layout of its first
+dictionary's language; `setKeyboardLayout()` chooses one for every text.
+It tells which keys neighbour and
 which hand types them, and what AltGr held types: a character AltGr typed
 on a letter key after a letter does not end the word, so "któ©re" (AltGr not
 let go after ó) is one word, corrected to które for sure. The forms file is

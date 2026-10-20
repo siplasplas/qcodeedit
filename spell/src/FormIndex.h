@@ -36,14 +36,34 @@ QChar foldChar(QChar c);
 /// letters). The layout tells which keys neighbour (QWERTY, QWERTZ, AZERTY)
 /// and what AltGr held on a key types.
 QStringList keyboardLayouts();
-/// The active one: setKeyboardLayout()'s, else the system language's ("pl"
-/// for Polish), else "us".
+/// The layout a text in `language` ("pl", "pl_PL") is typed on: the one
+/// setKeyboardLayout() chose; else one of the desktop's layouts for that
+/// language, else the desktop's first (an English text on a Polish keyboard);
+/// else the language's own ("pl", on Windows "pl-windows"), else "us".
+QString keyboardLayoutFor(const QString& language);
+/// The layout in use here and now (KeyboardScope, setKeyboardLayout(), else
+/// the desktop's first).
 QString keyboardLayout();
-/// False for an unknown name. Set it before checking: the forms file is
-/// kept per layout (formIndexPath()).
+/// The one setKeyboardLayout() chose, or empty (by language).
+QString forcedKeyboardLayout();
+/// One layout for every text; empty for by language again. False for an
+/// unknown name.
 bool setKeyboardLayout(const QString& name);
-/// Not a letter, but typed on a letter key with AltGr (© on r): a slip
-/// inside a word, so it does not end the word.
+/// The layout used by foldChar(), classKey(), distance() and score() in this
+/// thread while it lives.
+class KeyboardScope {
+public:
+    explicit KeyboardScope(const QString& layout);
+    ~KeyboardScope();
+    KeyboardScope(const KeyboardScope&) = delete;
+    KeyboardScope& operator=(const KeyboardScope&) = delete;
+
+private:
+    int m_previous;
+};
+/// Not a letter, but typed on a letter key with AltGr (© on r) on the
+/// layout in use or one of the desktop's: a slip inside a word, so it does
+/// not end the word.
 bool typedOnLetterKey(QChar c);
 /// The class of a word: foldChar() of its letters, sorted.
 QString classKey(const QString& word);
@@ -114,9 +134,9 @@ double score(const QString& word, const QString& candidate, double limit);
 /// compound words are left to hunspell.
 QStringList expandDictionary(const QString& affPath, const QString& dicPath, bool* supported);
 
-/// The cache file of a dictionary's forms for the keyboard layout:
+/// The cache file of a dictionary's forms for a keyboard layout:
 /// <GenericCacheLocation>/siplasplas/spell/<name>-<layout>.forms.
-QString formIndexPath(const QString& dictionaryName);
+QString formIndexPath(const QString& dictionaryName, const QString& layout);
 
 /// Builds the cache file (written atomically); false when the dictionary is
 /// not supported or the file cannot be written.

@@ -70,68 +70,82 @@ const std::vector<KeyboardLayout>& keyboards() {
     return list;
 }
 
-// The active layout: chosen by setKeyboardLayout(), else the desktop's.
-std::atomic<int> activeKeyboard{-1};
-
 int keyboardIndex(const QString& name) {
     for (size_t i = 0; i < keyboards().size(); ++i)
         if (keyboards()[i].name == name) return int(i);
     return -1;
 }
 
-// The desktop's keyboard layout, as an xkb name ("pl"), or empty: KDE's
-// setting, GNOME's, the system's default (Debian, Ubuntu); on Windows the
-// input language (Polish there is the programmers' layout).
-QString desktopKeyboardLayout() {
+// The layouts set up on the desktop, in its order, as xkb names ("pl", "us"),
+// known ones only: KDE's setting, GNOME's, the system's default (Debian,
+// Ubuntu); on Windows the input language (Polish there is the programmers'
+// layout). Read once.
+QStringList readDesktopKeyboardLayouts() {
+    QStringList names;
 #ifdef Q_OS_WIN
     if (const QInputMethod* input = QGuiApplication::inputMethod()) {
         const QString language = input->locale().name().section(QLatin1Char('_'), 0, 0);
-        return language == QLatin1String("pl") ? QStringLiteral("pl-windows") : language;
+        names << (language == QLatin1String("pl") ? QStringLiteral("pl-windows") : language);
     }
-    return {};
 #else
-    const auto firstLayout = [](QString list) {
-        // "pl,us", "pl+dvp" (a variant): the first layout's name.
-        return list.section(QLatin1Char(','), 0, 0).section(QLatin1Char('+'), 0, 0).section(QLatin1Char('('), 0, 0)
-            .trimmed();
+    const auto add = [&names](const QString& list) {
+        // "pl,us", "pl+dvp" (a variant), "pl(legacy)": the layouts' names.
+        for (const QString& entry : list.split(QLatin1Char(','), Qt::SkipEmptyParts))
+            names << entry.section(QLatin1Char('+'), 0, 0).section(QLatin1Char('('), 0, 0).trimmed();
     };
-    const QString home = QDir::homePath();
-    QFile kde(home + QStringLiteral("/.config/kxkbrc"));
+    QFile kde(QDir::homePath() + QStringLiteral("/.config/kxkbrc"));
     if (kde.open(QIODevice::ReadOnly | QIODevice::Text))
         for (const QByteArray& line : kde.readAll().split('\n'))
-            if (line.startsWith("LayoutList="))
-                if (const QString name = firstLayout(QString::fromUtf8(line.mid(11))); !name.isEmpty()) return name;
-    if (qEnvironmentVariable("XDG_CURRENT_DESKTOP").contains(QLatin1String("GNOME"))) {
+            if (line.startsWith("LayoutList=")) add(QString::fromUtf8(line.mid(11)));
+    if (names.isEmpty() && qEnvironmentVariable("XDG_CURRENT_DESKTOP").contains(QLatin1String("GNOME"))) {
         QProcess gsettings;
         gsettings.start(QStringLiteral("gsettings"),
                         {QStringLiteral("get"), QStringLiteral("org.gnome.desktop.input-sources"),
                          QStringLiteral("sources")});
         if (gsettings.waitForFinished(2000)) {
             // [('xkb', 'pl'), ('xkb', 'us')]
-            static const QRegularExpression first(QStringLiteral("\\('xkb',\\s*'([^']+)'\\)"));
-            const QRegularExpressionMatch match = first.match(QString::fromUtf8(gsettings.readAllStandardOutput()));
-            if (match.hasMatch()) return firstLayout(match.captured(1));
+            static const QRegularExpression source(QStringLiteral("\\('xkb',\\s*'([^']+)'\\)"));
+            for (auto it = source.globalMatch(QString::fromUtf8(gsettings.readAllStandardOutput())); it.hasNext();)
+                add(it.next().captured(1));
         }
     }
-    QFile system(QStringLiteral("/etc/default/keyboard"));
-    if (system.open(QIODevice::ReadOnly | QIODevice::Text))
-        for (const QByteArray& line : system.readAll().split('\n'))
-            if (line.startsWith("XKBLAYOUT="))
-                return firstLayout(QString::fromUtf8(line.mid(10)).remove(QLatin1Char('"')));
-    return {};
+    if (names.isEmpty()) {
+        QFile system(QStringLiteral("/etc/default/keyboard"));
+        if (system.open(QIODevice::ReadOnly | QIODevice::Text))
+            for (const QByteArray& line : system.readAll().split('\n'))
+                if (line.startsWith("XKBLAYOUT=")) add(QString::fromUtf8(line.mid(10)).remove(QLatin1Char('"')));
+    }
 #endif
+    QStringList known;
+    for (const QString& name : std::as_const(names))
+        if (keyboardIndex(name) >= 0 && !known.contains(name)) known << name;
+    return known;
 }
 
+const QStringList& desktopKeyboardLayouts() {
+    static const QStringList names = readDesktopKeyboardLayouts();
+    return names;
+}
+
+// The language a layout is for ("us" English, "pl-windows" Polish).
+QString languageOfLayout(const QString& layout) {
+    if (layout == QLatin1String("us")) return QStringLiteral("en");
+    return layout.section(QLatin1Char('-'), 0, 0);
+}
+
+// The layout setKeyboardLayout() chose for every text, or -1: by the text's
+// language (keyboardLayoutFor()).
+std::atomic<int> forcedKeyboard{-1};
+// The layout of what this thread does now (KeyboardScope), or -1.
+thread_local int scopedKeyboard = -1;
+
 const KeyboardLayout& keyboard() {
-    int index = activeKeyboard.load();
-    if (index < 0) {
-        index = keyboardIndex(desktopKeyboardLayout());
-        // Unknown: the system language's (Polish → "pl"), else "us".
-        if (index < 0) index = keyboardIndex(QLocale::system().name().section(QLatin1Char('_'), 0, 0));
-        if (index < 0) index = keyboardIndex(QStringLiteral("us"));
-        activeKeyboard.store(index);
-    }
-    return keyboards()[size_t(index)];
+    if (scopedKeyboard >= 0) return keyboards()[size_t(scopedKeyboard)];
+    if (const int forced = forcedKeyboard.load(); forced >= 0) return keyboards()[size_t(forced)];
+    // No text's language here: the desktop's first layout, else the system
+    // language's.
+    static const int fallback = keyboardIndex(keyboardLayoutFor(QLocale::system().name()));
+    return keyboards()[size_t(fallback)];
 }
 
 // --- Affix rules -----------------------------------------------------------
@@ -318,19 +332,58 @@ QStringList keyboardLayouts() {
     return names;
 }
 
+QString keyboardLayoutFor(const QString& language) {
+    if (const int forced = forcedKeyboard.load(); forced >= 0) return keyboards()[size_t(forced)].name;
+    const QString code = language.section(QLatin1Char('_'), 0, 0).section(QLatin1Char('-'), 0, 0).toLower();
+    // One of the desktop's layouts for the language, else the first one: the
+    // keyboard the user types on (an English text on a Polish keyboard).
+    const QStringList& desktop = desktopKeyboardLayouts();
+    for (const QString& layout : desktop)
+        if (languageOfLayout(layout) == code) return layout;
+    if (!desktop.isEmpty()) return desktop.front();
+    // Nothing known of the desktop: the language's own layout.
+#ifdef Q_OS_WIN
+    if (code == QLatin1String("pl")) return QStringLiteral("pl-windows");
+#endif
+    if (code != QLatin1String("us") && keyboardIndex(code) >= 0) return code;
+    return QStringLiteral("us");
+}
+
 QString keyboardLayout() {
     return keyboard().name;
 }
 
+QString forcedKeyboardLayout() {
+    const int forced = forcedKeyboard.load();
+    return forced >= 0 ? keyboards()[size_t(forced)].name : QString();
+}
+
 bool setKeyboardLayout(const QString& name) {
+    if (name.isEmpty()) {
+        forcedKeyboard.store(-1);
+        return true;
+    }
     const int index = keyboardIndex(name);
     if (index < 0) return false;
-    activeKeyboard.store(index);
+    forcedKeyboard.store(index);
     return true;
 }
 
+KeyboardScope::KeyboardScope(const QString& layout) : m_previous(scopedKeyboard) {
+    scopedKeyboard = keyboardIndex(layout);
+}
+
+KeyboardScope::~KeyboardScope() {
+    scopedKeyboard = m_previous;
+}
+
 bool typedOnLetterKey(QChar c) {
-    return !c.isLetter() && keyboard().keyOf.contains(c.unicode());
+    if (c.isLetter()) return false;
+    // On the keyboard in use, or any the desktop has.
+    if (keyboard().keyOf.contains(c.unicode())) return true;
+    for (const QString& name : desktopKeyboardLayouts())
+        if (keyboards()[size_t(keyboardIndex(name))].keyOf.contains(c.unicode())) return true;
+    return false;
 }
 
 QString classKey(const QString& word) {
@@ -795,9 +848,9 @@ QStringList expandDictionary(const QString& affPath, const QString& dicPath, boo
     return forms;
 }
 
-QString formIndexPath(const QString& dictionaryName) {
+QString formIndexPath(const QString& dictionaryName, const QString& layout) {
     const QString cache = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation);
-    return QDir(cache).filePath(QStringLiteral("siplasplas/spell/%1-%2.forms").arg(dictionaryName, keyboardLayout()));
+    return QDir(cache).filePath(QStringLiteral("siplasplas/spell/%1-%2.forms").arg(dictionaryName, layout));
 }
 
 bool buildFormIndex(const QString& affPath, const QString& dicPath, const QString& indexPath) {

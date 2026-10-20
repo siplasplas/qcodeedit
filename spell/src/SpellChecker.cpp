@@ -7,6 +7,7 @@
 
 #include <QThreadPool>
 #include <atomic>
+#include <map>
 
 #include <QDateTime>
 #include <QDir>
@@ -22,6 +23,7 @@
 #include <QTextStream>
 
 #include <algorithm>
+#include <map>
 
 namespace qce::spell {
 
@@ -108,25 +110,38 @@ struct Loaded {
     // file, built in the background the first time; 0 not started, 1
     // building, 2 done (the file may still be missing: dictionary not
     // supported).
-    std::unique_ptr<detail::FormIndex> index;
-    std::shared_ptr<std::atomic<int>> indexState = std::make_shared<std::atomic<int>>(0);
+    // One for each keyboard layout in use (FormIndex.h: the classes follow
+    // the layout's letters).
+    struct Index {
+        std::unique_ptr<detail::FormIndex> forms;
+        std::shared_ptr<std::atomic<int>> state = std::make_shared<std::atomic<int>>(0);
+    };
+    std::map<QString, Index> indexes;
 
-    const detail::FormIndex* formIndex() {
-        if (index) return index.get();
-        const int state = indexState->load();
+    const detail::FormIndex* formIndex(const QString& layout) {
+        Index& index = indexes[layout];
+        if (index.forms) return index.forms.get();
+        const int state = index.state->load();
         if (state == 1) return nullptr;
-        const QString path = detail::formIndexPath(name);
-        index = detail::FormIndex::open(path, affPath, dicPath);
-        if (index || state == 2) return index.get();
-        indexState->store(1);
+        const QString path = detail::formIndexPath(name, layout);
+        index.forms = detail::FormIndex::open(path, affPath, dicPath);
+        if (index.forms || state == 2) return index.forms.get();
+        index.state->store(1);
         // The file of earlier versions, without the keyboard layout in its name.
         const QString old = QFileInfo(path).dir().filePath(name + QStringLiteral(".forms"));
-        QThreadPool::globalInstance()->start([state = indexState, aff = affPath, dic = dicPath, path, old]() {
+        QThreadPool::globalInstance()->start([state = index.state, aff = affPath, dic = dicPath, path, old, layout]() {
+            const detail::KeyboardScope scope(layout);
             detail::buildFormIndex(aff, dic, path);
             QFile::remove(old);
             state->store(2);
         });
         return nullptr;
+    }
+    // Being built in the background for the layout.
+    bool indexPending(const QString& layout) {
+        formIndex(layout);
+        const Index& index = indexes[layout];
+        return !index.forms && index.state->load() != 2;
     }
 
     // How frequent the dictionary's entries are (see FormIndex.h), read the
@@ -397,21 +412,18 @@ QStringList keyboardLayouts() {
     return detail::keyboardLayouts();
 }
 
+QString keyboardLayoutFor(const QString& language) {
+    return detail::keyboardLayoutFor(language);
+}
+
 QString keyboardLayout() {
-    return detail::keyboardLayout();
+    return detail::forcedKeyboardLayout();
 }
 
 bool setKeyboardLayout(const QString& name) {
-    if (name == detail::keyboardLayout()) return true;
+    if (name == detail::forcedKeyboardLayout()) return true;
     if (!detail::setKeyboardLayout(name)) return false;
-    // The forms of each dictionary from that layout's file, the suggestions
-    // found again.
-    for (const auto& loaded : std::as_const(registry().loaded)) {
-        if (!loaded || loaded->indexState->load() == 1) continue;
-        loaded->index.reset();
-        loaded->indexState = std::make_shared<std::atomic<int>>(0);
-    }
-    ++registry().generation;
+    ++registry().generation;  // suggestions found again
     return true;
 }
 
@@ -573,6 +585,8 @@ QStringList SpellChecker::suggestions(const QString& word, int maxCount) const {
 }
 
 QList<SpellChecker::Suggestion> SpellChecker::scoredSuggestions(const QString& word, int maxCount) const {
+    // Distances on the keyboard the text is typed on.
+    const detail::KeyboardScope scope(keyboardLayout());
     // A correction of the user's own: the only one, sure (score 0).
     for (const auto& loaded : d->dictionaries) {
         loaded->refreshCorrections();
@@ -619,7 +633,7 @@ QList<SpellChecker::Suggestion> SpellChecker::scoredSuggestions(const QString& w
 QList<SpellChecker::Suggestion> SpellChecker::cachedSuggestions(const QString& word, int maxCount) const {
     // Found before, unless the dictionaries (user words), the frequencies or
     // the way of finding them changed since.
-    QString stamp = QString::number(registry().generation) + QLatin1Char('/')
+    QString stamp = keyboardLayout() + QLatin1Char('/') + QString::number(registry().generation) + QLatin1Char('/')
         + QString::number(int(d->hunspellSuggestions));
     for (const auto& loaded : d->dictionaries) {
         loaded->frequencies();
@@ -641,8 +655,9 @@ QList<SpellChecker::Suggestion> SpellChecker::cachedSuggestions(const QString& w
 QList<SpellChecker::Suggestion> SpellChecker::findSuggestions(const QString& word, int maxCount, bool* indexedOut) const {
     std::vector<std::pair<double, QString>> candidates;
     bool indexed = false;
+    const QString layout = keyboardLayout();
     for (const auto& loaded : d->dictionaries) {
-        if (const detail::FormIndex* index = loaded->formIndex()) {
+        if (const detail::FormIndex* index = loaded->formIndex(layout)) {
             indexed = true;
             // The user's words are not among the forms of the dictionary
             // files: looked up in the same classes ("gemnini" → an added "gemini").
@@ -774,11 +789,14 @@ QStringList SpellChecker::splitSuggestions(const QString& first, const QString& 
 }
 
 bool SpellChecker::suggestionIndexReady() const {
-    for (const auto& loaded : d->dictionaries) {
-        loaded->formIndex();
-        if (!loaded->index && loaded->indexState->load() != 2) return false;
-    }
+    const QString layout = keyboardLayout();
+    for (const auto& loaded : d->dictionaries)
+        if (loaded->indexPending(layout)) return false;
     return true;
+}
+
+QString SpellChecker::keyboardLayout() const {
+    return detail::keyboardLayoutFor(d->names.isEmpty() ? QLocale::system().name() : languageOf(d->names.front()));
 }
 
 void SpellChecker::addToDictionary(const QString& word) {

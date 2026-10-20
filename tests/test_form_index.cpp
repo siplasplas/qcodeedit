@@ -245,7 +245,6 @@ private slots:
     }
 
     void keyboardLayoutFoldsAndNeighbours() {
-        const QString before = keyboardLayout();
         QVERIFY(keyboardLayouts().contains(QStringLiteral("pl-windows")));
         // Polish: AltGr held after ó types © on r ("któ©re"); ź is still a z.
         QVERIFY(setKeyboardLayout(QStringLiteral("pl")));
@@ -263,10 +262,20 @@ private slots:
         QVERIFY(!keysTouch(QChar(u'z'), QChar(u'x')));
         // Windows' Polish programmers: AltGr gives Polish letters only.
         QVERIFY(setKeyboardLayout(QStringLiteral("pl-windows")));
-        QVERIFY(!typedOnLetterKey(QChar(0x00A9)));
+        QCOMPARE(foldChar(QChar(0x00A9)), QChar(0x00A9));
+        QCOMPARE(foldChar(QChar(u'ż')), QChar(u'z'));
         QVERIFY(!setKeyboardLayout(QStringLiteral("klingon")));
         QCOMPARE(keyboardLayout(), QStringLiteral("pl-windows"));
-        setKeyboardLayout(before);
+        // A layout chosen for every text wins over the text's language; a
+        // scope over both in its thread.
+        QCOMPARE(keyboardLayoutFor(QStringLiteral("de_DE")), QStringLiteral("pl-windows"));
+        {
+            const KeyboardScope scope(QStringLiteral("fr"));
+            QCOMPARE(keyboardLayout(), QStringLiteral("fr"));
+        }
+        QCOMPARE(keyboardLayout(), QStringLiteral("pl-windows"));
+        QVERIFY(setKeyboardLayout(QString()));  // by language again
+        QVERIFY(forcedKeyboardLayout().isEmpty());
     }
 
     void unsupportedLeftToHunspell() {

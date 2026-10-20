@@ -59,16 +59,27 @@ void removeSpellingData(const QString& path);
 QString userDictionaryPath(const QString& dictionaryName);
 QString userCorrectionsPath(const QString& dictionaryName);
 
-/// The keyboard the text is typed on, for suggestions: which keys neighbour
+/// The keyboard a text is typed on, for suggestions: which keys neighbour
 /// (QWERTY, QWERTZ, AZERTY) and what AltGr held on a key types ("któ©re" →
 /// które: © is AltGr+r on the Polish keyboard). Known: "pl", "us", "de",
 /// "fr", "es" (the X keyboard layouts) and "pl-windows" (Windows' Polish
-/// programmers: AltGr gives only Polish letters). By default the system
-/// language's, else "us". Setting another drops the suggestions found so far
-/// and uses that layout's forms file (built in the background the first time).
+/// programmers: AltGr gives only Polish letters).
 QStringList keyboardLayouts();
+/// The layout of a text in `language` ("pl", "pl_PL"): by the text's language
+/// and the system's keyboards. One of the desktop's layouts for that language
+/// (KDE, GNOME, /etc/default/keyboard; on Windows the input language), else
+/// the desktop's first: an English text written on a Polish keyboard is typed
+/// on "pl", whatever the system's language. Without the desktop's: the
+/// language's own layout ("pl"; on Windows "pl-windows"), else "us".
+/// setKeyboardLayout() overrides it. Each checker uses that of its first
+/// dictionary (SpellChecker::keyboardLayout()).
+QString keyboardLayoutFor(const QString& language);
+/// The layout chosen for every text by setKeyboardLayout(), or empty.
 QString keyboardLayout();
-/// False (and nothing changed) for an unknown name.
+/// One layout for every text, or empty for keyboardLayoutFor()'s choice
+/// again. Drops the suggestions found so far; each layout has its own forms
+/// file (built in the background the first time). False (and nothing
+/// changed) for an unknown name.
 bool setKeyboardLayout(const QString& name);
 
 /// Downloaded lists of word forms with their counts, shared by all programs
@@ -157,6 +168,9 @@ public:
     /// The suggestion files of the dictionaries in use are ready (or not
     /// possible for them); starts building them when needed.
     bool suggestionIndexReady() const;
+    /// The keyboard layout its suggestions assume: keyboardLayoutFor() the
+    /// language of its first dictionary.
+    QString keyboardLayout() const;
     /// Two words typed with the space one letter off: the letters of `first`
     /// and `second` joined and split one letter to the left or right into two
     /// right words, "w1 w2" (e.g. "n", "aoknie" → "na oknie"; "mam", "yz" →

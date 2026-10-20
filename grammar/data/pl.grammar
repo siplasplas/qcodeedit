@@ -1,0 +1,81 @@
+# The grammar rules' words for Polish (NKJP/SGJP tagset), read by
+# qce::grammar::loadGrammarRules(). Sections in brackets; "#" begins a comment.
+# Words in a section are separated by spaces; a phrase or a pair takes a line.
+
+[letters]
+# The letters of words, for the words one typing slip away.
+aąbcćdeęfghijklłmnńoóprsśtuwyzźż
+
+[diacritics]
+# A plain letter and the same with a diacritic (one key, with or without AltGr).
+aą cć eę lł nń oó sś zż zź żź
+
+[keyboard]
+# The letter rows of the keyboard and how far each is shifted, in key widths:
+# for slips onto a neighbouring key.
+qwertyuiop 0
+asdfghjkl 0.25
+zxcvbnm 0.75
+
+[archaic]
+# Qualifiers of readings left out: archaic, obsolete.
+daw. przest.
+
+[rare]
+# Qualifiers of readings used only when a word has no other: rare, nonce,
+# dialectal, regional, archaism, or of a narrow field. Common fields (anat.,
+# rel., bot., ...) are not here.
+rzad. indyw. gwar. reg. arch. techn. hist. mit. żegl. środ. term. łow. mors.
+poet. gry górn. karc.
+
+[sentence-end]
+. ! ? …
+
+[transparent]
+# Characters between a sentence's end and its first word.
+" „ ” ( - – — '
+
+[reflexive]
+# The reflexive pronoun, which PoliMorf lacks ("sobie" is there only a dish):
+# its forms and cases.
+siebie gen.acc
+sobie dat.loc
+sobą inst
+
+[not-adjectives]
+# Lemmas of adjectives that begin another phrase (relative and interrogative
+# pronouns: "których dom") or stress another word ("samym sobą").
+który jaki czyj sam
+
+[not-nouns]
+# Lemmas of pronouns tagged as nouns, which do not agree with an adjective
+# before them ("podobny sobie", "winny nikomu").
+kto co siebie nikt nic ktoś coś ktokolwiek cokolwiek każdy
+
+[phrase-goes-on]
+# Lemmas whose genitive after a preposition lets the phrase go on, as a
+# possessive ("pod której opieką"); the genitive of 3rd person pronouns
+# ("przy jego domu") always does.
+który
+
+[coordinators]
+# Conjunctions that may follow a preposition ("przed i po wojnie").
+i lub oraz albo czy ani a bądź
+
+[too]
+# Prepositions that also mean "too", before an adjective ("za duży").
+za
+
+[not-after]
+# A word before a preposition that makes it no preposition ("co za dzień").
+co za
+
+[idioms]
+# A preposition and a word kept in an old form.
+za mąż
+na koń
+na jaw
+z grubsza
+na przekór
+bez ogródek
+na chybił

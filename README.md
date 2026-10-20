@@ -123,6 +123,13 @@ Options:
   [cpg](https://github.com/siplasplas/cpg) library. Needs ICU and zlib; an
   installed cpg 1.2.0 is used, otherwise it is fetched. See
   [docs/ENCODING.md](docs/ENCODING.md).
+- `QCE_BUILD_GRAMMAR=ON` (default) — builds `qcodeedit-grammar`, plain C++
+  without Qt or other libraries: a morphology file (every form's readings in
+  a minimal automaton, made from a dictionary such as PoliMorf) and grammar
+  rules over it (a preposition before the wrong case: "ze" for "że"; an
+  adjective not agreeing with its noun; two verbs where a noun one slip away
+  is the subject), with the words of a language in its rules file
+  (`grammar/data/pl.grammar`). See [docs/GRAMMAR.md](docs/GRAMMAR.md).
 - `QCE_BUILD_SPELL=ON` (default) — builds `qcodeedit-spell` (spell checking
   with hunspell: wavy underlines in comments, strings and plain text,
   suggestions, a user dictionary shared by all programs, words ignored per
@@ -170,6 +177,8 @@ lib/libqcodeedit.a                         — core static library
 lib/libqcodeedit-kate.a                    — companion static library
 lib/libqcodeedit-katedata.a                — downloader static library
 lib/libqcodeedit-encoding.a                — encodings static library
+lib/libqcodeedit-grammar.a                 — grammar static library (plain C++)
+share/qcodeedit/grammar/pl.grammar         — the grammar's words for Polish
 lib/libqcodeedit-spell.a                   — spell checking static library
 lib/libqcodeedit-spelldata.a               — word frequency downloader
 lib/libqcodeedit-diff.a                    — setText by differing lines
@@ -178,6 +187,7 @@ lib/cmake/qcodeedit/                       — find_package(qcodeedit)
 lib/cmake/qcodeedit-kate/                  — find_package(qcodeedit-kate)
 lib/cmake/qcodeedit-katedata/              — find_package(qcodeedit-katedata)
 lib/cmake/qcodeedit-encoding/              — find_package(qcodeedit-encoding)
+lib/cmake/qcodeedit-grammar/               — find_package(qcodeedit-grammar)
 lib/cmake/qcodeedit-spell/                 — find_package(qcodeedit-spell)
 lib/cmake/qcodeedit-spelldata/             — find_package(qcodeedit-spelldata)
 lib/cmake/qcodeedit-diff/                  — find_package(qcodeedit-diff)

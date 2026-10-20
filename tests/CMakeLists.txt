@@ -135,6 +135,14 @@ qce_add_test(test_code_edit_area_keys)
 qce_add_test(test_code_edit_area_input_method)
 qce_add_test(test_extra_selections INTERNAL)
 
+# Grammar: the morphology file and the rules (plain C++, its own small data).
+if(TARGET qcodeedit::grammar)
+    add_executable(test_grammar test_grammar.cpp)
+    target_compile_definitions(test_grammar PRIVATE QCE_GRAMMAR_DATA_DIR="${QCE_GRAMMAR_SOURCE_DATA_DIR}")
+    target_link_libraries(test_grammar PRIVATE qcodeedit::grammar Qt6::Test)
+    add_test(NAME test_grammar COMMAND test_grammar)
+endif()
+
 # Spell checking with the system's hunspell dictionaries (skips without them).
 if(TARGET qcodeedit::spell AND TARGET qcodeedit::kate)
     add_executable(test_spell test_spell.cpp)

@@ -1022,19 +1022,22 @@ std::vector<std::pair<double, QString>> rankSuggestions(const QString& word,
     const auto spelling = [distances](const QString& form, double dist) {
         return distances ? distances->value(form.toLower(), dist) : dist;
     };
-    double farthestShown = -1;
+    double farthestShown = -1, bestPenalty = 0;
     for (const auto& [dist, candidate] : candidates) {
         if (int(result.size()) >= std::min(maxCount, kMaxShown)) break;
         // Close to the best only: usually one suggestion, not always maxCount.
         // (The small allowance keeps a candidate exactly kCloseToBest behind,
         // e.g. 0.3 + 0.6 summed as 0.9000001.) Rarer words fall behind, but
-        // one spelled as close as a shown one is still shown when it is in
-        // the frequency table: "fiunding" is funding as much as finding;
-        // "bhyc" stays być, not the very rare hyc.
+        // one spelled as close as a shown one is still shown unless it is
+        // much rarer than the best (kRivalPenaltyGap): "fiunding" is funding
+        // as much as finding; "bhyc" stays być, not the thousands of times
+        // rarer hyc.
+        const double penalty = dist - spelling(candidate, dist);
         const bool close = dist <= candidates.front().first + closeToBest + 1e-9 && dist <= kShownLimit + 1e-9;
-        const bool counted = dist - spelling(candidate, dist) < frequencyPenalty(0) - 1e-9;
-        const bool asNear = !result.empty() && counted && spelling(candidate, dist) <= farthestShown + 1e-9;
+        const bool asNear = !result.empty() && spelling(candidate, dist) <= farthestShown + 1e-9
+            && penalty <= bestPenalty + kRivalPenaltyGap + 1e-9;
         if (!close && !asNear) continue;
+        if (result.empty()) bestPenalty = penalty;
         farthestShown = std::max(farthestShown, spelling(candidate, dist));
         // A name differing only in case keeps its own ("warszawa" →
         // Warszawa); the others follow the word's ("POłączyłem" → Połączyłem).

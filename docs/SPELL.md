@@ -161,9 +161,7 @@ the best are shown (at most 0.6 worse), three at most (or the requested number
 if smaller), and none scoring more than 2.6 (with the frequency penalty
 below), so a word far from every dictionary word ("bookamrk" without an
 English dictionary) has no suggestion. `SpellChecker::scoredSuggestions()`
-gives the scores. Frequency orders the suggestions but does not hide one
-spelled as close as a shown one when the frequency table has it: "fiunding"
-gets finding and funding, not a sure finding. `isConfident()` tells a single
+gives the scores (see below for the frequencies). `isConfident()` tells a single
 suggestion at most 0.8 away
 and scoring at most 1 with the frequency penalty,
 without a capital the typed word lacks: sure enough to apply without asking
@@ -203,8 +201,14 @@ the file suggestions work as before, only rare words come up more often
 makes such files too, also from a text corpus.
 A suggestion's stem (hunspell's) adds 0.3 for each tenfold below 1000 per
 million words; one not in the file counts as 0.3 per million (very rare); a
-two-word suggestion takes its rarer word's. Only suggestions at most 0.4 worse
+two-word suggestion takes its rarer word's: the penalty follows the logarithm
+of the frequency, from 0 (1000 per million and more) to 1.06 (0.3 per million).
+Only suggestions at most 0.4 worse
 than the best are then shown. "dialac" gives działać (not dialach, dialag).
+A suggestion spelled as close as a shown one is shown too when it is at most
+100 times rarer than the best (its penalty at most 0.6 above), however far
+behind its penalty puts it: "fiunding" gets finding and funding, not a sure
+finding, while "bhyc" stays a sure być (hyc is thousands of times rarer).
 Counts from film subtitles did better than from Wikipedia, whose nouns and
 third person beat what people type.
 

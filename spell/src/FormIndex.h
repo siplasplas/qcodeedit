@@ -152,6 +152,9 @@ private:
 constexpr double kCommonPerMillion = 1000;
 constexpr double kVeryRarePerMillion = 0.3;
 constexpr double kFrequencyWeight = 0.3;
+/// A rival spelled as close as a shown suggestion is shown too when at most
+/// 100 times rarer (its penalty at most kFrequencyWeight · log10(100) above).
+constexpr double kRivalPenaltyGap = 0.6;
 double frequencyPenalty(double perMillion);
 
 /// Suggestions scoring more (too far from the typed word, e.g. "bookamrk" →
@@ -172,9 +175,10 @@ constexpr double kConfidentScore = 1.0;
 /// (e.g. hunspell's suggestions), then the shorter. The case follows `word`
 /// (Capitalized, ALL CAPS). With `distances` (spelling distances without the
 /// frequency penalty, by lower-case form) a candidate spelled at most as far
-/// as a shown one is shown too when the frequency table has it: frequency
-/// orders such rivals but does not hide them, so a single suggestion is not
-/// sure by mistake; a word missing from the table (very rare) still is.
+/// as a shown one is shown too unless its frequency penalty is more than
+/// kRivalPenaltyGap above the best's: frequency orders such rivals but does
+/// not hide them, so a single suggestion is not sure by mistake; a word
+/// hundreds of times rarer still is hidden.
 std::vector<std::pair<double, QString>> rankSuggestions(const QString& word,
                                                         std::vector<std::pair<double, QString>> candidates,
                                                         int maxCount, const QStringList& preferred,

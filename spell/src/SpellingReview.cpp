@@ -277,6 +277,14 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     layout->addWidget(m_list, 1);
     checkAtFirst();
     connect(m_list, &QTreeWidget::itemChanged, this, &SpellingReviewDialog::updateSummary);
+    // A double click shows the word in the text, for more of its context:
+    // selected there, scrolled into sight; the window stays open.
+    connect(m_list, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* row) {
+        CodeEditArea* area = m_spelling ? m_spelling->area() : nullptr;
+        if (!area || !row) return;
+        const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
+        area->setSelection(item.word.start, item.word.end);  // scrolls to it
+    });
     connect(m_checkAtFirst, &QComboBox::activated, this, [this]() {
         checkAtFirst();
         filter();

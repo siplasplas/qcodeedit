@@ -286,7 +286,9 @@ several whose first would be sure alone ("Several, first close"), checked with
 their first one, or without suggestions but given an own correction ("Words
 without suggestions"), and how
 long finding the corrections took; Ctrl+C or the context menu copies the
-selected rows, separated by tabs, or their lines of text. "Add to
+selected rows, separated by tabs, or their lines of text; a double click on
+a row selects its word in the text and scrolls there, to read more of its
+context while the window stays open. "Add to
 Dictionary" and "Ignore" take the selected word out of the list, every row of
 it (an English word or a coined one written on purpose); "Remember Correction"
 keeps the selected word's chosen correction as the user's own

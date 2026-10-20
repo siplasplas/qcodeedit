@@ -158,8 +158,9 @@ kept per layout (`<name>-<layout>.forms`). Swapped
 letters, missing diacritics and a held AltGr keep the class; a letter too
 many, too few or wrong is a neighbouring class. Only those classes are
 ranked, by a weighted edit distance from the typed word: a missing diacritic
-0.35 (a typed one removed 0.7, or 0.35 right after another such letter: AltGr
-held, "żę" → "że"), two adjacent letters swapped 0.6 when the two hands type
+0.35 (a typed one removed 0.7, or 0.35 next to another diacritic, typed or
+meant: AltGr held, pressed a letter early or a letter late, "żę" → "że",
+"zą" → "żą"), two adjacent letters swapped 0.6 when the two hands type
 them on the keyboard and 1.1 when one hand does ("serach" for "search": r
 and a both left), a letter two places off 1.1, three places 1.6 (a swap right
 after another adds 0.5, so "dziłaja" gives działają before działaj; a moved
@@ -189,10 +190,10 @@ most (or the requested number if smaller), and none scoring more than 3.4
 (with the frequency penalty below), so a word far from every dictionary word
 has no suggestion. `SpellChecker::scoredSuggestions()`
 gives the scores (see below for the frequencies). `isConfident()` tells a single
-suggestion at most 0.8 away
-and scoring at most 1 with the frequency penalty,
+suggestion at most 1.5 away
+and scoring at most 1.04 with the frequency penalty,
 without a capital the typed word lacks: sure enough to apply without asking
-(correction while typing, checked at first in a review).
+(correction while typing, "Sure corrections" in a review).
 
 These costs and limits were fitted by `tools/spelltune` to 772 real typing
 mistakes of a Polish text of 36,000 words, written on Windows' Polish
@@ -202,11 +203,13 @@ too many, 6% Shift or capitals, 5% another letter (a neighbouring key 23,
 another 10), 3.5% two swapped letters (22 of 27 typed by the two hands; the
 5 by one hand by different fingers). Tuned on half of the mistakes, checked on
 the other half: one suggestion, the right one, for 335 of 382 (293 before),
-and 261 sure corrections, none wrong (232 before). On the whole text 718 of
-765 found mistakes get the right first suggestion and 524 are corrected
-surely, one wrongly (a missing diacritic or a missing first letter, both
-words). On a list of 100 real Polish typing mistakes 91 are first (hunspell
-alone: 71), in about 6 ms each.
+and 261 sure corrections, none wrong (232 before). A second text, 407
+mistakes in 23,000 words, never tuned on: 365 get one suggestion, the right
+one (328 with the earlier values), none a wrong or no suggestion, all 407 the
+right one first or among a few. The sure limits were then raised as far as
+no sure correction of the two texts was wrong (1.5 and 1.04): 818 of 1171
+mistakes are corrected surely. On a list of 100 real Polish typing mistakes
+91 are first (hunspell alone: 71), in about 6 ms each.
 A checker keeps the suggestions it found (per word) while its dictionaries,
 user words, corrections or frequencies stay the same, so a second review of a
 long text only looks for new words (6000 misspelled words: 45 s the first

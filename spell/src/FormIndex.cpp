@@ -478,13 +478,16 @@ double distance(const QString& a, const QString& b, double limit) {
     // A letter too many, typed between the meant letters lb[j - 1] and lb[j]:
     // cheaper when its key touches both (or repeats one), a little when it
     // touches one.
+    // Before the word's first letter or after its last one, a letter too
+    // many is rarer (kDeleteAtStartCost, kDeleteAtEndCost).
     const auto deleteCost = [&la, &lb, m](int i, int j) {
         const QChar x = la[i - 1];
         const bool before = j > 0 && keysTouch(x, lb[j - 1]);
         const bool after = j < m && keysTouch(x, lb[j]);
         const bool repeats = (j > 0 && foldChar(x) == foldChar(lb[j - 1])) || (j < m && foldChar(x) == foldChar(lb[j]));
-        if (repeats || (before && after)) return kDeleteTouchingCost;
-        return before || after ? kDeleteTouchingOneCost : kDeleteCost;
+        const double edge = j == 0 ? kDeleteAtStartCost : j == m ? kDeleteAtEndCost : 0;
+        if (repeats || (before && after)) return kDeleteTouchingCost + edge;
+        return (before || after ? kDeleteTouchingOneCost : kDeleteCost) + edge;
     };
     for (int i = 1; i <= n; ++i) {
         dist[at(i, 0)] = dist[at(i - 1, 0)] + deleteCost(i, 0);
@@ -499,10 +502,17 @@ double distance(const QString& a, const QString& b, double limit) {
                 // A missing diacritic is cheap; one typed by mistake (AltGr
                 // pressed on purpose) costs more, unless AltGr was still held
                 // from the letter before ("żę" for "że").
+                // AltGr held from the letter before, or pressed a letter early
+                // for the next one, puts a diacritic next to another, typed
+                // or meant (the dot of ż landed on the next a).
                 const bool removesTyped = marked(x) && !marked(y);
-                change = removesTyped && !(i > 1 && marked(la[i - 2])) ? kTypedDiacriticCost : kMissingDiacriticCost;
+                const bool nearAnother = (i > 1 && marked(la[i - 2])) || (i < n && marked(la[i]))
+                    || (j > 1 && marked(lb[j - 2])) || (j < m && marked(lb[j]));
+                change = removesTyped && !nearAnother ? kTypedDiacriticCost : kMissingDiacriticCost;
             }
-            double v = std::min({dist[at(i - 1, j)] + deleteCost(i, j), dist[at(i, j - 1)] + kInsertCost,
+            // A letter missing after the last typed one: at the word's end.
+            const double insert = kInsertCost + (i == n ? kInsertAtEndCost : 0);
+            double v = std::min({dist[at(i - 1, j)] + deleteCost(i, j), dist[at(i, j - 1)] + insert,
                                  dist[at(i - 1, j - 1)] + change});
             for (int k = 1; k < int(std::size(kMoveCost)); ++k) {
                 if (i <= k || j <= k) continue;

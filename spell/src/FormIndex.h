@@ -91,6 +91,13 @@ inline double kDeleteTouchingOneCost = 0.90;
 /// Added to kInsertCost when the missing letter is the word's first: a
 /// word's beginning is seldom left out.
 inline double kInsertAtStartCost = 0.10;
+/// Added for a letter missing at the end, and for a letter too many before
+/// the word's first letter or after its last: in typing they are about half
+/// as frequent as in the middle (a word's first letter is left out much
+/// more seldom still: kInsertAtStartCost).
+inline double kInsertAtEndCost = 0.0;
+inline double kDeleteAtStartCost = 0.0;
+inline double kDeleteAtEndCost = 0.0;
 /// A missing diacritic ("zolw" for żółw), one typed by mistake (removed),
 /// and a moved letter that also lacks its diacritic ("dzielci" → dzielić).
 inline double kMissingDiacriticCost = 0.35;
@@ -218,12 +225,13 @@ inline double kShownLimit = 3.40;
 inline double kFallbackShownLimit = 2.6;
 /// A single suggestion at most this far (kConfidentDistance, without the
 /// frequency penalty) and scoring at most kConfidentScore is sure enough to
-/// be applied without asking (correction while typing, checked at first in a
-/// review). On the 97 typing mistakes 39 are then sure, all of them right;
-/// "agents" → agent (0.9: an s touching neither t nor the end) and "search"
-/// → serach (1: r and a both left hand) are only offered.
-inline double kConfidentDistance = 0.8;
-inline double kConfidentScore = 1.0;
+/// be applied without asking (correction while typing, "Sure corrections" in
+/// a review). The score bounds it in practice: on 1171 typing mistakes of
+/// two hand-typed texts 818 are then sure and none wrong; scoring up to 1.5,
+/// 947 would be, 3 of them wrong though right words, which only the sentence
+/// could have told from the meant ones.
+inline double kConfidentDistance = 1.5;
+inline double kConfidentScore = 1.04;
 
 /// Up to `maxCount` of the candidates with their scores, best first, only
 /// those at most `closeToBest` worse than the best (a threshold, not always

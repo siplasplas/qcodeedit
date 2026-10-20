@@ -50,15 +50,24 @@ private:
     sqlite3_stmt* m_statement = nullptr;
 };
 
-// The path of a directory's files: "dir/" as a LIKE pattern (with % and _
-// of the name escaped).
-QString underPattern(const QString& directory) {
-    QString escaped = directory;
-    escaped.replace(QLatin1Char('\\'), QLatin1String("\\\\"))
-        .replace(QLatin1Char('%'), QLatin1String("\\%"))
-        .replace(QLatin1Char('_'), QLatin1String("\\_"));
-    return escaped + QLatin1String("/%");
+// A file and the files under it when it is a directory: "path = ?1 OR
+// (path >= ?2 AND path < ?3)" with "dir/" and "dir0" ('0' follows '/'), a
+// range of the sorted paths, so the index finds it at once.
+QString underLower(const QString& path) { return path + QLatin1Char('/'); }
+QString underUpper(const QString& path) { return path + QLatin1Char('0'); }
+#define QCE_FILE_OR_UNDER "(path = ?1 OR (path >= ?2 AND path < ?3))"
+
+// SQLite counts characters (code points), QString UTF-16 units.
+QString afterPrefix(const QString& path) { return QString::number(path.toUcs4().size() + 1); }
+
+// Without a trailing slash (the root stays "/").
+QString normalized(const QString& path) {
+    QString result = path;
+    while (result.size() > 1 && result.endsWith(QLatin1Char('/'))) result.chop(1);
+    return result;
 }
+
+constexpr int kSchemaVersion = 1;
 
 } // namespace
 
@@ -79,16 +88,57 @@ UserStore::UserStore() {
     // Several programs at once: wait for each other a moment.
     sqlite3_busy_timeout(m_db, 3000);
     exec("PRAGMA journal_mode=WAL");
-    exec("CREATE TABLE IF NOT EXISTS words(language TEXT NOT NULL, word TEXT NOT NULL,"
-         " PRIMARY KEY(language, word))");
-    exec("CREATE TABLE IF NOT EXISTS corrections(language TEXT NOT NULL, typed TEXT NOT NULL,"
-         " correction TEXT NOT NULL, PRIMARY KEY(language, typed))");
-    exec("CREATE TABLE IF NOT EXISTS ignored(path TEXT NOT NULL, word TEXT NOT NULL, PRIMARY KEY(path, word))");
+    createSchema();
     importOldFiles(QFileInfo(path).absolutePath());
 }
 
 UserStore::~UserStore() {
     if (m_db) sqlite3_close(m_db);
+}
+
+void UserStore::createSchema() {
+    // One program at a time: another may be migrating the same file.
+    exec("BEGIN IMMEDIATE");
+    // Statements are finished before the tables change.
+    const int current = [this]() {
+        Statement version(m_db, "PRAGMA user_version", {});
+        return version.next() ? int(version.integer(0)) : 0;
+    }();
+    if (current >= kSchemaVersion) {
+        exec("COMMIT");
+        return;
+    }
+    // Version 0 with tables: 1.46 and 1.47, a rowid table and an index for
+    // each, and each ignored word with its whole path.
+    const bool migrate =
+        Statement(m_db, "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'words'", {}).next();
+    if (migrate) {
+        exec("ALTER TABLE words RENAME TO words_old");
+        exec("ALTER TABLE corrections RENAME TO corrections_old");
+        exec("ALTER TABLE ignored RENAME TO ignored_old");
+    }
+    // Short rows whose key is all they hold: kept once, in the key's order.
+    exec("CREATE TABLE words(language TEXT NOT NULL, word TEXT NOT NULL, PRIMARY KEY(language, word))"
+         " WITHOUT ROWID");
+    exec("CREATE TABLE corrections(language TEXT NOT NULL, typed TEXT NOT NULL, correction TEXT NOT NULL,"
+         " PRIMARY KEY(language, typed)) WITHOUT ROWID");
+    // Each file's path once, sorted by its index: a moved directory changes
+    // only the paths under it, found as a range.
+    exec("CREATE TABLE files(id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE)");
+    exec("CREATE TABLE ignored(file INTEGER NOT NULL REFERENCES files(id), word TEXT NOT NULL,"
+         " PRIMARY KEY(file, word)) WITHOUT ROWID");
+    if (migrate) {
+        exec("INSERT OR IGNORE INTO words SELECT language, word FROM words_old");
+        exec("INSERT OR IGNORE INTO corrections SELECT language, typed, correction FROM corrections_old");
+        exec("INSERT OR IGNORE INTO files(path) SELECT DISTINCT path FROM ignored_old");
+        exec("INSERT OR IGNORE INTO ignored SELECT files.id, ignored_old.word FROM ignored_old"
+             " JOIN files ON files.path = ignored_old.path");
+        exec("DROP TABLE words_old");
+        exec("DROP TABLE corrections_old");
+        exec("DROP TABLE ignored_old");
+    }
+    exec(QStringLiteral("PRAGMA user_version = %1").arg(kSchemaVersion).toLatin1().constData());
+    if (!exec("COMMIT")) exec("ROLLBACK");
 }
 
 bool UserStore::exec(const char* sql) {
@@ -138,54 +188,95 @@ void UserStore::removeCorrection(const QString& language, const QString& typed) 
 
 QSet<QString> UserStore::ignored(const QString& path) {
     QSet<QString> result;
-    Statement select(m_db, "SELECT word FROM ignored WHERE path = ?", {path});
+    Statement select(m_db, "SELECT word FROM ignored JOIN files ON files.id = ignored.file WHERE files.path = ?",
+                     {normalized(path)});
     while (select.next()) result.insert(select.text(0));
     return result;
 }
 
 void UserStore::addIgnored(const QString& path, const QString& word) {
-    if (Statement(m_db, "INSERT OR IGNORE INTO ignored(path, word) VALUES(?, ?)", {path, word}).run())
-        ++m_ownChanges;
+    const QString file = normalized(path);
+    exec("BEGIN");
+    Statement(m_db, "INSERT OR IGNORE INTO files(path) VALUES(?)", {file}).run();
+    const bool added = Statement(m_db, "INSERT OR IGNORE INTO ignored(file, word) SELECT id, ?2 FROM files"
+                                       " WHERE path = ?1", {file, word}).run();
+    if (exec("COMMIT") && added) ++m_ownChanges;
 }
 
 void UserStore::removeIgnored(const QString& path, const QString& word) {
-    if (Statement(m_db, "DELETE FROM ignored WHERE path = ? AND word = ?", {path, word}).run()) ++m_ownChanges;
+    const QString file = normalized(path);
+    exec("BEGIN");
+    Statement(m_db, "DELETE FROM ignored WHERE word = ?2 AND file = (SELECT id FROM files WHERE path = ?1)",
+              {file, word}).run();
+    // A file without ignored words is not kept.
+    Statement(m_db, "DELETE FROM files WHERE path = ? AND NOT EXISTS"
+                    " (SELECT 1 FROM ignored WHERE ignored.file = files.id)", {file}).run();
+    if (exec("COMMIT")) ++m_ownChanges;
 }
 
 QList<QPair<QString, QString>> UserStore::allIgnored() {
     QList<QPair<QString, QString>> result;
-    Statement select(m_db, "SELECT path, word FROM ignored ORDER BY path, word", {});
+    Statement select(m_db, "SELECT files.path, ignored.word FROM files JOIN ignored ON ignored.file = files.id"
+                           " ORDER BY files.path, ignored.word", {});
     while (select.next()) result.append({select.text(0), select.text(1)});
     return result;
 }
 
-void UserStore::movePath(const QString& from, const QString& to) {
+void UserStore::movePath(const QString& fromPath, const QString& toPath) {
+    const QString from = normalized(fromPath), to = normalized(toPath);
     if (from.isEmpty() || to.isEmpty() || from == to) return;
+    // Nothing there (the usual case): one lookup in the index.
+    if (!Statement(m_db, "SELECT 1 FROM files WHERE " QCE_FILE_OR_UNDER " LIMIT 1",
+                   {from, underLower(from), underUpper(from)}).next())
+        return;
     exec("BEGIN");
-    // A file, and the files under a directory (their paths keep the rest).
-    Statement(m_db, "UPDATE OR REPLACE ignored SET path = ? WHERE path = ?", {to, from}).run();
-    Statement(m_db, "UPDATE OR REPLACE ignored SET path = ? || substr(path, ?) WHERE path LIKE ? ESCAPE '\\'",
-              {to, QString::number(from.size() + 1), underPattern(from)}).run();
-    exec("COMMIT");
-    ++m_ownChanges;
+    // A path taken at the target (a directory moved into another with the
+    // same files): the words joined there, then the old paths dropped.
+    const bool taken = Statement(m_db, "SELECT 1 FROM files AS moved JOIN files AS target"
+                                       " ON target.path = ?4 || substr(moved.path, ?5)"
+                                       " WHERE (moved.path = ?1 OR (moved.path >= ?2 AND moved.path < ?3)) LIMIT 1",
+                                 {from, underLower(from), underUpper(from), to, afterPrefix(from)}).next();
+    if (taken) {
+        exec("COMMIT");
+        copyPath(from, to);
+        removePath(from);
+        return;
+    }
+    // Otherwise only the paths change: the words stay with their file's id.
+    Statement(m_db, "UPDATE files SET path = ?4 || substr(path, ?5) WHERE " QCE_FILE_OR_UNDER,
+              {from, underLower(from), underUpper(from), to, afterPrefix(from)}).run();
+    if (exec("COMMIT")) ++m_ownChanges;
 }
 
-void UserStore::copyPath(const QString& from, const QString& to) {
+void UserStore::copyPath(const QString& fromPath, const QString& toPath) {
+    const QString from = normalized(fromPath), to = normalized(toPath);
     if (from.isEmpty() || to.isEmpty() || from == to) return;
+    if (!Statement(m_db, "SELECT 1 FROM files WHERE " QCE_FILE_OR_UNDER " LIMIT 1",
+                   {from, underLower(from), underUpper(from)}).next())
+        return;
     exec("BEGIN");
-    Statement(m_db, "INSERT OR IGNORE INTO ignored(path, word) SELECT ?, word FROM ignored WHERE path = ?",
-              {to, from}).run();
-    Statement(m_db, "INSERT OR IGNORE INTO ignored(path, word) SELECT ? || substr(path, ?), word FROM ignored"
-                    " WHERE path LIKE ? ESCAPE '\\'",
-              {to, QString::number(from.size() + 1), underPattern(from)}).run();
-    exec("COMMIT");
-    ++m_ownChanges;
+    Statement(m_db, "INSERT OR IGNORE INTO files(path) SELECT ?4 || substr(path, ?5) FROM files WHERE "
+                    QCE_FILE_OR_UNDER,
+              {from, underLower(from), underUpper(from), to, afterPrefix(from)}).run();
+    Statement(m_db, "INSERT OR IGNORE INTO ignored(file, word) SELECT target.id, ignored.word"
+                    " FROM files AS copied JOIN ignored ON ignored.file = copied.id"
+                    " JOIN files AS target ON target.path = ?4 || substr(copied.path, ?5)"
+                    " WHERE (copied.path = ?1 OR (copied.path >= ?2 AND copied.path < ?3))",
+              {from, underLower(from), underUpper(from), to, afterPrefix(from)}).run();
+    if (exec("COMMIT")) ++m_ownChanges;
 }
 
-void UserStore::removePath(const QString& path) {
+void UserStore::removePath(const QString& filePath) {
+    const QString path = normalized(filePath);
     if (path.isEmpty()) return;
-    Statement(m_db, "DELETE FROM ignored WHERE path = ? OR path LIKE ? ESCAPE '\\'", {path, underPattern(path)}).run();
-    ++m_ownChanges;
+    if (!Statement(m_db, "SELECT 1 FROM files WHERE " QCE_FILE_OR_UNDER " LIMIT 1",
+                   {path, underLower(path), underUpper(path)}).next())
+        return;
+    exec("BEGIN");
+    Statement(m_db, "DELETE FROM ignored WHERE file IN (SELECT id FROM files WHERE " QCE_FILE_OR_UNDER ")",
+              {path, underLower(path), underUpper(path)}).run();
+    Statement(m_db, "DELETE FROM files WHERE " QCE_FILE_OR_UNDER, {path, underLower(path), underUpper(path)}).run();
+    if (exec("COMMIT")) ++m_ownChanges;
 }
 
 void UserStore::importOldFiles(const QString& directory) {

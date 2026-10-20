@@ -89,6 +89,15 @@ it is ignored for the session only. A file manager moving, copying or deleting
 files or directories calls `moveSpellingData()`, `copySpellingData()` or
 `removeSpellingData()` so that the ignored words follow them.
 
+The tables keep short rows once, in the order of their key (`WITHOUT ROWID`):
+`words(language, word)`, `corrections(language, typed, correction)` and
+`ignored(file, word)`; each file's path is stored once in `files(id, path)`,
+sorted by its index. A directory's files are the range of paths from `dir/` up
+to `dir0` (`0` follows `/`), found in the index at once: moving a directory
+changes only those paths, and a file operation touching no file with ignored
+words costs one lookup. The schema's version is `PRAGMA user_version`; a
+database of 1.46 or 1.47 is converted when first opened.
+
 `SpellChecker` can be used on its own (`check()`, `suggestions()`,
 `addToDictionary()`, `ignore()`); it is not thread-safe.
 

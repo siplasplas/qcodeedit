@@ -48,6 +48,9 @@ public:
 private:
     UserStore();
     bool exec(const char* sql);
+    /// The tables of kSchemaVersion (PRAGMA user_version); a database of 1.46
+    /// or 1.47 is converted.
+    void createSchema();
     /// The user dictionaries (<language>.dic) of earlier versions, taken in
     /// once and moved to an "imported" directory beside the database.
     void importOldFiles(const QString& directory);

@@ -46,6 +46,23 @@ private slots:
         QVERIFY(old.open(QIODevice::WriteOnly | QIODevice::Text));
         old.write("staryslowniczek\n");
         old.close();
+        // A database of 1.46/1.47 (rowid tables, whole paths), to be converted.
+        sqlite3* database = nullptr;
+        QCOMPARE(sqlite3_open(QFile::encodeName(m_home.filePath(QStringLiteral("siplasplas/spell/spelling.sqlite")))
+                                  .constData(),
+                              &database),
+                 SQLITE_OK);
+        const QByteArray oldFile = QFile::encodeName(m_home.filePath(QStringLiteral("old/x.txt")));
+        const QByteArray sql =
+            "CREATE TABLE words(language TEXT NOT NULL, word TEXT NOT NULL, PRIMARY KEY(language, word));"
+            "CREATE TABLE corrections(language TEXT NOT NULL, typed TEXT NOT NULL, correction TEXT NOT NULL,"
+            " PRIMARY KEY(language, typed));"
+            "CREATE TABLE ignored(path TEXT NOT NULL, word TEXT NOT NULL, PRIMARY KEY(path, word));"
+            "INSERT INTO words VALUES('pl', 'starabazowy');"
+            "INSERT INTO corrections VALUES('pl', 'Starabaza', 'StaraBaza');"
+            "INSERT INTO ignored VALUES('" + oldFile + "', 'qwzxstare');";
+        QCOMPARE(sqlite3_exec(database, sql.constData(), nullptr, nullptr, nullptr), SQLITE_OK);
+        sqlite3_close(database);
     }
 
     void dictionariesAndLanguageKeys() {
@@ -172,6 +189,14 @@ private slots:
         QVERIFY(first.check(QStringLiteral("staryslowniczek")));
         QVERIFY(!QFile::exists(m_home.filePath(QStringLiteral("siplasplas/spell/pl.dic"))));
         QVERIFY(QFile::exists(m_home.filePath(QStringLiteral("siplasplas/spell/imported/pl.dic"))));
+        // So is a database of 1.46/1.47.
+        QVERIFY(first.check(QStringLiteral("starabazowy")));
+        QCOMPARE(first.suggestions(QStringLiteral("Starabaza")), QStringList{QStringLiteral("StaraBaza")});
+        first.removeCorrection(QStringLiteral("Starabaza"));  // the corrections test expects its own only
+        SpellChecker oldFile;
+        oldFile.setLanguages({QStringLiteral("pl")});
+        oldFile.setDocumentPath(m_home.filePath(QStringLiteral("old/x.txt")));
+        QVERIFY(oldFile.check(QStringLiteral("qwzxstare")));
 
         QVERIFY(!first.check(QStringLiteral("qcodeeditowy")));
         first.addToDictionary(QStringLiteral("qcodeeditowy"));
@@ -229,6 +254,30 @@ private slots:
         QVERIFY(ignoredIn(m_home.filePath(QStringLiteral("moved/b.txt"))));
         removeSpellingData(m_home.filePath(QStringLiteral("copy/b.txt")));
         QVERIFY(!ignoredIn(m_home.filePath(QStringLiteral("copy/b.txt"))));
+
+        // A directory is its own paths only: "moved2" begins with "moved" too.
+        copySpellingData(m_home.filePath(QStringLiteral("moved/b.txt")), m_home.filePath(QStringLiteral("moved2/b.txt")));
+        removeSpellingData(m_home.filePath(QStringLiteral("moved2/")));
+        QVERIFY(!ignoredIn(m_home.filePath(QStringLiteral("moved2/b.txt"))));
+        QVERIFY(ignoredIn(m_home.filePath(QStringLiteral("moved/b.txt"))));
+        // Moved into a directory where the file already has ignored words:
+        // the words of both are kept.
+        {
+            SpellChecker other;
+            other.setLanguages({QStringLiteral("pl")});
+            other.setDocumentPath(m_home.filePath(QStringLiteral("target/b.txt")));
+            other.ignore(QStringLiteral("qwzxdrugie"));
+        }
+        copySpellingData(m_home.filePath(QStringLiteral("moved")), m_home.filePath(QStringLiteral("source")));
+        moveSpellingData(m_home.filePath(QStringLiteral("source")), m_home.filePath(QStringLiteral("target")));
+        QVERIFY(!ignoredIn(m_home.filePath(QStringLiteral("source/b.txt"))));
+        QVERIFY(ignoredIn(m_home.filePath(QStringLiteral("target/b.txt"))));
+        {
+            SpellChecker merged;
+            merged.setLanguages({QStringLiteral("pl")});
+            merged.setDocumentPath(m_home.filePath(QStringLiteral("target/b.txt")));
+            QVERIFY(merged.check(QStringLiteral("qwzxdrugie")));
+        }
 
         SpellChecker checker;
         checker.setLanguages({QStringLiteral("pl")});

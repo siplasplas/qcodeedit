@@ -68,8 +68,9 @@ struct SpellingReviewItem {
 /// first sure, with the first not sure, or any, words without suggestions); nothing is
 /// checked at first; an action applied checks or unchecks all the words shown
 /// or the rows selected (the last two let several rows be selected, with Ctrl
-/// and Shift). Correct corrects the checked words of the kind shown only; the
-/// others stay for the next review. Picking a correction checks its word
+/// and Shift). Correct corrects the checked words of the kind shown only and
+/// leaves the window open for the next kind; Correct and Close also closes
+/// it; the others stay for the next review. Picking a correction checks its word
 /// only when "Picking a correction checks the word" is on. With `spelling`,
 /// "Add to Dictionary" and "Ignore" take the selected word out of the list,
 /// every occurrence of it ("careta" written on purpose); "Remember
@@ -93,6 +94,8 @@ public:
     CheckedAtFirst checkedAtFirst() const;
     /// How long finding the corrections took, shown with the time a word.
     void setSearchTime(qint64 milliseconds);
+    /// Words corrected with Correct while the window stayed open.
+    int correctedSoFar() const { return m_corrected; }
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -108,6 +111,9 @@ private:
     /// The action chosen: checks or unchecks the words shown, or the rows
     /// selected.
     void applyAction();
+    /// Correct: replaces the checked words shown (one undo step), takes
+    /// their rows out and moves the words left on those lines.
+    void correctNow();
     void showCurrent();
     /// The item is of the kind ("Show").
     static bool ofKind(const SpellingReviewItem& item, CheckedAtFirst kind);
@@ -146,6 +152,7 @@ private:
     std::function<void()> m_updateButtons;
     bool m_bulkChange = false;  ///< many rows change: the summary waits
     int m_rowHeight = 0;        ///< of every row: a correction box fits
+    int m_corrected = 0;        ///< by Correct, the window left open
 };
 
 /// Reviews the misspelled words of the selection of the spelling's editor, or

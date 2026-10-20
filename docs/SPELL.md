@@ -289,9 +289,11 @@ not sure, several suggestions with the first sure, with the first not sure,
 or any, words without suggestions. Nothing is checked at first; an action applied checks or
 unchecks all the words shown, or the rows selected (those two actions let
 several rows be selected, with Ctrl and Shift). Correct corrects the checked
-words of the kind shown only, the others stay for the next review: e.g. sure
-corrections first (Check all, Correct), then single suggestions not sure,
-looked over one by one. Ctrl+C or the context menu copies the
+words of the kind shown only, as one undo step, takes them out of the list
+and leaves the window open (the words left on those lines move with the
+text); Correct and Close also closes it; the others stay for the next
+review: e.g. sure corrections first (Check all, Correct), then single
+suggestions not sure, looked over one by one. Ctrl+C or the context menu copies the
 selected rows, separated by tabs, or their lines of text; a double click on
 a row selects its word in the text and scrolls there, to read more of its
 context while the window stays open. "Add to
@@ -306,8 +308,7 @@ for a word without suggestions, or replaces the word with the words before and
 after it here only. The words of an own correction that neither the dictionaries nor
 the user's words know (a name, a term) are ignored in the document, so in its
 file when it has one. "User Dictionary" (`UserDictionaryDialog`) shows the
-user's words and corrections and removes them. The checked words shown are
-replaced as one undo step.
+user's words and corrections and removes them.
 
 `setCorrectWhileTyping(true)` (off by default) corrects a misspelled word when
 a space or punctuation is typed right after it, if its single suggestion is

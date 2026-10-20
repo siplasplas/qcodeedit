@@ -28,6 +28,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScopedValueRollback>
+#include <QSet>
 #include <QStyledItemDelegate>
 #include <QTextDocument>
 #include <QTreeWidget>
@@ -127,6 +128,9 @@ public:
         painter->restore();
     }
 };
+
+QList<QPair<SpellingReviewItem::Range, QString>> stillThere(const ITextDocument* doc,
+                                                           const QList<QPair<SpellingReviewItem::Range, QString>>& chosen);
 
 // "mam yz → mamy z": a moved space with the words it changes.
 QString spaceCorrectionLabel(const QString& typed, const QString& replacement) {
@@ -352,9 +356,17 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     status->addWidget(m_searchTime);
     layout->addLayout(status);
 
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    buttons->button(QDialogButtonBox::Ok)->setText(tr("&Correct"));
-    buttons->button(QDialogButtonBox::Ok)->setToolTip(tr("Corrects the checked words shown"));
+    // Correct leaves the window open for the next kind of words; the words
+    // corrected so far stay corrected whichever way it closes.
+    auto* buttons = new QDialogButtonBox(this);
+    auto* correct = buttons->addButton(tr("&Correct"), QDialogButtonBox::ActionRole);
+    correct->setToolTip(tr("Corrects the checked words shown, as one undo step, and takes them out of the list; "
+                           "the window stays open"));
+    auto* correctAndClose = buttons->addButton(tr("Correct and C&lose"), QDialogButtonBox::AcceptRole);
+    correctAndClose->setToolTip(tr("Corrects the checked words shown and closes the window"));
+    buttons->addButton(QDialogButtonBox::Close)->setToolTip(tr("Closes the window; words corrected before stay so"));
+    correct->setEnabled(m_spelling);
+    connect(correct, &QPushButton::clicked, this, &SpellingReviewDialog::correctNow);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     layout->addWidget(buttons);
@@ -666,6 +678,104 @@ void SpellingReviewDialog::acceptWord(bool addToDictionary) {
     if (m_updateButtons) m_updateButtons();
 }
 
+void SpellingReviewDialog::correctNow() {
+    CodeEditArea* area = m_spelling ? m_spelling->area() : nullptr;
+    if (!area || !area->document()) return;
+    ITextDocument* doc = area->document();
+    // The checked words shown, still where they were found, none overlapping
+    // another (the first wins).
+    struct Done {
+        int index;
+        SpellingReviewItem::Range range;
+        QString replacement;
+    };
+    QList<Done> done;
+    QList<QTreeWidgetItem*> doneRows;
+    const auto overlaps = [](const SpellingReviewItem::Range& a, const SpellingReviewItem::Range& b) {
+        return a.start < b.end && b.start < a.end;
+    };
+    for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* row = m_list->topLevelItem(i);
+        if (row->isHidden() || row->checkState(WordColumn) != Qt::Checked) continue;
+        const int index = row->data(WordColumn, Qt::UserRole).toInt();
+        const SpellingReviewItem& item = m_items[index];
+        const auto* choice = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn));
+        const int k = choice ? choice->currentIndex() : 0;
+        if (k < 0 || k >= item.choices.size()) continue;
+        const auto& chosen = item.choices[k];
+        if (stillThere(doc, {{chosen.range, chosen.replacement}}).isEmpty()) continue;
+        if (std::any_of(done.cbegin(), done.cend(), [&](const Done& d) { return overlaps(d.range, chosen.range); }))
+            continue;
+        done.append({index, chosen.range, chosen.replacement});
+        doneRows.append(row);
+    }
+    if (done.isEmpty()) return;
+    QList<QPair<SpellingReviewItem::Range, QString>> replacements;
+    for (const Done& d : done) replacements.append({d.range, d.replacement});
+    // The text is read-only while the window is open, but for this.
+    const bool wasReadOnly = area->readOnly();
+    area->setReadOnly(false);
+    m_spelling->replaceWords(replacements);
+    area->setReadOnly(wasReadOnly);
+    m_corrected += int(done.size());
+
+    // The words left on those lines move by the replacements before them;
+    // a correction of theirs over a replaced word (a moved space) goes.
+    const auto moved = [&done](TextCursor position) {
+        int shift = 0;
+        for (const Done& d : done)
+            if (d.range.start.line == position.line && d.range.end <= position)
+                shift += int(d.replacement.size()) - (d.range.end.column - d.range.start.column);
+        return TextCursor{position.line, position.column + shift};
+    };
+    QSet<int> lines;
+    for (const Done& d : done) lines.insert(d.range.start.line);
+    const QScopedValueRollback bulk(m_bulkChange, true);
+    for (QTreeWidgetItem* row : std::as_const(doneRows)) delete m_list->takeTopLevelItem(m_list->indexOfTopLevelItem(row));
+    for (int i = m_list->topLevelItemCount() - 1; i >= 0; --i) {
+        QTreeWidgetItem* row = m_list->topLevelItem(i);
+        const int index = row->data(WordColumn, Qt::UserRole).toInt();
+        SpellingReviewItem& item = m_items[index];
+        if (!lines.contains(item.word.start.line)) continue;
+        if (std::any_of(done.cbegin(), done.cend(), [&](const Done& d) { return overlaps(d.range, item.word); })) {
+            delete m_list->takeTopLevelItem(i);
+            continue;
+        }
+        auto* box = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn));
+        for (int k = int(item.choices.size()) - 1; k >= 0; --k) {
+            auto& choice = item.choices[k];
+            if (std::any_of(done.cbegin(), done.cend(), [&](const Done& d) { return overlaps(d.range, choice.range); })) {
+                item.choices.removeAt(k);
+                if (box) box->removeItem(k);
+                continue;
+            }
+            choice.range.start = moved(choice.range.start);
+            choice.range.end = moved(choice.range.end);
+        }
+        item.word.start = moved(item.word.start);
+        item.word.end = moved(item.word.end);
+        item.lineText = doc->lineAt(item.word.start.line);
+        if (item.choices.isEmpty() && box) {
+            delete m_list->takeTopLevelItem(i);
+            continue;
+        }
+        row->setData(LineColumn, kSortRole, double(item.word.start.line) * 1e6 + item.word.start.column);
+        const Context shown = context(item.lineText, item.word.start.column, item.word.end.column);
+        row->setText(ContextColumn, shown.text);
+        row->setData(ContextColumn, kBoldStartRole, shown.wordStart);
+        row->setToolTip(ContextColumn, item.lineText);
+    }
+    if (QTreeWidgetItem* current = m_list->currentItem(); !current || current->isHidden())
+        for (int i = 0; i < m_list->topLevelItemCount(); ++i)
+            if (!m_list->topLevelItem(i)->isHidden()) {
+                m_list->setCurrentItem(m_list->topLevelItem(i));
+                break;
+            }
+    m_bulkChange = false;
+    updateSummary();
+    if (m_updateButtons) m_updateButtons();
+}
+
 void SpellingReviewDialog::updateSummary() {
     // Counting every row: once after a change of many rows, not for each
     // (and not before the label exists, while the window is being made).
@@ -773,10 +883,10 @@ int reviewSpelling(CodeEditSpelling& spelling, CheckedAtFirst& checkedAtFirst, Q
     dialog.setSearchTime(review->milliseconds);
     const bool accepted = dialog.exec() == QDialog::Accepted;
     checkedAtFirst = dialog.checkedAtFirst();
-    if (!accepted || !spelling.area() || !spelling.area()->document()) return 0;
+    if (!accepted || !spelling.area() || !spelling.area()->document()) return dialog.correctedSoFar();
     const auto chosen = stillThere(spelling.area()->document(), dialog.chosenReplacements());
     if (!chosen.isEmpty()) spelling.replaceWords(chosen);
-    return int(chosen.size());
+    return dialog.correctedSoFar() + int(chosen.size());
 }
 
 SpellingReviewDialog* openSpellingReview(CodeEditSpelling& spelling, CheckedAtFirst checkedAtFirst, QWidget* parent) {
@@ -793,11 +903,11 @@ SpellingReviewDialog* openSpellingReview(CodeEditSpelling& spelling, CheckedAtFi
     QPointer<CodeEditSpelling> checked(&spelling);
     QObject::connect(dialog, &QDialog::finished, dialog, [dialog, area, checked, wasReadOnly](int result) {
         if (area) area->setReadOnly(wasReadOnly);
-        int corrected = 0;
+        int corrected = dialog->correctedSoFar();
         if (result == QDialog::Accepted && area && area->document() && checked) {
             const auto chosen = stillThere(area->document(), dialog->chosenReplacements());
             if (!chosen.isEmpty()) checked->replaceWords(chosen);
-            corrected = int(chosen.size());
+            corrected += int(chosen.size());
         }
         emit dialog->reviewFinished(corrected, dialog->checkedAtFirst());
     });

@@ -8,6 +8,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QGuiApplication>
 #include <QMenu>
 #include <QShortcut>
@@ -449,6 +450,11 @@ void SpellingReviewDialog::showCurrent() {
 }
 
 bool SpellingReviewDialog::eventFilter(QObject* watched, QEvent* event) {
+    if (event->type() == QEvent::Wheel && qobject_cast<QComboBox*>(watched)
+            && static_cast<QWidget*>(watched)->parentWidget() == m_list->viewport()) {
+        QCoreApplication::sendEvent(m_list->viewport(), event);
+        return true;
+    }
     if (watched == m_list && event->type() == QEvent::KeyPress) {
         const auto* key = static_cast<QKeyEvent*>(event);
         if (key->key() == Qt::Key_Down && (key->modifiers() & Qt::AltModifier)) {
@@ -465,6 +471,9 @@ void SpellingReviewDialog::addChoiceBox(QTreeWidgetItem* row, int index) {
     auto* choice = new QComboBox(m_list);
     // Not in the keyboard's way: arrows move between rows, Alt+Down opens it.
     choice->setFocusPolicy(Qt::NoFocus);
+    // Nor in the wheel's: it scrolls the list (eventFilter()), never changes
+    // a correction unseen.
+    choice->installEventFilter(this);
     choice->setFixedHeight(m_rowHeight);
     for (const auto& correction : m_items[index].choices) choice->addItem(correction.label);
     // Picking a correction, also the one shown, checks the word only when

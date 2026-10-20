@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -333,24 +334,87 @@ double score(const QString& word, const QString& candidate, double limit) {
     return d;
 }
 
+namespace {
+
+// How the .aff writes flags (FLAG): one character, two (long), numbers
+// separated by commas (num), or one Unicode character (UTF-8).
+enum class FlagKind { Char, Long, Num, Utf8 };
+
+// A flag as a number: the character, the two characters of a long flag, the
+// number, or the code point.
+using Flag = quint32;
+
+// The flags of a word or an alias, into `flags` (cleared first).
+void splitFlags(QStringView text, FlagKind kind, std::vector<Flag>& flags) {
+    flags.clear();
+    switch (kind) {
+    case FlagKind::Char:
+        for (const QChar c : text) flags.push_back(c.unicode());
+        break;
+    case FlagKind::Long:
+        for (qsizetype i = 0; i + 1 < text.size(); i += 2) flags.push_back(Flag(text[i].unicode()) << 16 | text[i + 1].unicode());
+        break;
+    case FlagKind::Num:
+        for (const QStringView number : text.split(QLatin1Char(','), Qt::SkipEmptyParts)) flags.push_back(number.trimmed().toUInt());
+        break;
+    case FlagKind::Utf8:
+        for (qsizetype i = 0; i < text.size(); ++i) {
+            if (text[i].isHighSurrogate() && i + 1 < text.size()) {
+                flags.push_back(QChar::surrogateToUcs4(text[i], text[i + 1]));
+                ++i;
+            } else {
+                flags.push_back(text[i].unicode());
+            }
+        }
+        break;
+    }
+}
+
+Flag oneFlag(QStringView text, FlagKind kind) {
+    std::vector<Flag> flags;
+    splitFlags(text, kind, flags);
+    return flags.empty() ? 0 : flags.front();
+}
+
+} // namespace
+
 QStringList expandDictionary(const QString& affPath, const QString& dicPath, bool* supported) {
     *supported = false;
     const QString encoding = encodingOf(affPath);
-    QHash<QChar, Affix> suffixes, prefixes;
-    QSet<QChar> skipFlags;  // NOSUGGEST, ONLYINCOMPOUND, FORBIDDENWORD
+    QHash<Flag, Affix> suffixes, prefixes;
+    QSet<Flag> skipFlags;     // NOSUGGEST, ONLYINCOMPOUND, FORBIDDENWORD
+    std::optional<Flag> needAffix;  // a stem that is no word without an affix
+    FlagKind flagKind = FlagKind::Char;
+    QStringList aliasTexts;   // AF: flag sets by number, from 1
+    bool aliasCountRead = false;
     for (const QString& rawLine : readLines(affPath, encoding)) {
         const QStringList t = rawLine.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
         if (t.isEmpty()) continue;
         const QString& kind = t[0];
-        if (kind == QLatin1String("FLAG") || kind == QLatin1String("AF") || kind == QLatin1String("NEEDAFFIX")
-                || kind == QLatin1String("CIRCUMFIX") || kind == QLatin1String("COMPLEXPREFIXES")
+        if (kind == QLatin1String("CIRCUMFIX") || kind == QLatin1String("COMPLEXPREFIXES")
                 || kind == QLatin1String("PSEUDOROOT"))
             return {};
+        if (kind == QLatin1String("FLAG") && t.size() > 1) {
+            if (t[1] == QLatin1String("long")) flagKind = FlagKind::Long;
+            else if (t[1] == QLatin1String("num")) flagKind = FlagKind::Num;
+            else if (t[1].compare(QLatin1String("UTF-8"), Qt::CaseInsensitive) == 0) flagKind = FlagKind::Utf8;
+            continue;
+        }
+        if (kind == QLatin1String("AF") && t.size() > 1) {
+            // The first AF line is the count, the others the sets.
+            if (aliasCountRead) aliasTexts.append(t[1]);
+            aliasCountRead = true;
+            continue;
+        }
+        if (kind == QLatin1String("NEEDAFFIX") && t.size() > 1) {
+            needAffix = oneFlag(t[1], flagKind);
+            continue;
+        }
         if ((kind == QLatin1String("NOSUGGEST") || kind == QLatin1String("ONLYINCOMPOUND")
                 || kind == QLatin1String("FORBIDDENWORD")) && t.size() > 1)
-            skipFlags.insert(t[1][0]);
+            skipFlags.insert(oneFlag(t[1], flagKind));
         if ((kind != QLatin1String("SFX") && kind != QLatin1String("PFX")) || t.size() < 4) continue;
-        Affix& affix = (kind == QLatin1String("SFX") ? suffixes : prefixes)[t[1][0]];
+        Affix& affix = (kind == QLatin1String("SFX") ? suffixes : prefixes)[oneFlag(t[1], flagKind)];
         if (t.size() == 4) {
             affix.cross = t[2] == QLatin1String("Y");
             continue;
@@ -362,6 +426,22 @@ QStringList expandDictionary(const QString& affPath, const QString& dicPath, boo
         rule.condition = Condition::parse(t.size() > 4 ? t[4] : QStringLiteral("."));
         affix.rules.push_back(rule);
     }
+    // A word's flags: an alias number with AF, else written out.
+    std::vector<std::vector<Flag>> aliases(size_t(aliasTexts.size()));
+    for (qsizetype i = 0; i < aliasTexts.size(); ++i) splitFlags(aliasTexts[i], flagKind, aliases[size_t(i)]);
+    std::vector<Flag> flags;
+    const auto readFlags = [&](QStringView field) {
+        if (!aliases.empty()) {
+            bool number = false;
+            const qsizetype alias = field.toInt(&number);
+            if (number) {
+                if (alias >= 1 && alias <= qsizetype(aliases.size())) flags = aliases[size_t(alias - 1)];
+                else flags.clear();
+                return;
+            }
+        }
+        splitFlags(field, flagKind, flags);
+    };
     QStringList forms;
     const QStringList dic = readLines(dicPath, encoding);
     for (int lineNumber = 1; lineNumber < dic.size(); ++lineNumber) {  // the first line is a count
@@ -369,12 +449,13 @@ QStringList expandDictionary(const QString& affPath, const QString& dicPath, boo
         if (entry.isEmpty()) continue;
         const int slash = entry.indexOf(QLatin1Char('/'));
         const QString word = slash < 0 ? entry : entry.left(slash);
-        const QString flags = slash < 0 ? QString() : entry.mid(slash + 1);
-        if (std::any_of(flags.cbegin(), flags.cend(), [&](QChar f) { return skipFlags.contains(f); }))
+        if (slash < 0) flags.clear();
+        else readFlags(QStringView(entry).mid(slash + 1));
+        if (std::any_of(flags.cbegin(), flags.cend(), [&](Flag f) { return skipFlags.contains(f); }))
             continue;
-        forms.append(word);
+        if (!needAffix || std::find(flags.cbegin(), flags.cend(), *needAffix) == flags.cend()) forms.append(word);
         QStringList crossSuffixed;
-        for (const QChar flag : flags) {
+        for (const Flag flag : flags) {
             const auto it = suffixes.constFind(flag);
             if (it == suffixes.constEnd()) continue;
             for (const Rule& rule : it->rules) {
@@ -385,7 +466,7 @@ QStringList expandDictionary(const QString& affPath, const QString& dicPath, boo
                 if (it->cross) crossSuffixed.append(form);
             }
         }
-        for (const QChar flag : flags) {
+        for (const Flag flag : flags) {
             const auto it = prefixes.constFind(flag);
             if (it == prefixes.constEnd()) continue;
             for (const Rule& rule : it->rules) {

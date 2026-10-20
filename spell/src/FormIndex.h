@@ -85,8 +85,9 @@ constexpr double kInnerCapitalCost = 1.0;
 double score(const QString& word, const QString& candidate, double limit);
 
 /// All word forms of a dictionary; empty, with `supported` false, when its
-/// .aff uses what is not implemented here (e.g. long or numeric flags, flag
-/// aliases, NEEDAFFIX, CIRCUMFIX, continuation classes).
+/// .aff uses what is not implemented here (CIRCUMFIX, continuation classes,
+/// COMPLEXPREFIXES). Flags of every FLAG kind (characters, long, num, UTF-8),
+/// flag aliases (AF) and NEEDAFFIX (a stem that is no word alone) are known.
 QStringList expandDictionary(const QString& affPath, const QString& dicPath, bool* supported);
 
 /// The cache file of a dictionary's forms:

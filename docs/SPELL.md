@@ -109,8 +109,10 @@ forms), kept in a cache file, `~/.cache/siplasplas/spell/<name>.forms`, built
 in the background the first time (a few seconds), rebuilt when the dictionary
 changes, and memory-mapped (shared by all programs, read on demand). Until it
 is ready, and for a dictionary whose `.aff` uses what the expansion does not
-implement (long or numeric flags, flag aliases, NEEDAFFIX, CIRCUMFIX,
-continuation classes, e.g. French), hunspell's own suggestions are shown.
+implement (CIRCUMFIX, continuation classes: e.g. French, German, Spanish),
+hunspell's own suggestions are shown. Flags of every kind (one character,
+long, numeric, UTF-8), flag aliases and NEEDAFFIX are known, so e.g. Serbian
+and Turkish have their forms; compound words are hunspell's only.
 
 The forms are grouped by class: the letters of a word in lower case, without
 Polish diacritics, with the AltGr characters of the Polish keyboard as the

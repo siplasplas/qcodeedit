@@ -263,6 +263,9 @@ bool comparablePart(const std::string& pos) {
     return false;
 }
 
+// The most words offered for a finding.
+constexpr size_t kMaxSuggestions = 3;
+
 // A part of speech a form has less often than this in a corpus is left out.
 constexpr double kSeldomShare = 0.02;
 
@@ -623,6 +626,18 @@ std::vector<Finding> Grammar::check(const std::vector<Token>& tokens) const {
             }
             words[t] = kept;
         }
+        // With corpus counts, words seen in the corpus only (not "ze" →
+        // "zek"); a diacritic first (the likeliest slip); a few at most.
+        if (!m_forms.empty()) {
+            std::vector<Suggestion> seen;
+            for (const Suggestion& s : finding.suggestions)
+                if (m_forms.count(toUtf8(toLower(fromUtf8(s.word))))) seen.push_back(s);
+            finding.suggestions = std::move(seen);
+        }
+        std::stable_sort(finding.suggestions.begin(), finding.suggestions.end(), [&](const Suggestion& a, const Suggestion& b) {
+            return diacriticsOnly(m_rules, a.word, tokens[a.token].text) && !diacriticsOnly(m_rules, b.word, tokens[b.token].text);
+        });
+        if (finding.suggestions.size() > kMaxSuggestions) finding.suggestions.resize(kMaxSuggestions);
         if (verbs && finding.suggestions.empty()) continue;
         findings.push_back(std::move(finding));
     }

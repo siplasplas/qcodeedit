@@ -93,10 +93,12 @@ public:
     /// adjective takes it. Without them a dative after any adjective does.
     bool loadComplements(const std::string& path, std::string* error = nullptr);
 
-    /// Reads "form<TAB>part of speech<TAB>count" lines (nkjp-forms): a part
-    /// of speech a form has in fewer than 2% of its uses does not make it
-    /// other than a verb for the verbs rule ("mam" is "mieć", hardly ever
-    /// "mama"), and a subject offered must be a form seen in the corpus.
+    /// Reads "form<TAB>part of speech<TAB>count" lines (nkjp-forms): then
+    /// only words seen in the corpus are offered (a diacritic first, three
+    /// at most), and a part of speech a form has in fewer than 2% of its
+    /// uses is not taken into account where it decides ("mam" is "mieć",
+    /// hardly ever "mama": a verb for the verbs rule; "w" a preposition, not
+    /// an abbreviation).
     bool loadForms(const std::string& path, std::string* error = nullptr);
 
 private:

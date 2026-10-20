@@ -12,8 +12,8 @@ using namespace qce::spell;
 // Real typing mistakes: texts typed again by hand (tests/data/spell, see its
 // README) against the published ones. The mistakes are found and corrected
 // at least as well as when this test was written; a sure correction is never
-// wrong. Uses the system's en_US and French dictionaries (skips without them),
-// without word frequencies, in a temporary cache.
+// wrong. Uses the system's en_US, German and French dictionaries (skips
+// without them), without word frequencies, in a temporary cache.
 class TestSpellTexts : public QObject {
     Q_OBJECT
 
@@ -117,6 +117,17 @@ private slots:
         QVERIFY(r.flagged >= 49);
         QVERIFY(r.first >= 38);
         QVERIFY(r.shown >= 44);
+    }
+
+    void germanWithoutUmlauts() {
+        if (dictionaryFor(QStringLiteral("de_DE")).isEmpty()) QSKIP("No German dictionary (hunspell-de-de)");
+        const Result r = measure(QStringLiteral("de_DE"), QStringLiteral("01.de"));
+        QCOMPARE(r.sureWrong, QStringList());
+        // Measured: 46 of 61 found first, 49 shown (44 and 48 before compound
+        // words were asked of hunspell too: "Betriebsystem" → Betriebssystem).
+        QVERIFY(r.flagged >= 61);
+        QVERIFY(r.first >= 46);
+        QVERIFY(r.shown >= 49);
     }
 
     void frenchWithoutAccents() {

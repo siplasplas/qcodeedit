@@ -7,7 +7,13 @@ them. Each `NN.<language>.orig.txt` is a text as published, and
 - `01.en`: the start of the English Wikipedia article "Ubuntu", typed fast
   and carelessly (swapped, missing and extra letters, neighbouring keys);
 - `01.fr`: the start of the French Wikipedia article "Ubuntu", typed mostly
-  without accents (`developpee` for `développée`).
+  without accents (`developpee` for `développée`);
+- `01.de`: the start of the German Wikipedia article "Ubuntu", typed without
+  umlauts (`geschatzt` for `geschätzt`) and with typing mistakes, also in
+  compound words (`Betriebsystem`).
+
+`test_spell_texts` pairs the words of each typed text with the published
+ones and checks the suggestions.
 
 Polish material is plentiful and kept elsewhere; these add other languages.
 

@@ -626,16 +626,25 @@ std::vector<Finding> Grammar::check(const std::vector<Token>& tokens) const {
             }
             words[t] = kept;
         }
-        // With corpus counts, words seen in the corpus only (not "ze" →
-        // "zek"); a diacritic first (the likeliest slip); a few at most.
+        // A diacritic first (the likeliest slip), then by how often the word
+        // is in the corpus; with corpus counts other slips only to words seen
+        // there (not "ze" → "zek"); a few at most.
+        const auto diacritic = [&](const Suggestion& x) { return diacriticsOnly(m_rules, x.word, tokens[x.token].text); };
+        const auto uses = [&](const Suggestion& x) {
+            long count = 0;
+            if (const auto it = m_forms.find(toUtf8(toLower(fromUtf8(x.word)))); it != m_forms.end())
+                for (const auto& [pos, n] : it->second) count += n;
+            return count;
+        };
         if (!m_forms.empty()) {
-            std::vector<Suggestion> seen;
-            for (const Suggestion& s : finding.suggestions)
-                if (m_forms.count(toUtf8(toLower(fromUtf8(s.word))))) seen.push_back(s);
-            finding.suggestions = std::move(seen);
+            std::vector<Suggestion> kept;
+            for (const Suggestion& x : finding.suggestions)
+                if (diacritic(x) || uses(x) > 0) kept.push_back(x);
+            finding.suggestions = std::move(kept);
         }
         std::stable_sort(finding.suggestions.begin(), finding.suggestions.end(), [&](const Suggestion& a, const Suggestion& b) {
-            return diacriticsOnly(m_rules, a.word, tokens[a.token].text) && !diacriticsOnly(m_rules, b.word, tokens[b.token].text);
+            if (diacritic(a) != diacritic(b)) return diacritic(a);
+            return uses(a) > uses(b);
         });
         if (finding.suggestions.size() > kMaxSuggestions) finding.suggestions.resize(kMaxSuggestions);
         if (verbs && finding.suggestions.empty()) continue;

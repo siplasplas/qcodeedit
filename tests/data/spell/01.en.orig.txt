@@ -1,0 +1,13 @@
+Ubuntu is a Linux distribution based on Debian and composed primarily of free and open-source software.
+Developed by the British company Canonical and a community of contributors under a meritocratic governance model,
+Ubuntu is released in multiple official editions: Desktop, Server, and Core for IoT and robotic devices.
+
+Ubuntu is published on a six-month release cycle, with long-term support (LTS) versions issued every two years. Canonical provides security updates and support until each release reaches its designated end-of-life (EOL), with optional extended support available through the Ubuntu Pro and Expanded Security Maintenance (ESM) services.
+
+Ubuntu can be installed directly on hardware or run within a virtual machine. It is widely used for cloud computing, with integration support for platforms such as OpenStack. It is also one of the most popular Linux distributions for general desktop use, supported by extensive online communities such as Ask Ubuntu, and has spawned numerous community-maintained variants.
+
+The name "Ubuntu" comes from the Nguni philosophy of ubuntu, which translates roughly as "humanity to others" or "I am what I am because of who we all are".
+In April 2004, Mark Shuttleworth invited a dozen Debian developers to his London flat, where they brainstormed and laid out the distinguishing features of what would become Ubuntu. Shuttleworth chose the "Ubuntu" name for his South African roots and to emphasize community. To fund the project, Shuttleworth created Canonical Ltd. to employ the developers using his fortune from selling Thawte to Verisign. For the first year, the company had no physical offices and employees used online platforms to coordinate, fostering transparency. The group set a six-month deadline and decided only to announce Ubuntu during its first release October 2004: "Warty Warthog".
+
+On 8 July 2005, Shuttleworth and Canonical launched the newly-created Ubuntu Foundation and provided initial funding of US$10 million. The purpose of the foundation is to ensure the support and development for all future versions of Ubuntu. Mark Shuttleworth described the foundation's goal as to ensure the continuity of the Ubuntu project.
+

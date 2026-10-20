@@ -1,0 +1,12 @@
+Ubuntu is Linux distriuvution based on Debian and composed primarily of freee and open-soutce sftware.
+Develped by the British comapny Canonical and a community of contributors under a meritocratic governance model,
+Ubuntu is released in multiple offical editions: Desktop, Server, and Core for IoT and tobotic devices.
+
+Ubuntu is publsiuhed on a six-month release cycle, with long-term support (LTS) veriosns issued every two years. Canonical provides security updates and support until each release reaches itds designated end-of-life (EOL), with optional extended support avialable through the Ubuntu Pro and Expanded Security Maintenance (SM) services.
+
+Ubguntu can be installed directly in hardware or run within a virtual machine, It is widely used for closud computing, with integration support for platform such as OpenStatck. It is aslo one of the most populat Linux districutions for general dekstop use, supported by extensive online comuniteis such as Ask Ubuntu, and has spawned numerous connunity-maintained vbariants.
+
+The name "Ubuntu" comes from the Nguni philosophy odf Uubntu, which translates rouglhly as "humanity to others" or "I am what I am because of who we all are".
+In Aplril 2004, Mark Shuttleworth invited a dozen DEbian developers to his London flatm where they brainstormed and laid out the distinguish featires of what would becomne Ubuntu. Shutterwotrth chose then "Ubuntu: name for his South African roots and to emphasize community. To fund the projhectm Shuttlewroth created Faonical Ltd. to empoloy the developers using his fortune from selling Thawte to Ferisign. For the first yeaer, the comapny had no phycsical offices and emplloeees used online platforms to coordinate, foatering transaprency The group set a six-nonth deadline and decided only to anounce Ubuntu during its first release October 2004: "Warty Wathog".
+
+On 8 July 2005, Shutterworth and Canonical launched the newly-created Ubuntu Foundation and provied initial fiunding od US$10 million. The purpose of the foundation is to enbsure the support and development for all future versions of Ubuntu. Mark Shutterworth described the foundation;s goal as to ensure the coontinuiuty of the Ubuntu project.

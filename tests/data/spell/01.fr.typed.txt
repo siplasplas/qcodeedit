@@ -1,0 +1,19 @@
+Ubuntu est une distribution Linux fondee sur Debian. Elle est developpee, commercialisee et maintenue pour les ordinateurs infividuels (Desktop), les serveurs (Server) et les objets connctes (Core) par la societe britannique Canonical.
+
+Ubuntu est disponsible en deux versions, une qui evolue tous les six mois, et une version LTSm pour Long TErm Support (Support long terme ) qui evolue tous les deux ans. Ubuntu se definit come un systeme d'exploitation utilise par des millions de PC a travers le monde et avec une interface simple, intuitive, et securisee.
+Etymologie
+Article detaille : Ubuntu (phiolosophie).
+
+Ubuntu provient d'un ancien mot bantou (famille de langues africaines) qui signifie Je suis ce que suis grace a ce que nous sommes tous, Ubuntu signifie aussi humanite, generosite ou gratuite en kinyarwanda (langue rwandaise) et en kirundi (langue burundaise).
+Historique
+Mark Shuttleworth.
+Creation
+
+Devenu multimillionaire apres la vente de sa precedente enrteprise (Thawte), le sud-africain Mark Shuttlewortth (ancien developpeur Debian) lance Ubiuntu en 20004, souhaitant une version facile d'access et grand poublic de la distriubution Debiuan.
+
+Le 5 mars 2004, il cree la societe Canonical afin de concretiser ce projet. Le 1er jullet 2005, il cree la Ubuntu Foundation (association a but non lucraitif) comme fiet de securite, en cas d'echec de Canonical. Cette derniere y injecte 10 millions de dollars de reserves.
+
+Une nouvelle version tous les six mois et des cycles de developpement de deux ans sont alors annonces (details dans Liste des verisons d'Ubuntu).
+
+Sur le portail (Launchapad) charge entre autres de lister les bugs d'Ubuntu. le premier bug constate est reste celebre : Mark Shuttlewroth denonce le fait que Microsoft ait une part de marche ecrasante, et qu'il soit difficilement possible d'acquerir un orinateur dans un magasin sans Microsoft Windows preinstalle. Ce "bug" a ete confirme dans de noombreux pays, notamment en Belgiuque, au Canada, en France et en Suisse, et c'est un des buts d'Ubuntu de le reparer, selon les termes memes de Mark Shuttleworth.
+

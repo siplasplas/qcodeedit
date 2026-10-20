@@ -244,6 +244,31 @@ private slots:
         QVERIFY(near.contains(QStringLiteral("unmaking")));
     }
 
+    void keyboardLayoutFoldsAndNeighbours() {
+        const QString before = keyboardLayout();
+        QVERIFY(keyboardLayouts().contains(QStringLiteral("pl-windows")));
+        // Polish: AltGr held after ó types © on r ("któ©re"); ź is still a z.
+        QVERIFY(setKeyboardLayout(QStringLiteral("pl")));
+        QCOMPARE(foldChar(QChar(0x00A9)), QChar(u'r'));
+        QCOMPARE(foldChar(QChar(u'ß')), QChar(u't'));
+        QCOMPARE(foldChar(QChar(u'ź')), QChar(u'z'));
+        QVERIFY(typedOnLetterKey(QChar(0x00A9)));
+        QVERIFY(keysTouch(QChar(u'z'), QChar(u'x')));
+        QVERIFY(score(QStringLiteral("któ©ych"), QStringLiteral("których"), kSuggestionLimit) < 0.5);
+        // German: QWERTZ; ẞ is Shift+AltGr+s, so ß counts as an s ("Strasse"
+        // is close to Straße), not as the t of the Polish keyboard.
+        QVERIFY(setKeyboardLayout(QStringLiteral("de")));
+        QCOMPARE(foldChar(QChar(u'ß')), QChar(u's'));
+        QVERIFY(keysTouch(QChar(u'z'), QChar(u't')));
+        QVERIFY(!keysTouch(QChar(u'z'), QChar(u'x')));
+        // Windows' Polish programmers: AltGr gives Polish letters only.
+        QVERIFY(setKeyboardLayout(QStringLiteral("pl-windows")));
+        QVERIFY(!typedOnLetterKey(QChar(0x00A9)));
+        QVERIFY(!setKeyboardLayout(QStringLiteral("klingon")));
+        QCOMPARE(keyboardLayout(), QStringLiteral("pl-windows"));
+        setKeyboardLayout(before);
+    }
+
     void unsupportedLeftToHunspell() {
         bool supported = true;
         QVERIFY(expand("SET UTF-8\nCOMPLEXPREFIXES\n", "1\nword\n", &supported).isEmpty());

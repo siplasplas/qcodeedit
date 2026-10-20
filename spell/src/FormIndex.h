@@ -24,11 +24,27 @@
 
 namespace qce::spell::detail {
 
-/// The letter a character stands for: lower case, without a Polish diacritic
-/// (ą → a), and an AltGr character of the Polish keyboard as the letter of
-/// its key (ð → d, © → r, ß → t, œ → w, …). Other characters as they are, in
-/// lower case.
+/// The letter a character stands for: lower case, without a diacritic or
+/// stroke (ą → a, é → e, ł → l), and a character typed with AltGr on a letter
+/// key of the keyboard layout as that key's letter (on the Polish keyboard ð →
+/// d, © → r, ß → t, œ → w, …). Other characters as they are, in lower case.
 QChar foldChar(QChar c);
+
+/// Keyboard layouts known (KeyboardLayouts.inc, made from the X keyboard
+/// layouts by tools/gen_keyboard_layouts.py): "pl", "us", "de", "fr", "es",
+/// and "pl-windows" (Windows' Polish programmers: AltGr gives only Polish
+/// letters). The layout tells which keys neighbour (QWERTY, QWERTZ, AZERTY)
+/// and what AltGr held on a key types.
+QStringList keyboardLayouts();
+/// The active one: setKeyboardLayout()'s, else the system language's ("pl"
+/// for Polish), else "us".
+QString keyboardLayout();
+/// False for an unknown name. Set it before checking: the forms file is
+/// kept per layout (formIndexPath()).
+bool setKeyboardLayout(const QString& name);
+/// Not a letter, but typed on a letter key with AltGr (© on r): a slip
+/// inside a word, so it does not end the word.
+bool typedOnLetterKey(QChar c);
 /// The class of a word: foldChar() of its letters, sorted.
 QString classKey(const QString& word);
 
@@ -98,8 +114,8 @@ double score(const QString& word, const QString& candidate, double limit);
 /// compound words are left to hunspell.
 QStringList expandDictionary(const QString& affPath, const QString& dicPath, bool* supported);
 
-/// The cache file of a dictionary's forms:
-/// <GenericCacheLocation>/siplasplas/spell/<name>.forms.
+/// The cache file of a dictionary's forms for the keyboard layout:
+/// <GenericCacheLocation>/siplasplas/spell/<name>-<layout>.forms.
 QString formIndexPath(const QString& dictionaryName);
 
 /// Builds the cache file (written atomically); false when the dictionary is

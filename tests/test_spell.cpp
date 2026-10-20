@@ -118,6 +118,16 @@ private slots:
         QCOMPARE(words, (QStringList{QStringLiteral("Zwykłe"), QStringLiteral("słowa"), QStringLiteral("don't")}));
         // Only inside the given columns.
         QCOMPARE(checkableWords(text, 7, 12).size(), 1);
+        // On the Polish keyboard © is AltGr+r: after a letter a slip inside
+        // the word, alone not a word.
+        const QString before = keyboardLayout();
+        QVERIFY(setKeyboardLayout(QStringLiteral("pl")));
+        const QString held = QStringLiteral("Słowa któ©re © i");
+        words.clear();
+        for (const auto& word : checkableWords(held, 0, int(held.size())))
+            words << held.mid(word.first, word.second);
+        QCOMPARE(words, (QStringList{QStringLiteral("Słowa"), QStringLiteral("któ©re")}));
+        setKeyboardLayout(before);
     }
 
     void checksOnlyCommentsAndStringsInCode() {
@@ -343,7 +353,7 @@ private slots:
         QFile file(m_home.filePath(QStringLiteral("cache/siplasplas/spell/freq/pl.lemma.freq")));
         QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
         const QStringList lines = QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
-        QCOMPARE(lines, (QStringList{QStringLiteral("# 10501 words in pl_counts.txt, 10001 known to pl_PL"),
+        QCOMPARE(lines, (QStringList{QStringLiteral("# v2 10501 words in pl_counts.txt, 10001 known to pl_PL"),
                                      QStringLiteral("działać\t9000"), QStringLiteral("rzecz\t500"),
                                      QStringLiteral("rzeczy\t500")}));
 

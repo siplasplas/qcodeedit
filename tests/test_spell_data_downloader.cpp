@@ -61,7 +61,7 @@ private slots:
         QFile file(m_home.filePath(QStringLiteral("cache/siplasplas/spell/freq/pl.lemma.freq")));
         QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
         const QString text = QString::fromUtf8(file.readAll());
-        QVERIFY(text.startsWith(QStringLiteral("# 10000 words in pl_50k.txt, 10000 known to pl_PL\n")));
+        QVERIFY(text.startsWith(QStringLiteral("# v2 10000 words in pl_50k.txt, 10000 known to pl_PL\n")));
         QVERIFY(text.contains(QStringLiteral("\ndziałać\t9000\n")));
         // The list itself stays, shared, with a note on its source.
         QCOMPARE(wordFrequencyListPath(QStringLiteral("pl_PL")),

@@ -75,6 +75,15 @@ bool compoundsWords(const QString& affPath) {
     return false;
 }
 
+// The first word of a frequency file made by this version: "v2" counts the
+// words the dictionary knows only with a capital (German nouns).
+constexpr const char* kFrequencyFormat = "# v2";
+
+bool currentFrequencyFormat(const QString& path) {
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly | QIODevice::Text) && file.readLine().startsWith(kFrequencyFormat);
+}
+
 // A dictionary loaded once for the program, with the shared user dictionary.
 struct Loaded {
     std::unique_ptr<Hunspell> hunspell;
@@ -110,8 +119,11 @@ struct Loaded {
         index = detail::FormIndex::open(path, affPath, dicPath);
         if (index || state == 2) return index.get();
         indexState->store(1);
-        QThreadPool::globalInstance()->start([state = indexState, aff = affPath, dic = dicPath, path]() {
+        // The file of earlier versions, without the keyboard layout in its name.
+        const QString old = QFileInfo(path).dir().filePath(name + QStringLiteral(".forms"));
+        QThreadPool::globalInstance()->start([state = indexState, aff = affPath, dic = dicPath, path, old]() {
             detail::buildFormIndex(aff, dic, path);
+            QFile::remove(old);
             state->store(2);
         });
         return nullptr;
@@ -133,11 +145,12 @@ struct Loaded {
         const QDateTime modified = path.isEmpty() ? QDateTime() : QFileInfo(path).lastModified();
         // A file of our cache (not an installed one) older than the list or
         // the dictionary, or none: made again from the list, if there is one.
+        // Also one made by an earlier version (its first line).
         const QFileInfo list(wordFrequencyListPath(name));
-        if ((path.isEmpty() || path.startsWith(detail::frequencyCacheDir())) && list.exists()
+        const bool ours = path.isEmpty() || path.startsWith(detail::frequencyCacheDir());
+        if (ours && list.exists() && frequencyBuild->load() == 0
                 && (!modified.isValid() || modified < list.lastModified()
-                    || modified < QFileInfo(dicPath).lastModified())
-                && frequencyBuild->load() == 0) {
+                    || modified < QFileInfo(dicPath).lastModified() || !currentFrequencyFormat(path))) {
             frequencyBuild->store(1);
             QThreadPool::globalInstance()->start(
                 [state = frequencyBuild, dictionary = name, listPath = list.absoluteFilePath()]() {
@@ -380,6 +393,28 @@ QString wordFrequencyListPath(const QString& language) {
     return QDir(wordFrequencyListDir()).filePath(QStringLiteral("%1_50k.txt").arg(code));
 }
 
+QStringList keyboardLayouts() {
+    return detail::keyboardLayouts();
+}
+
+QString keyboardLayout() {
+    return detail::keyboardLayout();
+}
+
+bool setKeyboardLayout(const QString& name) {
+    if (name == detail::keyboardLayout()) return true;
+    if (!detail::setKeyboardLayout(name)) return false;
+    // The forms of each dictionary from that layout's file, the suggestions
+    // found again.
+    for (const auto& loaded : std::as_const(registry().loaded)) {
+        if (!loaded || loaded->indexState->load() == 1) continue;
+        loaded->index.reset();
+        loaded->indexState = std::make_shared<std::atomic<int>>(0);
+    }
+    ++registry().generation;
+    return true;
+}
+
 bool hasWordFrequencies(const QString& language) {
     return !detail::frequencyPath(languageOf(language)).isEmpty()
         || QFileInfo::exists(wordFrequencyListPath(language));
@@ -418,9 +453,11 @@ bool buildWordFrequencies(const QString& dictionaryName, const QString& countsPa
         const QString word = line.left(space).trimmed();
         if (count <= 0 || word.isEmpty()) continue;
         words += count;
-        const std::string encoded = loaded.encode(word);
-        if (encoded.empty()) continue;
-        const std::vector<std::string> found = loaded.hunspell->stem(encoded);
+        std::vector<std::string> found = loaded.hunspell->stem(loaded.encode(word));
+        // The lists are in lower case; a word the dictionary knows only with
+        // a capital is a German noun ("version" → Version).
+        if (found.empty() && !word.isEmpty() && word[0].isLower())
+            found = loaded.hunspell->stem(loaded.encode(word.left(1).toUpper() + word.mid(1)));
         if (found.empty()) continue;
         known += count;
         for (const std::string& stem : found) stems[loaded.decode(stem)] += double(count) / double(found.size());
@@ -451,8 +488,8 @@ bool buildWordFrequencies(const QString& dictionaryName, const QString& countsPa
     if (!out.open(QIODevice::WriteOnly | QIODevice::Text)) return fail(QStringLiteral("Cannot write %1").arg(path));
     QTextStream text(&out);
     text.setEncoding(QStringConverter::Utf8);
-    text << "# " << words << " words in " << QFileInfo(countsPath).fileName() << ", " << known << " known to "
-         << dictionaryName << '\n';
+    text << kFrequencyFormat << ' ' << words << " words in " << QFileInfo(countsPath).fileName() << ", " << known
+         << " known to " << dictionaryName << '\n';
     for (size_t i = 0; i < kept; ++i) text << rows[i].second << '\t' << rows[i].first << '\n';
     text.flush();
     if (!out.commit()) return fail(QStringLiteral("Cannot write %1").arg(path));
@@ -861,7 +898,9 @@ QList<QPair<int, int>> checkableWords(const QString& text, int start, int end) {
             while (j < token.size() && !isWordChar(token[j])) ++j;
             const int wordStart = j;
             while (j < token.size()) {
-                if (isWordChar(token[j])) ++j;
+                // A character AltGr typed on a letter key after a letter ("któ©re")
+            // is a slip inside the word, not its end.
+            if (isWordChar(token[j]) || (j > wordStart && detail::typedOnLetterKey(token[j]))) ++j;
                 else if (isApostrophe(token[j]) && j > wordStart && j + 1 < token.size()
                          && token[j - 1].isLetter() && token[j + 1].isLetter())
                     ++j;

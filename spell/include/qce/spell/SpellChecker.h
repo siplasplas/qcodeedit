@@ -59,6 +59,18 @@ void removeSpellingData(const QString& path);
 QString userDictionaryPath(const QString& dictionaryName);
 QString userCorrectionsPath(const QString& dictionaryName);
 
+/// The keyboard the text is typed on, for suggestions: which keys neighbour
+/// (QWERTY, QWERTZ, AZERTY) and what AltGr held on a key types ("któ©re" →
+/// które: © is AltGr+r on the Polish keyboard). Known: "pl", "us", "de",
+/// "fr", "es" (the X keyboard layouts) and "pl-windows" (Windows' Polish
+/// programmers: AltGr gives only Polish letters). By default the system
+/// language's, else "us". Setting another drops the suggestions found so far
+/// and uses that layout's forms file (built in the background the first time).
+QStringList keyboardLayouts();
+QString keyboardLayout();
+/// False (and nothing changed) for an unknown name.
+bool setKeyboardLayout(const QString& name);
+
 /// Downloaded lists of word forms with their counts, shared by all programs
 /// (e.g. also for detecting a text's language): FrequencyWords'
 /// <code>_50k.txt as they are, in <GenericDataLocation>/word-frequencies.

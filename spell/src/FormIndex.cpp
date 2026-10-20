@@ -1,9 +1,16 @@
 #include "FormIndex.h"
 
+#ifdef Q_OS_WIN
+#include <QGuiApplication>
+#include <QInputMethod>
+#endif
+
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
 #include <QHash>
+#include <QLocale>
+#include <QProcess>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
@@ -12,6 +19,7 @@
 #include <QTextStream>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <functional>
@@ -25,23 +33,105 @@ namespace {
 
 // --- Letters ---------------------------------------------------------------
 
-// Polish diacritics, and the AltGr level of the Polish (programmer) keyboard
-// with the key's letter (xkb "pl" and "latin": π on q, œ on w, © on r, ß on t,
-// ð on d, æ on f, ŋ on g, ə on j, þ on p, ø on o, µ on m, …).
-const QHash<char16_t, char16_t>& foldTable() {
-    static const QHash<char16_t, char16_t> table = [] {
-        QHash<char16_t, char16_t> t;
-        const auto add = [&t](const char16_t* from, char16_t to) {
-            for (; *from; ++from) t.insert(*from, to);
-        };
-        add(u"ąĄ", u'a'); add(u"ćĆ©¢", u'c'); add(u"ęĘ€", u'e'); add(u"łŁ", u'l'); add(u"ńŃ", u'n');
-        add(u"óÓøØ", u'o'); add(u"śŚ", u's'); add(u"źŹżŻ«»", u'z');
-        add(u"πΩ@", u'q'); add(u"œŒſ§", u'w'); add(u"®¶", u'r'); add(u"ß™ŧŦ", u't');
-        add(u"ðÐđĐ", u'd'); add(u"æÆ", u'f'); add(u"ŋŊ", u'g'); add(u"əƏ", u'j'); add(u"þÞ", u'p');
-        add(u"µ", u'm'); add(u"ħĦ", u'h'); add(u"ĸ", u'k');
-        return t;
+// --- Keyboard layouts --------------------------------------------------------
+
+struct KeyboardLayoutData {
+    const char* name;
+    const char16_t* rows[3];  // base characters of the letter rows
+    const char16_t* pairs;    // character, base letter of its key, ...
+};
+
+#include "KeyboardLayouts.inc"
+
+// A layout ready for use: its rows, and the characters typed with AltGr or
+// Shift on a letter key, by that key's letter (lower case).
+struct KeyboardLayout {
+    QString name;
+    QString rows[3];
+    QHash<char16_t, char16_t> keyOf;
+};
+
+const std::vector<KeyboardLayout>& keyboards() {
+    static const std::vector<KeyboardLayout> list = [] {
+        std::vector<KeyboardLayout> result;
+        for (const KeyboardLayoutData& data : kKeyboardLayouts) {
+            KeyboardLayout keyboard;
+            keyboard.name = QString::fromLatin1(data.name);
+            for (int row = 0; row < 3; ++row) keyboard.rows[row] = QString::fromUtf16(data.rows[row]);
+            const QString pairs = QString::fromUtf16(data.pairs);
+            for (qsizetype i = 0; i + 1 < pairs.size(); i += 2) {
+                keyboard.keyOf.insert(pairs[i].unicode(), pairs[i + 1].unicode());
+                keyboard.keyOf.insert(pairs[i].toLower().unicode(), pairs[i + 1].unicode());
+            }
+            result.push_back(std::move(keyboard));
+        }
+        return result;
     }();
-    return table;
+    return list;
+}
+
+// The active layout: chosen by setKeyboardLayout(), else the desktop's.
+std::atomic<int> activeKeyboard{-1};
+
+int keyboardIndex(const QString& name) {
+    for (size_t i = 0; i < keyboards().size(); ++i)
+        if (keyboards()[i].name == name) return int(i);
+    return -1;
+}
+
+// The desktop's keyboard layout, as an xkb name ("pl"), or empty: KDE's
+// setting, GNOME's, the system's default (Debian, Ubuntu); on Windows the
+// input language (Polish there is the programmers' layout).
+QString desktopKeyboardLayout() {
+#ifdef Q_OS_WIN
+    if (const QInputMethod* input = QGuiApplication::inputMethod()) {
+        const QString language = input->locale().name().section(QLatin1Char('_'), 0, 0);
+        return language == QLatin1String("pl") ? QStringLiteral("pl-windows") : language;
+    }
+    return {};
+#else
+    const auto firstLayout = [](QString list) {
+        // "pl,us", "pl+dvp" (a variant): the first layout's name.
+        return list.section(QLatin1Char(','), 0, 0).section(QLatin1Char('+'), 0, 0).section(QLatin1Char('('), 0, 0)
+            .trimmed();
+    };
+    const QString home = QDir::homePath();
+    QFile kde(home + QStringLiteral("/.config/kxkbrc"));
+    if (kde.open(QIODevice::ReadOnly | QIODevice::Text))
+        for (const QByteArray& line : kde.readAll().split('\n'))
+            if (line.startsWith("LayoutList="))
+                if (const QString name = firstLayout(QString::fromUtf8(line.mid(11))); !name.isEmpty()) return name;
+    if (qEnvironmentVariable("XDG_CURRENT_DESKTOP").contains(QLatin1String("GNOME"))) {
+        QProcess gsettings;
+        gsettings.start(QStringLiteral("gsettings"),
+                        {QStringLiteral("get"), QStringLiteral("org.gnome.desktop.input-sources"),
+                         QStringLiteral("sources")});
+        if (gsettings.waitForFinished(2000)) {
+            // [('xkb', 'pl'), ('xkb', 'us')]
+            static const QRegularExpression first(QStringLiteral("\\('xkb',\\s*'([^']+)'\\)"));
+            const QRegularExpressionMatch match = first.match(QString::fromUtf8(gsettings.readAllStandardOutput()));
+            if (match.hasMatch()) return firstLayout(match.captured(1));
+        }
+    }
+    QFile system(QStringLiteral("/etc/default/keyboard"));
+    if (system.open(QIODevice::ReadOnly | QIODevice::Text))
+        for (const QByteArray& line : system.readAll().split('\n'))
+            if (line.startsWith("XKBLAYOUT="))
+                return firstLayout(QString::fromUtf8(line.mid(10)).remove(QLatin1Char('"')));
+    return {};
+#endif
+}
+
+const KeyboardLayout& keyboard() {
+    int index = activeKeyboard.load();
+    if (index < 0) {
+        index = keyboardIndex(desktopKeyboardLayout());
+        // Unknown: the system language's (Polish → "pl"), else "us".
+        if (index < 0) index = keyboardIndex(QLocale::system().name().section(QLatin1Char('_'), 0, 0));
+        if (index < 0) index = keyboardIndex(QStringLiteral("us"));
+        activeKeyboard.store(index);
+    }
+    return keyboards()[size_t(index)];
 }
 
 // --- Affix rules -----------------------------------------------------------
@@ -148,8 +238,8 @@ QString encodingOf(const QString& affPath) {
 
 // --- Cache file ------------------------------------------------------------
 
-// '3': forms as a stem and the rules applied to it, by the hash of their class.
-constexpr char kMagic[8] = {'Q', 'C', 'E', 'F', 'O', 'R', 'M', '3'};
+// '4': classes by the keyboard layout's letters (a file per layout).
+constexpr char kMagic[8] = {'Q', 'C', 'E', 'F', 'O', 'R', 'M', '4'};
 
 // A form in the file: its stem (3 bytes), its combination of rules (3 bytes)
 // and 16 bits of its class's hash (2 bytes), little-endian.
@@ -195,10 +285,9 @@ quint64 classHash(const QString& key) {
 } // namespace
 
 QChar foldChar(QChar c) {
-    const auto it = foldTable().constFind(c.unicode());
-    if (it != foldTable().constEnd()) return QChar(it.value());
-    // Other accented Latin letters: their base letter (é, è, ê → e; ç → c).
-    // Looked up once for the Latin blocks, where the letters are.
+    // Accented Latin letters: their base letter (ą → a, é → e, ź → z);
+    // letters with a stroke too (ł → l). Looked up once for the Latin blocks,
+    // where the letters are.
     static const std::vector<char16_t> latin = [] {
         std::vector<char16_t> t(0x250);
         for (char16_t u = 0; u < t.size(); ++u) {
@@ -208,10 +297,40 @@ QChar foldChar(QChar c) {
             const QChar base = letter.decomposition().front();
             if (base.unicode() < 0x80 && base.isLetter()) t[u] = base.toLower().unicode();
         }
+        for (const auto& [stroked, base] : {std::pair{u'ł', u'l'}, {u'Ł', u'l'}, {u'ø', u'o'}, {u'Ø', u'o'},
+                                            {u'đ', u'd'}, {u'Đ', u'd'}, {u'ħ', u'h'}, {u'Ħ', u'h'},
+                                            {u'ŧ', u't'}, {u'Ŧ', u't'}, {u'ı', u'i'}})
+            t[stroked] = base;
         return t;
     }();
-    if (c.unicode() < latin.size()) return QChar(latin[c.unicode()]);
-    return c.toLower();
+    const QChar folded = c.unicode() < latin.size() ? QChar(latin[c.unicode()]) : c.toLower();
+    if (folded.unicode() < 0x80) return folded;
+    // Typed with AltGr on a letter key: that key's letter (© → r on the
+    // Polish keyboard, where AltGr was not let go after ó: "któ©re").
+    const auto& keys = keyboard().keyOf;
+    if (const auto it = keys.constFind(folded.unicode()); it != keys.cend()) return QChar(it.value());
+    return folded;
+}
+
+QStringList keyboardLayouts() {
+    QStringList names;
+    for (const KeyboardLayout& layout : keyboards()) names << layout.name;
+    return names;
+}
+
+QString keyboardLayout() {
+    return keyboard().name;
+}
+
+bool setKeyboardLayout(const QString& name) {
+    const int index = keyboardIndex(name);
+    if (index < 0) return false;
+    activeKeyboard.store(index);
+    return true;
+}
+
+bool typedOnLetterKey(QChar c) {
+    return !c.isLetter() && keyboard().keyOf.contains(c.unicode());
 }
 
 QString classKey(const QString& word) {
@@ -233,13 +352,13 @@ struct KeyPosition {
 };
 
 KeyPosition keyPosition(QChar c) {
-    static const char* const rows[] = {"qwertyuiop", "asdfghjkl", "zxcvbnm"};
     static const double offsets[] = {0, 0.25, 0.75};
-    const QChar key = foldChar(c);
-    if (key.unicode() > 0x7F) return {};
-    for (int row = 0; row < 3; ++row)
-        if (const char* found = std::strchr(rows[row], char(key.unicode())); found && *found)
-            return {row, offsets[row] + double(found - rows[row])};
+    const KeyboardLayout& layout = keyboard();
+    // The letter's own key (ö on a German keyboard), else its base letter's.
+    for (const QChar key : {c.toLower(), foldChar(c)})
+        for (int row = 0; row < 3; ++row)
+            if (const qsizetype column = layout.rows[row].indexOf(key); column >= 0)
+                return {row, offsets[row] + double(column)};
     return {};
 }
 
@@ -678,7 +797,7 @@ QStringList expandDictionary(const QString& affPath, const QString& dicPath, boo
 
 QString formIndexPath(const QString& dictionaryName) {
     const QString cache = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation);
-    return QDir(cache).filePath(QStringLiteral("siplasplas/spell/%1.forms").arg(dictionaryName));
+    return QDir(cache).filePath(QStringLiteral("siplasplas/spell/%1-%2.forms").arg(dictionaryName, keyboardLayout()));
 }
 
 bool buildFormIndex(const QString& affPath, const QString& dicPath, const QString& indexPath) {
@@ -968,9 +1087,10 @@ FrequencyTable::FrequencyTable(const QString& path) {
     while (!in.atEnd()) {
         const QString line = in.readLine();
         if (line.startsWith(QLatin1Char('#'))) {
-            // "# 2460104 words in pl.txt, 2297785 known to pl_PL"
+            // "# v2 2460104 words in pl.txt, 2297785 known to pl_PL" (no
+            // "v2" in files of earlier versions)
             static const QRegularExpression known(QStringLiteral("(\\d+) known to"));
-            static const QRegularExpression all(QStringLiteral("^#\\s*(\\d+) words"));
+            static const QRegularExpression all(QStringLiteral("^#\\s*(?:v\\d+\\s+)?(\\d+) words"));
             if (const auto m = known.match(line); m.hasMatch()) m_known = m.captured(1).toDouble();
             else if (const auto m = all.match(line); m.hasMatch()) words = m.captured(1).toDouble();
             continue;

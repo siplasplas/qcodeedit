@@ -127,14 +127,26 @@ word instead of 91.
 
 The forms are grouped by class: the letters of a word in lower case, without
 diacritics (Polish, and the accents of other Latin letters: `é` → e, `ç` → c),
-with the AltGr characters of the Polish keyboard as the
-letter of their key (`ð` → d, `©` → r, `ß` → t, `œ` → w), sorted. Swapped
+with the characters AltGr types on a letter key of the keyboard as the
+letter of their key (Polish keyboard: `ð` → d, `©` → r, `ß` → t, `œ` → w), sorted.
+
+The keyboard is one of the layouts in `spell/src/KeyboardLayouts.inc`, made
+from the X keyboard layouts by `tools/gen_keyboard_layouts.py`: `pl`, `us`,
+`de` (QWERTZ), `fr` (AZERTY), `es`, and `pl-windows` (Windows' Polish
+programmers, where AltGr gives only Polish letters). By default it is the
+desktop's (KDE's or GNOME's setting, else `/etc/default/keyboard`; on Windows
+the input language), else the system language's, else `us`;
+`setKeyboardLayout()` chooses another. It tells which keys neighbour and
+which hand types them, and what AltGr held types: a character AltGr typed
+on a letter key after a letter does not end the word, so "któ©re" (AltGr not
+let go after ó) is one word, corrected to które for sure. The forms file is
+kept per layout (`<name>-<layout>.forms`). Swapped
 letters, missing diacritics and a held AltGr keep the class; a letter too
 many, too few or wrong is a neighbouring class. Only those classes are
 ranked, by a weighted edit distance from the typed word: a missing diacritic
 0.3 (a typed one removed 0.6, or 0.3 right after another such letter: AltGr
 held, "żę" → "że"), two adjacent letters swapped 0.5 when the two hands type
-them on a QWERTY keyboard and 1 when one hand does ("serach" for "search": r
+them on the keyboard and 1 when one hand does ("serach" for "search": r
 and a both left), a letter two places off 1, three places 1.5 (a swap right
 after another adds 0.5, so "dziłaja" gives działają before działaj; a moved
 letter also lacking its diacritic adds 0.3, "dzielci" → dzielić), a missing

@@ -19,18 +19,23 @@ class QWidget;
 
 namespace qce::spell {
 
-/// What the review window checks when it opens.
+/// The kind of words the review window shows (its filter); the name is
+/// older, from when it chose what was checked at first. Nothing is checked
+/// at first now.
 enum class CheckedAtFirst {
     Sure,               ///< a single suggestion close to the word (SpellChecker::isConfident())
     Single,             ///< a single suggestion, close or not
-    Every,              ///< every word with its first correction
-    SeveralFirstClose,  ///< only the words with several suggestions, the first close (SpellChecker::isClose())
-    Several,            ///< only the words with several suggestions
-    NoSuggestions,      ///< only the words without suggestions given the user's own correction
-    None,               ///< nothing: every word, to check by hand
+    Every,              ///< every word
+    SeveralFirstClose,  ///< several suggestions, the first close (SpellChecker::isClose())
+    Several,            ///< several suggestions
+    NoSuggestions,      ///< found without suggestions (some may have the user's own by now)
+    None,               ///< of earlier versions: as Every
+    SingleNotSure,      ///< a single suggestion, not close enough to be sure
+    SeveralFirstNotClose, ///< several suggestions, the first not close
 };
 /// "sure", "single", "every", "severalFirstClose", "several", "noSuggestions",
-/// "none", e.g. for an application's settings.
+/// "none", "singleNotSure", "severalFirstNotClose", e.g. for an application's
+/// settings.
 QString checkedAtFirstName(CheckedAtFirst checked);
 /// The name's value; Sure for an unknown one.
 CheckedAtFirst checkedAtFirstFromName(const QString& name);
@@ -56,36 +61,35 @@ struct SpellingReviewItem {
 
 /// The misspelled words of a text or a selection, each with a correction to
 /// choose, the chosen correction's score (how far it is: the lower, the
-/// closer), line and
-/// context, sorted as in the text, alphabetically or by score. Checked at
-/// first as CheckedAtFirst says (the user may change it); the list shows the
-/// words of that kind: all, the checked ones (to look them over) or the
-/// unchecked ones (left to decide), as "Show" says, or every word. "Show" is
-/// applied when chosen, so a word checked or unchecked meanwhile stays in
-/// sight. The kinds of words are chosen in
-/// "Checked at first" (with several suggestions, or without suggestions but
-/// given an own correction, too: to look them over with "Show: Checked
-/// words"). Only the check boxes decide which
-/// words are corrected, unless "Picking a correction checks the word" is on:
-/// then picking one, also the one shown, checks the word. With `spelling`, "Add to Dictionary" and "Ignore" take the
-/// selected word out of the list, every occurrence of it ("careta" written on
-/// purpose); "Remember Correction" keeps the selected word's chosen
-/// correction as the user's own (score 0 from now on, every row of it
-/// checked); "Own Correction" asks for the user's own one and keeps it the
-/// same way, also for a word without suggestions; "User Dictionary" shows the user's words and corrections. Ctrl+C
-/// or the context menu copies the selected row, separated by tabs, or its
-/// line of text. One row is selected at a time; Up and Down move between
-/// rows, Alt+Down opens the row's corrections. Correct accepts; chosenReplacements()
-/// gives the checked words.
+/// closer), line and context, sorted as in the text, alphabetically or by
+/// score. Made for reviewing a text a kind at a time, the window opened
+/// again for the next kind: "Show" lists the words of one kind (all, sure
+/// corrections, a single suggestion, a single one not sure, several, several
+/// with the first close or not, words without suggestions); nothing is
+/// checked at first; an action applied checks or unchecks all the words shown
+/// or the rows selected (the last two let several rows be selected, with Ctrl
+/// and Shift). Correct corrects the checked words of the kind shown only; the
+/// others stay for the next review. Picking a correction checks its word
+/// only when "Picking a correction checks the word" is on. With `spelling`,
+/// "Add to Dictionary" and "Ignore" take the selected word out of the list,
+/// every occurrence of it ("careta" written on purpose); "Remember
+/// Correction" keeps the selected word's chosen correction as the user's own
+/// (score 0 from now on, every row of it checked); "Own Correction" (Ctrl+F6)
+/// asks for the user's own one and keeps it the same way, also for a word
+/// without suggestions; "User Dictionary" shows the user's words and
+/// corrections. Ctrl+C or the context menu copies the selected rows,
+/// separated by tabs, or their lines of text. Up and Down move between rows,
+/// Alt+Down opens the row's corrections, a double click shows the word in the
+/// text. chosenReplacements() gives the checked words shown.
 class SpellingReviewDialog : public QDialog {
     Q_OBJECT
 public:
     SpellingReviewDialog(const QList<SpellingReviewItem>& items, bool inSelection, CheckedAtFirst checkedAtFirst,
                          QWidget* parent = nullptr, CodeEditSpelling* spelling = nullptr);
 
-    /// The checked words with the chosen corrections.
+    /// The checked words of the kind shown, with the chosen corrections.
     QList<QPair<SpellingReviewItem::Range, QString>> chosenReplacements() const;
-    /// The user's last choice of what is checked at first.
+    /// The kind of words shown last (for the application to keep).
     CheckedAtFirst checkedAtFirst() const;
     /// How long finding the corrections took, shown with the time a word.
     void setSearchTime(qint64 milliseconds);
@@ -95,15 +99,17 @@ protected:
 
 signals:
     /// openSpellingReview()'s window closed: how many words were corrected,
-    /// and the user's last choice of what is checked at first.
+    /// and the kind of words shown last.
     void reviewFinished(int corrected, qce::spell::CheckedAtFirst checkedAtFirst);
 
 private:
     void updateSummary();
-    void checkAtFirst();
     void filter();
+    /// The action chosen: checks or unchecks the words shown, or the rows
+    /// selected.
+    void applyAction();
     void showCurrent();
-    /// The item is of the kind (what that choice of "Checked at first" checks).
+    /// The item is of the kind ("Show").
     static bool ofKind(const SpellingReviewItem& item, CheckedAtFirst kind);
     /// Adds the selected word to the dictionary (or ignores it) and removes
     /// its rows.
@@ -132,8 +138,8 @@ private:
     QList<SpellingReviewItem> m_items;
     QTreeWidget* m_list = nullptr;
     QLabel* m_summary = nullptr;
-    QComboBox* m_checkAtFirst = nullptr;
-    QComboBox* m_show = nullptr;
+    QComboBox* m_filter = nullptr;
+    QComboBox* m_action = nullptr;
     QCheckBox* m_pickChecks = nullptr;
     QLabel* m_searchTime = nullptr;
     QPointer<CodeEditSpelling> m_spelling;
@@ -144,9 +150,9 @@ private:
 
 /// Reviews the misspelled words of the selection of the spelling's editor, or
 /// of its whole text: finds their corrections (with progress for a long
-/// text), shows SpellingReviewDialog and replaces the checked words as one
-/// undo step. `checkedAtFirst` is the choice to start with and, afterwards,
-/// the user's last one (for the application to save). Says so in a message
+/// text), shows SpellingReviewDialog and replaces the checked words shown as
+/// one undo step. `checkedAtFirst` is the kind of words to show first and,
+/// afterwards, the one shown last (for the application to save). Says so in a message
 /// box when there is no misspelled word or checking is off. Returns the
 /// number of corrected words.
 int reviewSpelling(CodeEditSpelling& spelling, CheckedAtFirst& checkedAtFirst, QWidget* parent);

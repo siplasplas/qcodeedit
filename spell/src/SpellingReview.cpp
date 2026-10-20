@@ -66,7 +66,8 @@ public:
 const QStringList& checkedAtFirstNames() {
     static const QStringList names = {QStringLiteral("sure"), QStringLiteral("single"), QStringLiteral("every"),
                                       QStringLiteral("severalFirstClose"), QStringLiteral("several"),
-                                      QStringLiteral("noSuggestions"), QStringLiteral("none")};
+                                      QStringLiteral("noSuggestions"), QStringLiteral("none"),
+                                      QStringLiteral("singleNotSure"), QStringLiteral("severalFirstNotClose")};
     return names;
 }
 
@@ -148,37 +149,39 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     setWindowTitle(tr("Review Spelling"));
     resize(760, 480);
     auto* layout = new QVBoxLayout(this);
-    auto* intro = new QLabel(inSelection ? tr("Misspelled words in the selection. The checked ones are corrected.")
-                                         : tr("Misspelled words in the text. The checked ones are corrected."),
+    auto* intro = new QLabel(inSelection ? tr("Misspelled words in the selection. The checked words shown are "
+                                              "corrected; the others stay for the next review.")
+                                         : tr("Misspelled words in the text. The checked words shown are corrected; "
+                                              "the others stay for the next review."),
                              this);
     intro->setWordWrap(true);
     layout->addWidget(intro);
 
     auto* options = new QHBoxLayout;
-    options->addWidget(new QLabel(tr("Checked at first:"), this));
-    m_checkAtFirst = new QComboBox(this);
+    auto* showLabel = new QLabel(tr("Sh&ow:"), this);
+    options->addWidget(showLabel);
+    m_filter = new QComboBox(this);
     // The kinds of words, from the surest; the value is the CheckedAtFirst.
     const auto addKind = [this](const QString& text, CheckedAtFirst kind, const QString& tip) {
-        m_checkAtFirst->addItem(text, int(kind));
-        m_checkAtFirst->setItemData(m_checkAtFirst->count() - 1, tip, Qt::ToolTipRole);
+        m_filter->addItem(text, int(kind));
+        m_filter->setItemData(m_filter->count() - 1, tip, Qt::ToolTipRole);
     };
-    addKind(tr("None (check by hand)"), CheckedAtFirst::None,
-            tr("Nothing checked; every word shown, to check by hand"));
-    addKind(tr("Sure corrections only"), CheckedAtFirst::Sure,
-            tr("A single suggestion close to the word, e.g. \"bhyc\" → być"));
-    addKind(tr("Words with a single suggestion"), CheckedAtFirst::Single,
-            tr("Also when it is not that close, e.g. \"agents\" → agent"));
+    addKind(tr("All words"), CheckedAtFirst::Every, QString());
+    addKind(tr("Sure corrections"), CheckedAtFirst::Sure,
+            tr("A single suggestion close to the word, e.g. \"byc\" → być: what correction while typing does"));
+    addKind(tr("Single suggestion"), CheckedAtFirst::Single, tr("A single suggestion, sure or not"));
+    addKind(tr("Single suggestion, not sure"), CheckedAtFirst::SingleNotSure,
+            tr("A single suggestion not close enough to be sure, e.g. \"agents\" → agent"));
+    addKind(tr("Several suggestions"), CheckedAtFirst::Several, QString());
     addKind(tr("Several, first close"), CheckedAtFirst::SeveralFirstClose,
-            tr("Only the words with several suggestions whose first is close enough to be sure if it were the only "
-               "one, with that one"));
-    addKind(tr("Several"), CheckedAtFirst::Several,
-            tr("Only the words with several suggestions, close or not, with the first one"));
+            tr("Several suggestions, the first close enough to be sure if it were the only one"));
+    addKind(tr("Several, first not close"), CheckedAtFirst::SeveralFirstNotClose, QString());
     addKind(tr("Words without suggestions"), CheckedAtFirst::NoSuggestions,
-            tr("Only the words without suggestions, those given your own correction (Own Correction); sorted by "
-               "score, the others are last"));
-    addKind(tr("Every word, with its first correction"), CheckedAtFirst::Every, QString());
-    m_checkAtFirst->setCurrentIndex(qMax(0, m_checkAtFirst->findData(int(checkedAtFirst))));
-    options->addWidget(m_checkAtFirst);
+            tr("To add to the dictionary, ignore or give your own correction (Own Correction)"));
+    const CheckedAtFirst shown = checkedAtFirst == CheckedAtFirst::None ? CheckedAtFirst::Every : checkedAtFirst;
+    m_filter->setCurrentIndex(qMax(0, m_filter->findData(int(shown))));
+    showLabel->setBuddy(m_filter);
+    options->addWidget(m_filter);
     options->addSpacing(12);
     options->addWidget(new QLabel(tr("Sort:"), this));
     auto* sort = new QComboBox(this);
@@ -189,18 +192,16 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
                       Qt::ToolTipRole);
     options->addWidget(sort);
     options->addStretch();
-    auto* showLabel = new QLabel(tr("Sh&ow:"), this);
-    options->addWidget(showLabel);
-    m_show = new QComboBox(this);
-    m_show->addItem(tr("This kind"));
-    m_show->addItem(tr("This kind, checked"));
-    m_show->addItem(tr("This kind, unchecked"));
-    m_show->addItem(tr("Every word"));
-    m_show->setToolTip(tr("The words of the kind chosen in Checked at first: all, the checked ones (to look over "
-                          "the corrections that will be made) or the unchecked ones (e.g. without suggestions: "
-                          "those still without your own correction); or every word"));
-    showLabel->setBuddy(m_show);
-    options->addWidget(m_show);
+    m_action = new QComboBox(this);
+    m_action->addItem(tr("Check all"));
+    m_action->addItem(tr("Uncheck all"));
+    m_action->addItem(tr("Check selected rows"));
+    m_action->addItem(tr("Uncheck selected rows"));
+    m_action->setToolTip(tr("Of the words shown. The last two let several rows be selected (Ctrl, Shift)"));
+    options->addWidget(m_action);
+    auto* apply = new QPushButton(tr("A&pply"), this);
+    apply->setAutoDefault(false);
+    options->addWidget(apply);
     layout->addLayout(options);
 
     m_list = new QTreeWidget(this);
@@ -275,8 +276,19 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
         showCurrent();
     });
     layout->addWidget(m_list, 1);
-    checkAtFirst();
     connect(m_list, &QTreeWidget::itemChanged, this, &SpellingReviewDialog::updateSummary);
+    // Several rows selected at once only for the actions on selected rows.
+    connect(m_action, &QComboBox::currentIndexChanged, this, [this](int action) {
+        const bool several = action >= 2;
+        m_list->setSelectionMode(several ? QAbstractItemView::ExtendedSelection
+                                         : QAbstractItemView::SingleSelection);
+        if (!several)
+            if (QTreeWidgetItem* current = m_list->currentItem()) {
+                m_list->clearSelection();
+                current->setSelected(true);
+            }
+    });
+    connect(apply, &QPushButton::clicked, this, &SpellingReviewDialog::applyAction);
     // A double click shows the word in the text, for more of its context:
     // selected there, scrolled into sight; the window stays open.
     connect(m_list, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* row) {
@@ -285,13 +297,7 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
         const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
         area->setSelection(item.word.start, item.word.end);  // scrolls to it
     });
-    connect(m_checkAtFirst, &QComboBox::activated, this, [this]() {
-        checkAtFirst();
-        filter();
-    });
-    // Applied when switched: a word unchecked while looking them over stays
-    // in sight until then.
-    connect(m_show, &QComboBox::activated, this, &SpellingReviewDialog::filter);
+    connect(m_filter, &QComboBox::activated, this, &SpellingReviewDialog::filter);
 
     auto* status = new QHBoxLayout;
     // What to do with the selected word, and the user's own dictionary.
@@ -348,33 +354,20 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     buttons->button(QDialogButtonBox::Ok)->setText(tr("&Correct"));
-    auto* all = buttons->addButton(tr("Check &All"), QDialogButtonBox::ActionRole);
-    auto* none = buttons->addButton(tr("Check &None"), QDialogButtonBox::ActionRole);
-    const auto checkAll = [this](Qt::CheckState state) {
-        {
-            const QScopedValueRollback bulk(m_bulkChange, true);
-            for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
-                QTreeWidgetItem* row = m_list->topLevelItem(i);
-                if (row->flags() & Qt::ItemIsUserCheckable) row->setCheckState(WordColumn, state);
-            }
-        }
-        updateSummary();
-    };
-    connect(all, &QPushButton::clicked, this, [checkAll]() { checkAll(Qt::Checked); });
-    connect(none, &QPushButton::clicked, this, [checkAll]() { checkAll(Qt::Unchecked); });
+    buttons->button(QDialogButtonBox::Ok)->setToolTip(tr("Corrects the checked words shown"));
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     layout->addWidget(buttons);
     // The list shows the chosen kind from the start, not only after a change.
     filter();
-    updateSummary();
 }
 
 QList<QPair<SpellingReviewItem::Range, QString>> SpellingReviewDialog::chosenReplacements() const {
     QList<QPair<SpellingReviewItem::Range, QString>> result;
     for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
         QTreeWidgetItem* row = m_list->topLevelItem(i);
-        if (row->checkState(WordColumn) != Qt::Checked) continue;
+        // Only the kind shown: the others stay for the next review.
+        if (row->isHidden() || row->checkState(WordColumn) != Qt::Checked) continue;
         const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
         const auto* choice = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn));
         const int index = choice ? choice->currentIndex() : 0;
@@ -385,7 +378,7 @@ QList<QPair<SpellingReviewItem::Range, QString>> SpellingReviewDialog::chosenRep
 }
 
 CheckedAtFirst SpellingReviewDialog::checkedAtFirst() const {
-    return CheckedAtFirst(m_checkAtFirst->currentData().toInt());
+    return CheckedAtFirst(m_filter->currentData().toInt());
 }
 
 void SpellingReviewDialog::setSearchTime(qint64 milliseconds) {
@@ -395,18 +388,16 @@ void SpellingReviewDialog::setSearchTime(qint64 milliseconds) {
                               .arg(perWord, 0, 'f', 1));
 }
 
-void SpellingReviewDialog::checkAtFirst() {
-    const CheckedAtFirst mode = checkedAtFirst();
+void SpellingReviewDialog::applyAction() {
+    const int action = m_action->currentIndex();
+    const Qt::CheckState state = action % 2 == 0 ? Qt::Checked : Qt::Unchecked;
     {
         const QScopedValueRollback bulk(m_bulkChange, true);
         for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
             QTreeWidgetItem* row = m_list->topLevelItem(i);
-            if (!(row->flags() & Qt::ItemIsUserCheckable)) continue;
-            const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
-            const bool check = mode != CheckedAtFirst::None && ofKind(item, mode);
-            row->setCheckState(WordColumn, check ? Qt::Checked : Qt::Unchecked);
-            if (auto* choice = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn)))
-                choice->setCurrentIndex(0);
+            if (row->isHidden() || !(row->flags() & Qt::ItemIsUserCheckable)) continue;
+            if (action >= 2 && !row->isSelected()) continue;
+            row->setCheckState(WordColumn, state);
         }
     }
     updateSummary();
@@ -417,30 +408,26 @@ bool SpellingReviewDialog::ofKind(const SpellingReviewItem& item, CheckedAtFirst
     switch (kind) {
     case CheckedAtFirst::Sure: return item.confident;
     case CheckedAtFirst::Single: return item.single;
-    case CheckedAtFirst::Every: return true;
-    case CheckedAtFirst::SeveralFirstClose: return several && item.firstClose;
+    case CheckedAtFirst::SingleNotSure: return item.single && !item.confident;
     case CheckedAtFirst::Several: return several;
+    case CheckedAtFirst::SeveralFirstClose: return several && item.firstClose;
+    case CheckedAtFirst::SeveralFirstNotClose: return several && !item.firstClose;
     case CheckedAtFirst::NoSuggestions: return item.noSuggestions;
-    case CheckedAtFirst::None: return true;  // every word, none checked
+    case CheckedAtFirst::Every:
+    case CheckedAtFirst::None: return true;
     }
     return false;
 }
 
 void SpellingReviewDialog::filter() {
-    // The words of the kind chosen in "Checked at first": all, checked or
-    // unchecked (e.g. the words without suggestions still without an own
-    // correction); or every word.
-    const int show = m_show->currentIndex();
+    // The words of the kind chosen in "Show"; their checks are kept.
     const CheckedAtFirst kind = checkedAtFirst();
     for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
         QTreeWidgetItem* row = m_list->topLevelItem(i);
-        const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
-        const bool checked = row->checkState(WordColumn) == Qt::Checked;
-        const bool hidden = show != 3
-            && (!ofKind(item, kind) || (show == 1 && !checked) || (show == 2 && checked));
-        row->setHidden(hidden);
+        row->setHidden(!ofKind(m_items[row->data(WordColumn, Qt::UserRole).toInt()], kind));
     }
     showCurrent();
+    updateSummary();
 }
 
 // The selected row stays in sight after sorting or filtering (if shown).
@@ -683,10 +670,17 @@ void SpellingReviewDialog::updateSummary() {
     // Counting every row: once after a change of many rows, not for each
     // (and not before the label exists, while the window is being made).
     if (m_bulkChange || !m_summary) return;
-    int checked = 0;
-    for (int i = 0; i < m_list->topLevelItemCount(); ++i)
-        if (m_list->topLevelItem(i)->checkState(WordColumn) == Qt::Checked) ++checked;
-    m_summary->setText(tr("%1 of %2 words to correct").arg(checked).arg(m_list->topLevelItemCount()));
+    int checked = 0, shown = 0;
+    for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
+        const QTreeWidgetItem* row = m_list->topLevelItem(i);
+        if (row->isHidden()) continue;
+        ++shown;
+        if (row->checkState(WordColumn) == Qt::Checked) ++checked;
+    }
+    m_summary->setText(tr("%1 of %2 words shown to correct (%3 misspelled in all)")
+                           .arg(checked)
+                           .arg(shown)
+                           .arg(m_list->topLevelItemCount()));
 }
 
 namespace {

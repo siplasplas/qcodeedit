@@ -280,17 +280,18 @@ waits for it):
 the selection's misspelled words (or the whole text's) and shows
 `SpellingReviewDialog`: each word with its corrections, the chosen one's score
 (lower is closer; sorting by it shows where sure corrections end), line and
-context, sorted as in the text, alphabetically or by score,
-checked at first as `CheckedAtFirst` says (sure corrections, words with a
-single suggestion, or every word; the application keeps the user's choice),
-the list shows the words of the kind chosen in "Checked at first" (or every
-word, none checked, with "None"; "Show": all
-of them, the checked ones or the unchecked ones, or every word); "Checked
-at first" also picks only the words with several suggestions ("Several"), with
-several whose first would be sure alone ("Several, first close"), checked with
-their first one, or without suggestions but given an own correction ("Words
-without suggestions"), and how
-long finding the corrections took; Ctrl+C or the context menu copies the
+context, sorted as in the text, alphabetically or by score, and how long
+finding the corrections took. It is made for reviewing a text a kind of word
+at a time, opened again for the next kind: "Show" lists the words of one kind
+(`CheckedAtFirst`, a name of earlier versions; the application keeps the
+user's choice): all words, sure corrections, a single suggestion, a single one
+not sure, several suggestions, several with the first close or not, words
+without suggestions. Nothing is checked at first; an action applied checks or
+unchecks all the words shown, or the rows selected (those two actions let
+several rows be selected, with Ctrl and Shift). Correct corrects the checked
+words of the kind shown only, the others stay for the next review: e.g. sure
+corrections first (Check all, Correct), then single suggestions not sure,
+looked over one by one. Ctrl+C or the context menu copies the
 selected rows, separated by tabs, or their lines of text; a double click on
 a row selects its word in the text and scrolls there, to read more of its
 context while the window stays open. "Add to
@@ -302,12 +303,11 @@ from then on it is the word's only suggestion, score 0, so
 sure, also while typing; "Own Correction" (Ctrl+F6) asks for one of the
 user's own (starting from the word as typed) and keeps it the same way, also
 for a word without suggestions, or replaces the word with the words before and
-after it here only (which "Show" can
-list alone). The words of an own correction that neither the dictionaries nor
+after it here only. The words of an own correction that neither the dictionaries nor
 the user's words know (a name, a term) are ignored in the document, so in its
 file when it has one. "User Dictionary" (`UserDictionaryDialog`) shows the
-user's words and corrections and removes them. The checked words are replaced
-as one undo step.
+user's words and corrections and removes them. The checked words shown are
+replaced as one undo step.
 
 `setCorrectWhileTyping(true)` (off by default) corrects a misspelled word when
 a space or punctuation is typed right after it, if its single suggestion is

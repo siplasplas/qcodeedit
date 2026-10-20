@@ -146,6 +146,16 @@ if(TARGET qcodeedit::spell AND TARGET qcodeedit::kate)
     set_tests_properties(test_spell PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
+# Real typing mistakes in English and French (tests/data/spell), with the
+# system's dictionaries (skips without them).
+if(TARGET qcodeedit::spell)
+    add_executable(test_spell_texts test_spell_texts.cpp)
+    target_compile_definitions(test_spell_texts PRIVATE QCE_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+    target_link_libraries(test_spell_texts PRIVATE qcodeedit::spell Qt6::Test)
+    add_test(NAME test_spell_texts COMMAND test_spell_texts)
+    set_tests_properties(test_spell_texts PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
 # Word forms unfolded from small .aff/.dic files written by the test itself.
 if(TARGET qcodeedit::spell)
     add_executable(test_form_index test_form_index.cpp)

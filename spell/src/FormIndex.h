@@ -4,8 +4,9 @@
 // A hunspell dictionary is expanded into its word forms (the affix rules of
 // its .aff applied to the stems of its .dic) and kept as a cache file,
 // memory-mapped, shared by all programs. The forms are grouped in classes:
-// the letters of a word in lower case, Polish diacritics and the AltGr
-// characters of the Polish keyboard as their plain letters, sorted. Swapped
+// the letters of a word in lower case, diacritics (Polish, French é, ç, …)
+// and the AltGr characters of the Polish keyboard as their plain letters,
+// sorted. Swapped
 // letters, missing diacritics and a held AltGr ("ð" for "d") keep the class;
 // a letter too many or too few, or a wrong one, is a neighbouring class (one
 // letter less, more, or both). The forms of those few classes are ranked by a
@@ -85,9 +86,11 @@ constexpr double kInnerCapitalCost = 1.0;
 double score(const QString& word, const QString& candidate, double limit);
 
 /// All word forms of a dictionary; empty, with `supported` false, when its
-/// .aff uses what is not implemented here (CIRCUMFIX, continuation classes,
-/// COMPLEXPREFIXES). Flags of every FLAG kind (characters, long, num, UTF-8),
-/// flag aliases (AF) and NEEDAFFIX (a stem that is no word alone) are known.
+/// .aff uses what is not implemented here (COMPLEXPREFIXES) or it has too
+/// many forms (Hungarian, Catalan). Flags of every FLAG kind, flag aliases
+/// (AF), NEEDAFFIX, CIRCUMFIX, continuation classes (two suffixes, prefixes
+/// allowed by suffixes and the other way) and forbidden words are known;
+/// compound words are left to hunspell.
 QStringList expandDictionary(const QString& affPath, const QString& dicPath, bool* supported);
 
 /// The cache file of a dictionary's forms:

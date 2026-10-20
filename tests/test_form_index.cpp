@@ -122,13 +122,98 @@ private slots:
         QCOMPARE(forms, (QStringList{"cities", "city", "day", "days"}));
     }
 
+    void twoSuffixes() {
+        // "able" allows "s" after it (hunspell's example): drinkables.
+        const QStringList forms = expand("SET UTF-8\n"
+                                         "SFX X Y 1\n"
+                                         "SFX X 0 able/Y .\n"
+                                         "SFX Y Y 1\n"
+                                         "SFX Y 0 s .\n",
+                                         "1\ndrink/X\n");
+        QCOMPARE(forms, (QStringList{"drink", "drinkable", "drinkables"}));
+    }
+
+    void prefixesAllowedBySuffixes() {
+        // French elision: a conjugated form takes "l'" and "n'", the bare
+        // stem does not (its flags have no prefix).
+        const QStringList forms = expand("SET UTF-8\nFLAG long\n"
+                                         "PFX L' Y 1\n"
+                                         "PFX L' 0 l' .\n"
+                                         "PFX N' Y 1\n"
+                                         "PFX N' 0 n' .\n"
+                                         "SFX a1 Y 1\n"
+                                         "SFX a1 er e/L'N' er\n",
+                                         "1\naimer/a1\n");
+        QCOMPARE(forms, (QStringList{"aime", "aimer", "l'aime", "n'aime"}));
+    }
+
+    void suffixesAllowedByPrefixes() {
+        // "re" allows "s" after the prefixed word only.
+        const QStringList forms = expand("SET UTF-8\n"
+                                         "PFX R Y 1\n"
+                                         "PFX R 0 re/S .\n"
+                                         "SFX S Y 1\n"
+                                         "SFX S 0 s .\n",
+                                         "1\nmake/R\n");
+        QCOMPARE(forms, (QStringList{"make", "remake", "remakes"}));
+    }
+
+    void circumfixOnlyTogether() {
+        // German participles: "ge" and "t" make a word together, not alone.
+        const QStringList forms = expand("SET UTF-8\nCIRCUMFIX C\n"
+                                         "PFX G Y 1\n"
+                                         "PFX G 0 ge/C .\n"
+                                         "SFX T Y 2\n"
+                                         "SFX T en t/C en\n"
+                                         "SFX T en e en\n",
+                                         "1\nmachen/GT\n");
+        QCOMPARE(forms, (QStringList{"gemacht", "mache", "machen"}));
+    }
+
+    void suffixNeedingAnotherAffix() {
+        // "ation" is no word end alone here, only with "s" after it.
+        const QStringList forms = expand("SET UTF-8\nNEEDAFFIX N\n"
+                                         "SFX A Y 1\n"
+                                         "SFX A 0 ation/NB .\n"
+                                         "SFX B Y 1\n"
+                                         "SFX B 0 s .\n",
+                                         "1\nform/A\n");
+        QCOMPARE(forms, (QStringList{"form", "formations"}));
+    }
+
+    void forbiddenFormsAndCompoundParts() {
+        // A forbidden word in the .dic removes the form a rule makes (Dutch
+        // "Kongs"); a form ending or beginning with a hyphen is a part of
+        // compound words only.
+        const QStringList forms = expand("SET UTF-8\nFORBIDDENWORD !\n"
+                                         "SFX S Y 1\n"
+                                         "SFX S 0 s .\n"
+                                         "SFX H Y 1\n"
+                                         "SFX H 0 - .\n",
+                                         "3\nKong/S\nKongs/!\napk/H\n");
+        QCOMPARE(forms, (QStringList{"Kong", "apk"}));
+    }
+
+    void byteOrderMark() {
+        // pt_BR's files begin with one: SET is still read.
+        const QStringList forms = expand("\xEF\xBB\xBFSET UTF-8\nFLAG UTF-8\n"
+                                         "SFX ã Y 1\n"
+                                         "SFX ã 0 ões .\n",
+                                         "\xEF\xBB\xBF" "1\nCamar/ã\n");
+        QCOMPARE(forms, (QStringList{"Camar", "Camarões"}));
+    }
+
+    void accentsKeepTheClass() {
+        // French typed without accents: the same class, a cheap difference.
+        QCOMPARE(classKey(QStringLiteral("societe")), classKey(QStringLiteral("société")));
+        QCOMPARE(classKey(QStringLiteral("Francais")), classKey(QStringLiteral("Français")));
+        QCOMPARE(classKey(QStringLiteral("zolw")), classKey(QStringLiteral("żółw")));
+        QVERIFY(score(QStringLiteral("societe"), QStringLiteral("société"), kSuggestionLimit) < 1.0);
+    }
+
     void unsupportedLeftToHunspell() {
         bool supported = true;
-        QVERIFY(expand("SET UTF-8\nCIRCUMFIX C\n", "1\nword\n", &supported).isEmpty());
-        QVERIFY(!supported);
-        supported = true;
-        // A continuation class: a suffix with its own flags.
-        QVERIFY(expand("SET UTF-8\nSFX A Y 1\nSFX A 0 s/B .\n", "1\nword/A\n", &supported).isEmpty());
+        QVERIFY(expand("SET UTF-8\nCOMPLEXPREFIXES\n", "1\nword\n", &supported).isEmpty());
         QVERIFY(!supported);
     }
 };

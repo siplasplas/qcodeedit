@@ -108,14 +108,20 @@ dictionary: its stems with every affix rule applied (pl_PL: about 3.7 million
 forms), kept in a cache file, `~/.cache/siplasplas/spell/<name>.forms`, built
 in the background the first time (a few seconds), rebuilt when the dictionary
 changes, and memory-mapped (shared by all programs, read on demand). Until it
-is ready, and for a dictionary whose `.aff` uses what the expansion does not
-implement (CIRCUMFIX, continuation classes: e.g. French, German, Spanish),
-hunspell's own suggestions are shown. Flags of every kind (one character,
-long, numeric, UTF-8), flag aliases and NEEDAFFIX are known, so e.g. Serbian
-and Turkish have their forms; compound words are hunspell's only.
+is ready, and for a dictionary with more than 8 million forms (Hungarian,
+Catalan, Galician, Arabic, Hebrew, Brazilian Portuguese) or using
+COMPLEXPREFIXES, hunspell's own suggestions are shown. Flags of every kind
+(one character, long, numeric, UTF-8), flag aliases, NEEDAFFIX, CIRCUMFIX,
+continuation classes (two suffixes; French elision, `l'aime`, as prefixes
+allowed by a suffix) and forbidden words are known, so e.g. French, German,
+Spanish, Czech, Slovak, Latvian, Croatian, Serbian and Turkish have their
+forms; compound words are hunspell's only. On a French text typed without
+accents 53 of 60 mistakes get the right first suggestion (hunspell alone: 47),
+1.4 suggestions on average instead of 3.2, in 29 ms a word instead of 91.
 
 The forms are grouped by class: the letters of a word in lower case, without
-Polish diacritics, with the AltGr characters of the Polish keyboard as the
+diacritics (Polish, and the accents of other Latin letters: `é` → e, `ç` → c),
+with the AltGr characters of the Polish keyboard as the
 letter of their key (`ð` → d, `©` → r, `ß` → t, `œ` → w), sorted. Swapped
 letters, missing diacritics and a held AltGr keep the class; a letter too
 many, too few or wrong is a neighbouring class. Only those classes are

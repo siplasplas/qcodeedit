@@ -87,6 +87,9 @@ struct Rule {
     QString strip;
     QString add;
     Condition condition;
+    // Continuation class: the flags of the form this rule makes (more
+    // affixes it may take, CIRCUMFIX, NEEDAFFIX, ...).
+    std::vector<quint32> cont;
 };
 
 struct Affix {
@@ -105,14 +108,17 @@ QStringList readLines(const QString& path, const QString& encoding) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) return {};
     QStringDecoder decoder(encoding.toLatin1().constData());
-    return QString(decoder(file.readAll())).split(QLatin1Char('\n'));
+    QString text = decoder(file.readAll());
+    if (text.startsWith(QChar(0xfeff))) text.remove(0, 1);
+    return text.split(QLatin1Char('\n'));
 }
 
 QString encodingOf(const QString& affPath) {
     QFile file(affPath);
     if (!file.open(QIODevice::ReadOnly)) return {};
     while (!file.atEnd()) {
-        const QByteArray line = file.readLine().trimmed();
+        QByteArray line = file.readLine().trimmed();
+        if (line.startsWith("\xEF\xBB\xBF")) line.remove(0, 3);  // a byte order mark (pt_BR)
         if (line.startsWith("SET ")) return qtEncoding(QString::fromLatin1(line.mid(4).trimmed()));
     }
     return qtEncoding({});
@@ -120,7 +126,8 @@ QString encodingOf(const QString& affPath) {
 
 // --- Cache file ------------------------------------------------------------
 
-constexpr char kMagic[8] = {'Q', 'C', 'E', 'F', 'O', 'R', 'M', '1'};
+// '2': other accented letters fold to their base letter (classKey()).
+constexpr char kMagic[8] = {'Q', 'C', 'E', 'F', 'O', 'R', 'M', '2'};
 
 #pragma pack(push, 1)
 struct Header {
@@ -152,6 +159,20 @@ int compareBytes(const char* a, int aSize, const char* b, int bSize) {
 QChar foldChar(QChar c) {
     const auto it = foldTable().constFind(c.unicode());
     if (it != foldTable().constEnd()) return QChar(it.value());
+    // Other accented Latin letters: their base letter (é, è, ê → e; ç → c).
+    // Looked up once for the Latin blocks, where the letters are.
+    static const std::vector<char16_t> latin = [] {
+        std::vector<char16_t> t(0x250);
+        for (char16_t u = 0; u < t.size(); ++u) {
+            const QChar letter(u);
+            t[u] = letter.toLower().unicode();
+            if (letter.decompositionTag() != QChar::Canonical) continue;
+            const QChar base = letter.decomposition().front();
+            if (base.unicode() < 0x80 && base.isLetter()) t[u] = base.toLower().unicode();
+        }
+        return t;
+    }();
+    if (c.unicode() < latin.size()) return QChar(latin[c.unicode()]);
     return c.toLower();
 }
 
@@ -340,6 +361,10 @@ namespace {
 // separated by commas (num), or one Unicode character (UTF-8).
 enum class FlagKind { Char, Long, Num, Utf8 };
 
+// More forms than this (over a gigabyte while building) are left to
+// hunspell: e.g. Hungarian, whose suffixes follow each other by thousands.
+constexpr qsizetype kMaxForms = 8'000'000;
+
 // A flag as a number: the character, the two characters of a long flag, the
 // number, or the code point.
 using Flag = quint32;
@@ -381,56 +406,31 @@ Flag oneFlag(QStringView text, FlagKind kind) {
 QStringList expandDictionary(const QString& affPath, const QString& dicPath, bool* supported) {
     *supported = false;
     const QString encoding = encodingOf(affPath);
-    QHash<Flag, Affix> suffixes, prefixes;
-    QSet<Flag> skipFlags;     // NOSUGGEST, ONLYINCOMPOUND, FORBIDDENWORD
-    std::optional<Flag> needAffix;  // a stem that is no word without an affix
+    const QStringList affLines = readLines(affPath, encoding);
+    // The kind of flags and their aliases first: affix rules use them too.
     FlagKind flagKind = FlagKind::Char;
     QStringList aliasTexts;   // AF: flag sets by number, from 1
     bool aliasCountRead = false;
-    for (const QString& rawLine : readLines(affPath, encoding)) {
+    for (const QString& rawLine : affLines) {
         const QStringList t = rawLine.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
         if (t.isEmpty()) continue;
-        const QString& kind = t[0];
-        if (kind == QLatin1String("CIRCUMFIX") || kind == QLatin1String("COMPLEXPREFIXES")
-                || kind == QLatin1String("PSEUDOROOT"))
-            return {};
-        if (kind == QLatin1String("FLAG") && t.size() > 1) {
+        // COMPLEXPREFIXES stands alone on its line.
+        if (t[0] == QLatin1String("COMPLEXPREFIXES") || t[0] == QLatin1String("PSEUDOROOT")) return {};
+        if (t.size() < 2) continue;
+        if (t[0] == QLatin1String("FLAG")) {
             if (t[1] == QLatin1String("long")) flagKind = FlagKind::Long;
             else if (t[1] == QLatin1String("num")) flagKind = FlagKind::Num;
             else if (t[1].compare(QLatin1String("UTF-8"), Qt::CaseInsensitive) == 0) flagKind = FlagKind::Utf8;
-            continue;
-        }
-        if (kind == QLatin1String("AF") && t.size() > 1) {
+        } else if (t[0] == QLatin1String("AF")) {
             // The first AF line is the count, the others the sets.
             if (aliasCountRead) aliasTexts.append(t[1]);
             aliasCountRead = true;
-            continue;
         }
-        if (kind == QLatin1String("NEEDAFFIX") && t.size() > 1) {
-            needAffix = oneFlag(t[1], flagKind);
-            continue;
-        }
-        if ((kind == QLatin1String("NOSUGGEST") || kind == QLatin1String("ONLYINCOMPOUND")
-                || kind == QLatin1String("FORBIDDENWORD")) && t.size() > 1)
-            skipFlags.insert(oneFlag(t[1], flagKind));
-        if ((kind != QLatin1String("SFX") && kind != QLatin1String("PFX")) || t.size() < 4) continue;
-        Affix& affix = (kind == QLatin1String("SFX") ? suffixes : prefixes)[oneFlag(t[1], flagKind)];
-        if (t.size() == 4) {
-            affix.cross = t[2] == QLatin1String("Y");
-            continue;
-        }
-        if (t[3].contains(QLatin1Char('/'))) return {};  // continuation classes
-        Rule rule;
-        rule.strip = t[2] == QLatin1String("0") ? QString() : t[2];
-        rule.add = t[3] == QLatin1String("0") ? QString() : t[3];
-        rule.condition = Condition::parse(t.size() > 4 ? t[4] : QStringLiteral("."));
-        affix.rules.push_back(rule);
     }
-    // A word's flags: an alias number with AF, else written out.
     std::vector<std::vector<Flag>> aliases(size_t(aliasTexts.size()));
     for (qsizetype i = 0; i < aliasTexts.size(); ++i) splitFlags(aliasTexts[i], flagKind, aliases[size_t(i)]);
-    std::vector<Flag> flags;
-    const auto readFlags = [&](QStringView field) {
+    // Flags written out, or an alias number with AF.
+    const auto readFlags = [&](QStringView field, std::vector<Flag>& flags) {
         if (!aliases.empty()) {
             bool number = false;
             const qsizetype alias = field.toInt(&number);
@@ -442,7 +442,99 @@ QStringList expandDictionary(const QString& affPath, const QString& dicPath, boo
         }
         splitFlags(field, flagKind, flags);
     };
+
+    QHash<Flag, Affix> suffixes, prefixes;
+    QSet<Flag> skipFlags;           // NOSUGGEST, ONLYINCOMPOUND, FORBIDDENWORD
+    std::optional<Flag> needAffix;  // no word without (another) affix
+    std::optional<Flag> circumfix;  // a prefix and a suffix only together
+    std::optional<Flag> forbidden;  // a word no affix may make
+    for (const QString& rawLine : affLines) {
+        const QStringList t = rawLine.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        if (t.size() < 2) continue;
+        const QString& kind = t[0];
+        if (kind == QLatin1String("NEEDAFFIX")) needAffix = oneFlag(t[1], flagKind);
+        else if (kind == QLatin1String("CIRCUMFIX")) circumfix = oneFlag(t[1], flagKind);
+        else if (kind == QLatin1String("NOSUGGEST") || kind == QLatin1String("ONLYINCOMPOUND")
+                 || kind == QLatin1String("FORBIDDENWORD"))
+            skipFlags.insert(oneFlag(t[1], flagKind));
+        if (kind == QLatin1String("FORBIDDENWORD")) forbidden = oneFlag(t[1], flagKind);
+        if ((kind != QLatin1String("SFX") && kind != QLatin1String("PFX")) || t.size() < 4) continue;
+        Affix& affix = (kind == QLatin1String("SFX") ? suffixes : prefixes)[oneFlag(t[1], flagKind)];
+        if (t.size() == 4) {
+            affix.cross = t[2] == QLatin1String("Y");
+            continue;
+        }
+        Rule rule;
+        rule.strip = t[2] == QLatin1String("0") ? QString() : t[2];
+        const qsizetype slash = t[3].indexOf(QLatin1Char('/'));
+        const QString add = slash < 0 ? t[3] : t[3].left(slash);
+        rule.add = add == QLatin1String("0") ? QString() : add;
+        if (slash >= 0) readFlags(QStringView(t[3]).mid(slash + 1), rule.cont);
+        rule.condition = Condition::parse(t.size() > 4 ? t[4] : QStringLiteral("."));
+        affix.rules.push_back(rule);
+    }
+
+    const auto has = [](const std::vector<Flag>& flags, std::optional<Flag> flag) {
+        return flag && std::find(flags.cbegin(), flags.cend(), *flag) != flags.cend();
+    };
+    const auto skipped = [&](const std::vector<Flag>& flags) {
+        return std::any_of(flags.cbegin(), flags.cend(), [&](Flag f) { return skipFlags.contains(f); });
+    };
+    const auto suffixed = [](const QString& base, const Rule& rule) -> std::optional<QString> {
+        if (!base.endsWith(rule.strip)) return std::nullopt;
+        if (!rule.condition.matchesAt(base, int(base.size()) - int(rule.condition.parts.size()))) return std::nullopt;
+        return base.left(base.size() - rule.strip.size()) + rule.add;
+    };
+    const auto prefixed = [](const QString& base, const Rule& rule) -> std::optional<QString> {
+        if (!base.startsWith(rule.strip) || !rule.condition.matchesAt(base, 0)) return std::nullopt;
+        return rule.add + base.mid(rule.strip.size());
+    };
+
+    // A word with one or two suffixes (the second allowed by the first's
+    // continuation class), as hunspell's twofold suffix stripping.
+    struct Suffixed {
+        QString form;
+        bool cross;               // every suffix combines with prefixes
+        bool circumfix;           // needs a CIRCUMFIX prefix
+        bool needsMore;           // the outer suffix needs another affix
+        std::vector<Flag> cont;   // the suffixes' continuation classes (prefixes they allow)
+    };
+    // False when there are too many (kMaxForms).
+    const auto addSuffixes = [&](const QString& word, const std::vector<Flag>& allowed,
+                                 std::vector<Suffixed>& out) -> bool {
+        for (const Flag flag : allowed) {
+            const auto first = suffixes.constFind(flag);
+            if (first == suffixes.constEnd()) continue;
+            for (const Rule& rule : first->rules) {
+                if (skipped(rule.cont)) continue;
+                const std::optional<QString> form = suffixed(word, rule);
+                if (!form) continue;
+                if (out.size() > size_t(kMaxForms)) return false;
+                out.push_back({*form, first->cross, has(rule.cont, circumfix), has(rule.cont, needAffix), rule.cont});
+                const Suffixed inner = out.back();
+                for (const Flag outerFlag : inner.cont) {
+                    const auto second = suffixes.constFind(outerFlag);
+                    if (second == suffixes.constEnd()) continue;
+                    for (const Rule& outer : second->rules) {
+                        if (skipped(outer.cont)) continue;
+                        const std::optional<QString> twice = suffixed(inner.form, outer);
+                        if (!twice) continue;
+                        std::vector<Flag> cont = inner.cont;
+                        cont.insert(cont.end(), outer.cont.cbegin(), outer.cont.cend());
+                        out.push_back({*twice, inner.cross && second->cross,
+                                       inner.circumfix || has(outer.cont, circumfix), has(outer.cont, needAffix),
+                                       std::move(cont)});
+                    }
+                }
+            }
+        }
+        return true;
+    };
+
     QStringList forms;
+    QSet<QString> forbiddenWords;
+    std::vector<Flag> flags, prefixFlags, extraSuffixFlags;
+    std::vector<Suffixed> withSuffixes, withPrefixSuffixes;
     const QStringList dic = readLines(dicPath, encoding);
     for (int lineNumber = 1; lineNumber < dic.size(); ++lineNumber) {  // the first line is a count
         const QString entry = dic[lineNumber].section(QLatin1Char('\t'), 0, 0).section(QLatin1Char(' '), 0, 0).trimmed();
@@ -450,36 +542,55 @@ QStringList expandDictionary(const QString& affPath, const QString& dicPath, boo
         const int slash = entry.indexOf(QLatin1Char('/'));
         const QString word = slash < 0 ? entry : entry.left(slash);
         if (slash < 0) flags.clear();
-        else readFlags(QStringView(entry).mid(slash + 1));
-        if (std::any_of(flags.cbegin(), flags.cend(), [&](Flag f) { return skipFlags.contains(f); }))
-            continue;
-        if (!needAffix || std::find(flags.cbegin(), flags.cend(), *needAffix) == flags.cend()) forms.append(word);
-        QStringList crossSuffixed;
-        for (const Flag flag : flags) {
-            const auto it = suffixes.constFind(flag);
-            if (it == suffixes.constEnd()) continue;
-            for (const Rule& rule : it->rules) {
-                if (!word.endsWith(rule.strip)) continue;
-                if (!rule.condition.matchesAt(word, int(word.size()) - int(rule.condition.parts.size()))) continue;
-                const QString form = word.left(word.size() - rule.strip.size()) + rule.add;
-                forms.append(form);
-                if (it->cross) crossSuffixed.append(form);
-            }
-        }
-        for (const Flag flag : flags) {
-            const auto it = prefixes.constFind(flag);
-            if (it == prefixes.constEnd()) continue;
-            for (const Rule& rule : it->rules) {
-                const auto apply = [&](const QString& base) {
-                    if (!base.startsWith(rule.strip) || !rule.condition.matchesAt(base, 0)) return;
-                    forms.append(rule.add + base.mid(rule.strip.size()));
+        else readFlags(QStringView(entry).mid(slash + 1), flags);
+        if (has(flags, forbidden)) forbiddenWords.insert(word);
+        if (skipped(flags)) continue;
+        if (!has(flags, needAffix)) forms.append(word);
+        withSuffixes.clear();
+        if (!addSuffixes(word, flags, withSuffixes)) return {};
+        for (const Suffixed& s : withSuffixes)
+            if (!s.circumfix && !s.needsMore) forms.append(s.form);
+
+        // Prefixes of the word, or allowed by a suffix's continuation class.
+        prefixFlags = flags;
+        for (const Suffixed& s : withSuffixes) prefixFlags.insert(prefixFlags.end(), s.cont.cbegin(), s.cont.cend());
+        std::sort(prefixFlags.begin(), prefixFlags.end());
+        prefixFlags.erase(std::unique(prefixFlags.begin(), prefixFlags.end()), prefixFlags.end());
+        for (const Flag flag : prefixFlags) {
+            const auto prefix = prefixes.constFind(flag);
+            if (prefix == prefixes.constEnd()) continue;
+            const bool onWord = std::find(flags.cbegin(), flags.cend(), flag) != flags.cend();
+            for (const Rule& rule : prefix->rules) {
+                if (skipped(rule.cont)) continue;
+                const bool ruleCircumfix = has(rule.cont, circumfix);
+                if (onWord && !ruleCircumfix && !has(rule.cont, needAffix))
+                    if (const auto form = prefixed(word, rule)) forms.append(*form);
+                const auto combine = [&](const Suffixed& s, bool needCross) {
+                    if (s.circumfix != ruleCircumfix) return;
+                    if (needCross && !(prefix->cross && s.cross)) return;
+                    if (const auto form = prefixed(s.form, rule)) forms.append(*form);
                 };
-                apply(word);
-                if (it->cross)
-                    for (const QString& suffixed : crossSuffixed) apply(suffixed);
+                for (const Suffixed& s : withSuffixes)
+                    if (onWord || std::find(s.cont.cbegin(), s.cont.cend(), flag) != s.cont.cend()) combine(s, true);
+                // Suffixes the prefix's continuation class allows.
+                if (!onWord || rule.cont.empty()) continue;
+                extraSuffixFlags.clear();
+                for (const Flag f : rule.cont)
+                    if (std::find(flags.cbegin(), flags.cend(), f) == flags.cend()) extraSuffixFlags.push_back(f);
+                withPrefixSuffixes.clear();
+                if (!addSuffixes(word, extraSuffixFlags, withPrefixSuffixes)) return {};
+                for (const Suffixed& s : withPrefixSuffixes) combine(s, false);
+                if (forms.size() > kMaxForms) return {};
             }
         }
+        if (forms.size() > kMaxForms) return {};
     }
+    // A forbidden word in the .dic forbids the form whatever makes it ("Kongs"
+    // in Dutch); a form beginning or ending with a hyphen is a part of
+    // compound words only ("apk-").
+    forms.removeIf([&](const QString& form) {
+        return forbiddenWords.contains(form) || form.startsWith(QLatin1Char('-')) || form.endsWith(QLatin1Char('-'));
+    });
     *supported = true;
     return forms;
 }

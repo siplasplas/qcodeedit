@@ -55,10 +55,12 @@ install(EXPORT qcodeedit-grammarTargets
 )
 
 include(CMakePackageConfigHelpers)
+set(QCE_GRAMMAR_INSTALL_DATA_DIR ${CMAKE_INSTALL_DATADIR}/qcodeedit/grammar)
 configure_package_config_file(
     ${PROJECT_SOURCE_DIR}/cmake/qcodeedit-grammarConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/qcodeedit-grammarConfig.cmake
     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/qcodeedit-grammar
+    PATH_VARS QCE_GRAMMAR_INSTALL_DATA_DIR
 )
 write_basic_package_version_file(
     ${CMAKE_CURRENT_BINARY_DIR}/qcodeedit-grammarConfigVersion.cmake

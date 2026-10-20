@@ -55,6 +55,10 @@ constexpr double kDeleteTouchingOneCost = 0.7;
 /// swaps in a row ("dziłaja" → "działaj": "ła"/"ał", "ja"/"aj") are a letter
 /// moved by three rather than two slips. A moved letter that also lacks its
 /// diacritic adds the diacritic's cost ("dzielci" → "dzielić").
+/// Another letter typed instead of the meant one: on a key touching it (the
+/// finger slipped, "nonth" for month) costs less than any other letter.
+constexpr double kNeighbourKeyCost = 1.0;
+constexpr double kOtherLetterCost = 1.5;
 constexpr double kSwapTwoHandsCost = 0.5;
 constexpr double kSwapOneHandCost = 1.0;
 constexpr double kMoveCost[] = {0, 0.5, 1.0, 1.5};
@@ -66,7 +70,7 @@ constexpr double kMoveAgainCost = 0.5;
 /// letter moved by one to three places (kMoveCost, by hands for one place),
 /// a letter missing 1, one too many 0.9 (0.5 or 0.7 when its key touches the
 /// meant letters around it),
-/// another letter 1.5. Returns more than `limit` once it exceeds it.
+/// another letter 1.5 (1 on a neighbouring key). Returns more than `limit` once it exceeds it.
 double distance(const QString& a, const QString& b, double limit);
 
 /// A capital inside the typed word that the candidate has not there: right

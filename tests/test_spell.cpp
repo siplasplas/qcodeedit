@@ -447,8 +447,9 @@ private slots:
         QVERIFY(checker.scoredSuggestions(QStringLiteral("bhYc")).value(0).score
                 >= bhyc.value(0).score + 0.9);
         // A letter too many that touches neither neighbour: offered, not sure.
+        // (Also "agenta": s for a, the key beside it.)
         const auto agents = checker.scoredSuggestions(QStringLiteral("agents"));
-        QCOMPARE(agents.size(), 1);
+        QCOMPARE(agents.value(0).text, QStringLiteral("agent"));
         QVERIFY(!SpellChecker::isConfident(QStringLiteral("agents"), agents));
 
         CodeEditArea area;

@@ -140,7 +140,7 @@ after another adds 0.5, so "dziłaja" gives działają before działaj; a moved
 letter also lacking its diacritic adds 0.3, "dzielci" → dzielić), a missing
 letter 1, a letter too many 0.9, or 0.5 when its key touches both meant
 letters around it or repeats one ("bhyc": h between b and y) and 0.7 when it
-touches one, another letter 1.5, for a capital inside the word that the
+touches one, another letter 1.5 (1 on a key touching the meant one: "nonth" → month), for a capital inside the word that the
 suggestion has not 0.35 right after the capitals the word begins with (Shift
 held: "POłączyłem" → Połączyłem, which follows the word's capital; over three
 letters still sure, over four not; AltGr held with it, on those letters or
@@ -152,12 +152,19 @@ split into two words and
 suggestions are ranked the same way and break ties. The user's words are not
 among the forms; kept by class in memory, they are looked up in the same
 classes ("gemnini" → an added "gemini"), so even thousands of them cost
-nothing. Only suggestions close to
+nothing. Typographic apostrophes count as straight ones and come back in the
+suggestions ("d’echec" → d’échec; a word with straight ones gets straight
+ones, also from hunspell's French OCONV). A hyphenated word with one wrong
+part gets that part's suggestions in the whole ("six-nonth" → six-month).
+Only suggestions close to
 the best are shown (at most 0.6 worse), three at most (or the requested number
 if smaller), and none scoring more than 2.6 (with the frequency penalty
 below), so a word far from every dictionary word ("bookamrk" without an
 English dictionary) has no suggestion. `SpellChecker::scoredSuggestions()`
-gives the scores; `isConfident()` tells a single suggestion at most 0.8 away
+gives the scores. Frequency orders the suggestions but does not hide one
+spelled as close as a shown one when the frequency table has it: "fiunding"
+gets finding and funding, not a sure finding. `isConfident()` tells a single
+suggestion at most 0.8 away
 and scoring at most 1 with the frequency penalty,
 without a capital the typed word lacks: sure enough to apply without asking
 (correction while typing, checked at first in a review). On a list of 97 real

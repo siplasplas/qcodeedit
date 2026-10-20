@@ -526,6 +526,44 @@ QList<SpellChecker::Suggestion> SpellChecker::scoredSuggestions(const QString& w
         if (auto it = loaded->corrections.constFind(word); it != loaded->corrections.cend())
             return {{it.value(), 0, 0}};
     }
+    // Typographic apostrophes are compared as straight ones (the dictionaries'
+    // forms have those) and given back: "d’echec" → d’échec. A word with
+    // straight ones gets straight ones, also from hunspell (French OCONV).
+    const QChar curly(0x2019);
+    if (word.contains(curly)) {
+        QString straight = word;
+        QList<Suggestion> result = scoredSuggestions(straight.replace(curly, QLatin1Char('\'')), maxCount);
+        for (Suggestion& suggestion : result) suggestion.text.replace(QLatin1Char('\''), curly);
+        return result;
+    }
+    // A hyphenated word with one wrong part: that part's suggestions in the
+    // whole ("six-nonth" → six-month).
+    if (const QStringList parts = word.split(QLatin1Char('-')); parts.size() > 1) {
+        int wrong = -1;
+        for (int i = 0; i < parts.size(); ++i) {
+            if (parts[i].isEmpty() || check(parts[i])) continue;
+            if (wrong >= 0) {
+                wrong = -1;
+                break;
+            }
+            wrong = i;
+        }
+        if (wrong >= 0) {
+            QList<Suggestion> result = scoredSuggestions(parts[wrong], maxCount);
+            for (Suggestion& suggestion : result) {
+                QStringList whole = parts;
+                whole[wrong] = suggestion.text;
+                suggestion.text = whole.join(QLatin1Char('-'));
+            }
+            return result;
+        }
+    }
+    QList<Suggestion> result = cachedSuggestions(word, maxCount);
+    for (Suggestion& suggestion : result) suggestion.text.replace(curly, QLatin1Char('\''));
+    return result;
+}
+
+QList<SpellChecker::Suggestion> SpellChecker::cachedSuggestions(const QString& word, int maxCount) const {
     // Found before, unless the dictionaries (user words), the frequencies or
     // the way of finding them changed since.
     QString stamp = QString::number(registry().generation) + QLatin1Char('/')

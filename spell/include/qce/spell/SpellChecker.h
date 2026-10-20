@@ -182,6 +182,8 @@ public:
     void refreshUserDictionary();
 
 private:
+    /// scoredSuggestions() of a plain word, kept per checker.
+    QList<Suggestion> cachedSuggestions(const QString& word, int maxCount) const;
     QList<Suggestion> findSuggestions(const QString& word, int maxCount, bool* indexed) const;
     bool hasFrequencies() const;
     /// Occurrences per million of the word's stem; negative when no

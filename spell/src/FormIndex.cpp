@@ -319,7 +319,8 @@ double distance(const QString& a, const QString& b, double limit) {
         double rowMin = dist[at(i, 0)];
         for (int j = 1; j <= m; ++j) {
             const QChar x = la[i - 1], y = lb[j - 1];
-            double change = 1.5;
+            // Another letter: cheaper on a neighbouring key ("nonth" → month).
+            double change = keysTouch(x, y) ? kNeighbourKeyCost : kOtherLetterCost;
             if (x == y) {
                 change = 0;
             } else if (foldChar(x) == foldChar(y)) {

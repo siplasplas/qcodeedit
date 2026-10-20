@@ -153,15 +153,16 @@ kept per layout (`<name>-<layout>.forms`). Swapped
 letters, missing diacritics and a held AltGr keep the class; a letter too
 many, too few or wrong is a neighbouring class. Only those classes are
 ranked, by a weighted edit distance from the typed word: a missing diacritic
-0.3 (a typed one removed 0.6, or 0.3 right after another such letter: AltGr
-held, "żę" → "że"), two adjacent letters swapped 0.5 when the two hands type
-them on the keyboard and 1 when one hand does ("serach" for "search": r
-and a both left), a letter two places off 1, three places 1.5 (a swap right
+0.35 (a typed one removed 0.7, or 0.35 right after another such letter: AltGr
+held, "żę" → "że"), two adjacent letters swapped 0.6 when the two hands type
+them on the keyboard and 1.1 when one hand does ("serach" for "search": r
+and a both left), a letter two places off 1.1, three places 1.6 (a swap right
 after another adds 0.5, so "dziłaja" gives działają before działaj; a moved
-letter also lacking its diacritic adds 0.3, "dzielci" → dzielić), a missing
-letter 1, a letter too many 0.9, or 0.5 when its key touches both meant
-letters around it or repeats one ("bhyc": h between b and y) and 0.7 when it
-touches one, another letter 1.5 (1 on a key touching the meant one: "nonth" → month), for a capital inside the word that the
+letter also lacking its diacritic adds 0.2, "dzielci" → dzielić), a missing
+letter 0.9 (1 for the first letter, seldom left out), a letter too many 1.2,
+or 0.7 when its key touches both meant letters around it or repeats one
+("bhyc": h between b and y) and 0.9 when it touches one, another letter 1.5
+(1.1 on a key touching the meant one: "nonth" → month), for a capital inside the word that the
 suggestion has not 0.35 right after the capitals the word begins with (Shift
 held: "POłączyłem" → Połączyłem, which follows the word's capital; over three
 letters still sure, over four not; AltGr held with it, on those letters or
@@ -178,17 +179,29 @@ suggestions ("d’echec" → d’échec; a word with straight ones gets straight
 ones, also from hunspell's French OCONV). A hyphenated word with one wrong
 part gets that part's suggestions in the whole ("six-nonth" → six-month).
 Only suggestions close to
-the best are shown (at most 0.6 worse), three at most (or the requested number
-if smaller), and none scoring more than 2.6 (with the frequency penalty
-below), so a word far from every dictionary word ("bookamrk" without an
-English dictionary) has no suggestion. `SpellChecker::scoredSuggestions()`
+the best are shown (at most 0.6 worse, 0.3 with word frequencies), three at
+most (or the requested number if smaller), and none scoring more than 3.4
+(with the frequency penalty below), so a word far from every dictionary word
+has no suggestion. `SpellChecker::scoredSuggestions()`
 gives the scores (see below for the frequencies). `isConfident()` tells a single
 suggestion at most 0.8 away
 and scoring at most 1 with the frequency penalty,
 without a capital the typed word lacks: sure enough to apply without asking
-(correction while typing, checked at first in a review). On a list of 97 real
-typing mistakes 91 are first (hunspell alone: 71), 95 shown, 1.38 suggestions
-on average, 39 confident and all of those right, in about 25 ms each.
+(correction while typing, checked at first in a review).
+
+These costs and limits were fitted by `tools/spelltune` to 772 real typing
+mistakes of a Polish text of 36,000 words, written on Windows' Polish
+programmers' keyboard and corrected by hand: 60% missing diacritics, 8% a
+missing letter (in the middle 48, at the end 10, at the start 1), 6% a letter
+too many, 6% Shift or capitals, 5% another letter (a neighbouring key 23,
+another 10), 3.5% two swapped letters (22 of 27 typed by the two hands; the
+5 by one hand by different fingers). Tuned on half of the mistakes, checked on
+the other half: one suggestion, the right one, for 335 of 382 (293 before),
+and 261 sure corrections, none wrong (232 before). On the whole text 718 of
+765 found mistakes get the right first suggestion and 524 are corrected
+surely, one wrongly (a missing diacritic or a missing first letter, both
+words). On a list of 100 real Polish typing mistakes 91 are first (hunspell
+alone: 71), in about 6 ms each.
 A checker keeps the suggestions it found (per word) while its dictionaries,
 user words, corrections or frequencies stay the same, so a second review of a
 long text only looks for new words (6000 misspelled words: 45 s the first
@@ -201,8 +214,7 @@ compound freely (COMPOUNDFLAG or COMPOUNDBEGIN in its .aff: German, Dutch)
 asks hunspell always too, since the forms have no compound words
 ("Betriebsystem" → Betriebssystem; about 20 ms a word in German). A word
 with Shift held too long gets its one-capital spelling when the dictionary
-knows it ("BEtriebssystem" → Betriebssystem, also a compound). On a German
-text typed without umlauts 48 of 62 mistakes get the right first suggestion.
+knows it ("BEtriebssystem" → Betriebssystem, also a compound).
 
 Word frequency, when installed for the dictionary's language, puts common
 words before rare ones: `siplasplas/spell/freq/<language>.lemma.freq` in a
@@ -226,16 +238,16 @@ the file suggestions work as before, only rare words come up more often
 ("dialac": dialach, dialag, działać).
 [wiki2corpus](https://github.com/nlp-and-learning/wiki2corpus)'s `wordfreq`
 makes such files too, also from a text corpus.
-A suggestion's stem (hunspell's) adds 0.3 for each tenfold below 1000 per
+A suggestion's stem (hunspell's) adds 0.25 for each tenfold below 1000 per
 million words; one not in the file counts as 0.3 per million (very rare); a
 two-word suggestion takes its rarer word's: the penalty follows the logarithm
-of the frequency, from 0 (1000 per million and more) to 1.06 (0.3 per million).
-Only suggestions at most 0.4 worse
+of the frequency, from 0 (1000 per million and more) to 0.88 (0.3 per million).
+Only suggestions at most 0.3 worse
 than the best are then shown. "dialac" gives działać (not dialach, dialag).
-A suggestion spelled as close as a shown one is shown too when it is at most
-100 times rarer than the best (its penalty at most 0.6 above), however far
-behind its penalty puts it: "fiunding" gets finding and funding, not a sure
-finding, while "bhyc" stays a sure być (hyc is thousands of times rarer).
+A suggestion spelled as close as a shown one is shown too when its penalty is
+at most 0.8 above the best's, however far behind that puts it: "fiunding"
+gets finding and funding, not a sure finding, while "bhyc" gets być alone
+(hyc, not in the frequency table, scores 0.88 more).
 Counts from film subtitles did better than from Wikipedia, whose nouns and
 third person beat what people type.
 

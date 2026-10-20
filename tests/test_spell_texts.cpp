@@ -113,30 +113,31 @@ private slots:
         if (dictionaryFor(QStringLiteral("en_US")).isEmpty()) QSKIP("No English dictionary (hunspell-en-us)");
         const Result r = measure(QStringLiteral("en_US"), QStringLiteral("01.en"));
         QCOMPARE(r.sureWrong, QStringList());
-        // Measured: 38 of 49 found first, 44 shown (no frequencies here).
+        // Measured: 38 of 49 found first, 43 shown (no frequencies here; 44
+        // before the costs were fitted to real typing mistakes).
         QVERIFY(r.flagged >= 49);
         QVERIFY(r.first >= 38);
-        QVERIFY(r.shown >= 44);
+        QVERIFY(r.shown >= 43);
     }
 
     void germanWithoutUmlauts() {
         if (dictionaryFor(QStringLiteral("de_DE")).isEmpty()) QSKIP("No German dictionary (hunspell-de-de)");
         const Result r = measure(QStringLiteral("de_DE"), QStringLiteral("01.de"));
         QCOMPARE(r.sureWrong, QStringList());
-        // Measured: 46 of 61 found first, 49 shown (44 and 48 before compound
-        // words were asked of hunspell too: "Betriebsystem" → Betriebssystem).
+        // Measured: 50 of 61 found first, 53 shown (44 and 48 before compound
+        // words were asked of hunspell too, 46 and 49 before the fitted costs).
         QVERIFY(r.flagged >= 61);
-        QVERIFY(r.first >= 46);
-        QVERIFY(r.shown >= 49);
+        QVERIFY(r.first >= 50);
+        QVERIFY(r.shown >= 53);
     }
 
     void spanishWithoutAccents() {
         if (dictionaryFor(QStringLiteral("es_ES")).isEmpty()) QSKIP("No Spanish dictionary (hunspell-es)");
         const Result r = measure(QStringLiteral("es_ES"), QStringLiteral("01.es"));
         QCOMPARE(r.sureWrong, QStringList());
-        // Measured: 46 of 56 found first, 50 shown.
+        // Measured: 48 of 56 found first, 50 shown (46 before the fitted costs).
         QVERIFY(r.flagged >= 56);
-        QVERIFY(r.first >= 46);
+        QVERIFY(r.first >= 48);
         QVERIFY(r.shown >= 50);
     }
 
@@ -144,10 +145,10 @@ private slots:
         if (dictionaryFor(QStringLiteral("fr")).isEmpty()) QSKIP("No French dictionary (hunspell-fr)");
         const Result r = measure(QStringLiteral("fr"), QStringLiteral("01.fr"));
         QCOMPARE(r.sureWrong, QStringList());
-        // Measured: 51 of 58 found first, 55 shown (hunspell alone: 47 first).
+        // Measured: 51 of 58 found first, 57 shown (hunspell alone: 47 first).
         QVERIFY(r.flagged >= 58);
         QVERIFY(r.first >= 51);
-        QVERIFY(r.shown >= 55);
+        QVERIFY(r.shown >= 57);
     }
 };
 

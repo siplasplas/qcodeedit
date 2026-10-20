@@ -76,25 +76,27 @@ bool keysTouch(QChar a, QChar b);
 
 // The costs and limits below are variables, not constants, so that
 // tools/spelltune can fit them to real typing mistakes; programs leave
-// them as they are.
+// them as they are. The values were fitted to 772 mistakes of a Polish text
+// typed by hand (docs/SPELL.md); figures in the comments measured before
+// that may differ a little.
 
 /// Costs of a letter missing in the typed word (inserted into it) and of a
 /// letter too many (deleted from it): a letter is more often typed by the
 /// way than left out, most often a key touching both meant letters around
 /// it, or one of them twice ("bhyc": h between b and y), less when it touches
 /// one of them.
-inline double kInsertCost = 1.0;
-inline double kDeleteCost = 0.9;
-inline double kDeleteTouchingCost = 0.5;
-inline double kDeleteTouchingOneCost = 0.7;
+inline double kInsertCost = 0.90;
+inline double kDeleteCost = 1.20;
+inline double kDeleteTouchingCost = 0.70;
+inline double kDeleteTouchingOneCost = 0.90;
 /// Added to kInsertCost when the missing letter is the word's first: a
 /// word's beginning is seldom left out.
-inline double kInsertAtStartCost = 0.0;
+inline double kInsertAtStartCost = 0.10;
 /// A missing diacritic ("zolw" for żółw), one typed by mistake (removed),
 /// and a moved letter that also lacks its diacritic ("dzielci" → dzielić).
-inline double kMissingDiacriticCost = 0.3;
-inline double kTypedDiacriticCost = 0.6;
-inline double kMovedDiacriticCost = 0.3;
+inline double kMissingDiacriticCost = 0.35;
+inline double kTypedDiacriticCost = 0.70;
+inline double kMovedDiacriticCost = 0.20;
 /// A letter typed k places too early or too late (index k). One place, two
 /// adjacent letters swapped, is the usual slip when the two hands type them
 /// ("po poslku": s left, l right, kSwapTwoHandsCost), less likely with one
@@ -105,11 +107,11 @@ inline double kMovedDiacriticCost = 0.3;
 /// diacritic adds the diacritic's cost ("dzielci" → "dzielić").
 /// Another letter typed instead of the meant one: on a key touching it (the
 /// finger slipped, "nonth" for month) costs less than any other letter.
-inline double kNeighbourKeyCost = 1.0;
+inline double kNeighbourKeyCost = 1.10;
 inline double kOtherLetterCost = 1.5;
-inline double kSwapTwoHandsCost = 0.5;
-inline double kSwapOneHandCost = 1.0;
-inline double kMoveCost[] = {0, 0.5, 1.0, 1.5};
+inline double kSwapTwoHandsCost = 0.60;
+inline double kSwapOneHandCost = 1.10;
+inline double kMoveCost[] = {0, 0.5, 1.1, 1.6};
 inline double kMoveAgainCost = 0.5;
 
 /// Weighted Damerau–Levenshtein distance from the typed word `a` to `b`,
@@ -159,7 +161,7 @@ QString formIndexPath(const QString& dictionaryName, const QString& layout);
 bool buildFormIndex(const QString& affPath, const QString& dicPath, const QString& indexPath);
 
 /// Distance limit for suggestions (about two typing mistakes).
-inline double kSuggestionLimit = 2.6;
+inline double kSuggestionLimit = 3.4;
 /// Suggestions shown: those at most this much worse than the best, at most
 /// kMaxShown. On 96 real typing mistakes the right word is then always among
 /// them (a right one may be 0.6 behind a real word closer in spelling, e.g.
@@ -168,7 +170,7 @@ inline double kSuggestionLimit = 2.6;
 inline double kCloseToBest = 0.6;
 /// The same with word frequencies, which put the right word first more often:
 /// still all 96 right words shown, 1.28 suggestions on average.
-inline double kCloseToBestWithFrequency = 0.4;
+inline double kCloseToBestWithFrequency = 0.30;
 inline int kMaxShown = 3;
 
 /// Word frequency: the counts of dictionary entries (stems) in a corpus,
@@ -203,15 +205,15 @@ private:
 /// person beat what people type ("zmianiac" → zmianach before zmieniać).
 inline double kCommonPerMillion = 1000;
 inline double kVeryRarePerMillion = 0.3;
-inline double kFrequencyWeight = 0.3;
+inline double kFrequencyWeight = 0.25;
 /// A rival spelled as close as a shown suggestion is shown too when at most
 /// 100 times rarer (its penalty at most kFrequencyWeight · log10(100) above).
-inline double kRivalPenaltyGap = 0.6;
+inline double kRivalPenaltyGap = 0.80;
 double frequencyPenalty(double perMillion);
 
 /// Suggestions scoring more (too far from the typed word, e.g. "bookamrk" →
 /// bookami) are not shown at all.
-inline double kShownLimit = 2.6;
+inline double kShownLimit = 3.40;
 /// When nothing scores within kShownLimit, the suggestions up to this one
 /// are shown instead (never sure): a far word rather than none.
 inline double kFallbackShownLimit = 2.6;

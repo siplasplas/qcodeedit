@@ -1,0 +1,12 @@
+Ubuntu es una distribucion GNU/Linux basada en Debian GNU/Linux, que incluye princiupalmente software lbire y de codigo abierto. Puede utilizarsee en ordenadores y servidores. Esta orientado al usuario promedio, con un fuerte enfoque en la facilidad de uso y en mejorar la experiencia del usuario.
+
+Esta compuesto de miultiple software normalmente software lbiure y de codigo abierto. Estatdistivas web sugieren que la cuota de mercado de Ubuntu dentro de las ditribuciones Lixnu es, aproximadamentem del 52 %, y con una tendencia a aumatnera como servidor web.
+
+Su patrocinador, Canonical, es una comapnia britanica prpiedead del empresario sudafricano Mark Shuttleworth. Ofrece el sistema de manera gratuita, y se financia por medio de servcios vinculados al sistema operativo y vendiendo asistencia tecnica. Ademas, al mantenerio libre y gratuito, la empresa es capaz de aprovechar los dessarolladorres de la comnunidad para mejorar los componentes de su sistema operatiovo. Extreaoficialmente, la comnunidad de desarrolladores prporciona asistencia para otras derivaciones de Ubintu, con otros entornos graficos, conmo Kubuntu, Xubuntu, Ubuntu MATE, Edubuntu, Ubuntiu Studio Mythbuntu Ubuntu GNOME, Lubuntu y Ubuntu Cinnamon.
+
+Canonical, ademas de mantner Ubuntu, provee una version orietada a servidores, Ubuntu Server, una version para empresas, Ubuntu Desktop Remix, una para televisores, Ubuntu TV, otra version para tabletas Ubuntu Touch, tambien Ubuntu Phone y una paea usar el escritorio desde telefonos inteeligentesm Ubuntu for Android.
+
+Cada seus meses se lanza una nueva verison de Ubuntu. Esta recibe asistencia por parte de Canonical durante nueve meses por medio de actualizaciones de seguridadm parches para bugs criticos y actuaklizactiobnnes menores de programs. Las veriosnes LTS (Long Term Support), que se liberan cada dos anos, reciben asistencia durante cinco anos en los sistemas de escritorio y de sevidor.
+Inicio de Ubuntu
+
+Ubuntu es una bifurcation del codigo base del proyecto Debian GNU/Linxu. El objetivo inicial era hacer de Debian una distribucion mas facil de usar y entnder para los usuwarios finales, corrigiendo vatrios errores de este y haciendo mas sencillas algunas tereas como la gestion de programas. Su promer lanzamiento fue el 20 de octubre de 2004.

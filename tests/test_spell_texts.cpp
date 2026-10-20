@@ -12,8 +12,8 @@ using namespace qce::spell;
 // Real typing mistakes: texts typed again by hand (tests/data/spell, see its
 // README) against the published ones. The mistakes are found and corrected
 // at least as well as when this test was written; a sure correction is never
-// wrong. Uses the system's en_US, German and French dictionaries (skips
-// without them), without word frequencies, in a temporary cache.
+// wrong. Uses the system's en_US, German, Spanish and French dictionaries
+// (skips without them), without word frequencies, in a temporary cache.
 class TestSpellTexts : public QObject {
     Q_OBJECT
 
@@ -128,6 +128,16 @@ private slots:
         QVERIFY(r.flagged >= 61);
         QVERIFY(r.first >= 46);
         QVERIFY(r.shown >= 49);
+    }
+
+    void spanishWithoutAccents() {
+        if (dictionaryFor(QStringLiteral("es_ES")).isEmpty()) QSKIP("No Spanish dictionary (hunspell-es)");
+        const Result r = measure(QStringLiteral("es_ES"), QStringLiteral("01.es"));
+        QCOMPARE(r.sureWrong, QStringList());
+        // Measured: 46 of 56 found first, 50 shown.
+        QVERIFY(r.flagged >= 56);
+        QVERIFY(r.first >= 46);
+        QVERIFY(r.shown >= 50);
     }
 
     void frenchWithoutAccents() {

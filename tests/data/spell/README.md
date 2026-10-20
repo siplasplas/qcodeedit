@@ -10,7 +10,9 @@ them. Each `NN.<language>.orig.txt` is a text as published, and
   without accents (`developpee` for `développée`);
 - `01.de`: the start of the German Wikipedia article "Ubuntu", typed without
   umlauts (`geschatzt` for `geschätzt`) and with typing mistakes, also in
-  compound words (`Betriebsystem`).
+  compound words (`Betriebsystem`);
+- `01.es`: the start of the Spanish Wikipedia article "Ubuntu", typed without
+  accents (`distribucion` for `distribución`) and with typing mistakes.
 
 `test_spell_texts` pairs the words of each typed text with the published
 ones and checks the suggestions.

@@ -146,6 +146,14 @@ if(TARGET qcodeedit::spell AND TARGET qcodeedit::kate)
     set_tests_properties(test_spell PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
+# Word forms unfolded from small .aff/.dic files written by the test itself.
+if(TARGET qcodeedit::spell)
+    add_executable(test_form_index test_form_index.cpp)
+    target_include_directories(test_form_index PRIVATE ${PROJECT_SOURCE_DIR}/spell/src)
+    target_link_libraries(test_form_index PRIVATE qcodeedit::spell Qt6::Test)
+    add_test(NAME test_form_index COMMAND test_form_index)
+endif()
+
 # Code pages, detection and the editor's encoding guard (needs cpg).
 if(TARGET qcodeedit::encoding)
     add_executable(test_encoding test_encoding.cpp)

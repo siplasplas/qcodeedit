@@ -107,8 +107,11 @@ public:
     QList<PhraseCorrection> phraseCorrections(const Misspelling& misspelling, int maxCount = 3) const;
     /// Adds the word to the shared user dictionary and checks again.
     void addToDictionary(const QString& word);
-    /// Accepts the word in this editor (for the session) and checks again.
+    /// Accepts the word in this editor and checks again: kept for the
+    /// document's file (setDocumentPath()), or for the session without one.
     void ignore(const QString& word);
+    /// The file whose text this is (SpellChecker::setDocumentPath()).
+    void setDocumentPath(const QString& path);
 
     /// Checks the visible lines now (normally done by a timer).
     void recheck();

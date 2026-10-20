@@ -8,11 +8,14 @@
 
 #include "KateTestPaths.h"
 
+#include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QUndoStack>
 #include <QtTest>
+
+#include <sqlite3.h>
 
 using namespace qce;
 using namespace qce::spell;
@@ -37,6 +40,12 @@ private slots:
         qputenv("XDG_DATA_HOME", m_home.path().toLocal8Bit());
         // The suggestions' form files, too, stay out of the user's cache.
         qputenv("XDG_CACHE_HOME", m_home.filePath(QStringLiteral("cache")).toLocal8Bit());
+        // A user dictionary of an earlier version, to be taken in.
+        QVERIFY(QDir().mkpath(m_home.filePath(QStringLiteral("siplasplas/spell"))));
+        QFile old(m_home.filePath(QStringLiteral("siplasplas/spell/pl.dic")));
+        QVERIFY(old.open(QIODevice::WriteOnly | QIODevice::Text));
+        old.write("staryslowniczek\n");
+        old.close();
     }
 
     void dictionariesAndLanguageKeys() {
@@ -156,30 +165,78 @@ private slots:
 
     void userDictionaryIsShared() {
         if (!installed(QStringLiteral("pl"))) QSKIP("No Polish dictionary (hunspell-pl)");
-        const QString path = userDictionaryPath(QStringLiteral("pl_PL"));
-        QVERIFY(path.startsWith(m_home.path()));
-        QCOMPARE(path, userDictionaryPath(QStringLiteral("pl")));
+        QVERIFY(userDataPath().startsWith(m_home.path()));
+        // A user dictionary of an earlier version is taken in and moved away.
         SpellChecker first;
         first.setLanguages({QStringLiteral("pl")});
+        QVERIFY(first.check(QStringLiteral("staryslowniczek")));
+        QVERIFY(!QFile::exists(m_home.filePath(QStringLiteral("siplasplas/spell/pl.dic"))));
+        QVERIFY(QFile::exists(m_home.filePath(QStringLiteral("siplasplas/spell/imported/pl.dic"))));
+
         QVERIFY(!first.check(QStringLiteral("qcodeeditowy")));
         first.addToDictionary(QStringLiteral("qcodeeditowy"));
         QVERIFY(first.check(QStringLiteral("qcodeeditowy")));
         SpellChecker second;
         second.setLanguages({QStringLiteral("pl")});
         QVERIFY(second.check(QStringLiteral("qcodeeditowy")));
-        QFile file(path);
-        QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
-        QVERIFY(QString::fromUtf8(file.readAll()).split(QLatin1Char('\n')).contains(QStringLiteral("qcodeeditowy")));
-        file.close();
+        QVERIFY(second.userWords().contains(QStringLiteral("qcodeeditowy")));
 
         // A word another program added is taken in.
-        QTest::qWait(20);
-        QVERIFY(file.open(QIODevice::Append | QIODevice::Text));
-        QTextStream(&file) << "gicioriański\n";
-        file.close();
+        sqlite3* other = nullptr;
+        QCOMPARE(sqlite3_open(QFile::encodeName(userDataPath()).constData(), &other), SQLITE_OK);
+        sqlite3_busy_timeout(other, 3000);
+        QCOMPARE(sqlite3_exec(other, "INSERT INTO words(language, word) VALUES('pl', 'gicioriański')", nullptr,
+                              nullptr, nullptr),
+                 SQLITE_OK);
+        sqlite3_close(other);
         QVERIFY(!second.check(QStringLiteral("gicioriański")));
         second.refreshUserDictionary();
         QVERIFY(second.check(QStringLiteral("gicioriański")));
+    }
+
+    // Words ignored in a file are kept for it, and follow it when it is moved
+    // or copied (alone or with its directory).
+    void ignoredWordsKeptPerFile() {
+        if (!installed(QStringLiteral("pl"))) QSKIP("No Polish dictionary (hunspell-pl)");
+        const QString dir = m_home.filePath(QStringLiteral("docs"));
+        const QString file = dir + QStringLiteral("/a.txt");
+        const QString word = QStringLiteral("qwzxignorowane");
+        {
+            SpellChecker checker;
+            checker.setLanguages({QStringLiteral("pl")});
+            checker.setDocumentPath(file);
+            QVERIFY(!checker.check(word));
+            checker.ignore(word);
+            QVERIFY(checker.check(word));
+        }
+        const auto ignoredIn = [&](const QString& path) {
+            SpellChecker checker;
+            checker.setLanguages({QStringLiteral("pl")});
+            checker.setDocumentPath(path);
+            return checker.check(word);
+        };
+        QVERIFY(ignoredIn(file));                                  // after the window closed
+        QVERIFY(!ignoredIn(dir + QStringLiteral("/other.txt")));   // another file: not
+        QVERIFY(!ignoredIn(QString()));                            // no file: not
+
+        moveSpellingData(file, dir + QStringLiteral("/b.txt"));
+        QVERIFY(!ignoredIn(file));
+        QVERIFY(ignoredIn(dir + QStringLiteral("/b.txt")));
+        moveSpellingData(dir, m_home.filePath(QStringLiteral("moved")));
+        QVERIFY(ignoredIn(m_home.filePath(QStringLiteral("moved/b.txt"))));
+        copySpellingData(m_home.filePath(QStringLiteral("moved")), m_home.filePath(QStringLiteral("copy")));
+        QVERIFY(ignoredIn(m_home.filePath(QStringLiteral("copy/b.txt"))));
+        QVERIFY(ignoredIn(m_home.filePath(QStringLiteral("moved/b.txt"))));
+        removeSpellingData(m_home.filePath(QStringLiteral("copy/b.txt")));
+        QVERIFY(!ignoredIn(m_home.filePath(QStringLiteral("copy/b.txt"))));
+
+        SpellChecker checker;
+        checker.setLanguages({QStringLiteral("pl")});
+        checker.setDocumentPath(m_home.filePath(QStringLiteral("moved/b.txt")));
+        QCOMPARE(checker.ignoredWords(), QStringList{word});
+        checker.unignore(word);
+        QVERIFY(!checker.check(word));
+        QVERIFY(!ignoredIn(m_home.filePath(QStringLiteral("moved/b.txt"))));
     }
 
     // The user's own corrections are the only, sure suggestion of their word;
@@ -192,7 +249,7 @@ private slots:
         checker.addCorrection(QStringLiteral("Paypall"), QStringLiteral("PayPal"));
         QCOMPARE(checker.userCorrections(),
                  (QList<QPair<QString, QString>>{{QStringLiteral("Paypall"), QStringLiteral("PayPal")}}));
-        QVERIFY(QFile::exists(userCorrectionsPath(QStringLiteral("pl_PL"))));
+        QVERIFY(QFile::exists(userDataPath()));
         SpellChecker other;  // another program reads the shared file
         other.setLanguages({QStringLiteral("pl")});
         const auto suggestions = other.scoredSuggestions(QStringLiteral("Paypall"));

@@ -378,6 +378,12 @@ void CodeEditSpelling::addToDictionary(const QString& word) {
     recheck();
 }
 
+void CodeEditSpelling::setDocumentPath(const QString& path) {
+    if (path == m_checker.documentPath()) return;
+    m_checker.setDocumentPath(path);
+    recheck();
+}
+
 void CodeEditSpelling::ignore(const QString& word) {
     m_checker.ignore(word);
     recheck();

@@ -40,13 +40,23 @@ QString dictionaryFor(const QString& language);
 /// ("de" -> "hunspell-de-de"), as a hint for the user; empty when unknown.
 QString packageHint(const QString& language);
 
-/// The shared user dictionary of a language ("pl_PL" and "pl" -> the same
-/// file): <GenericDataLocation>/siplasplas/spell/<language>.dic, one word
-/// per line.
+/// The user's own spelling data, shared by all programs, in one SQLite
+/// database: <GenericDataLocation>/siplasplas/spell/spelling.sqlite. It holds
+/// the user dictionary and the own corrections of each language, and the
+/// words ignored in each file (by its path). User dictionaries of earlier
+/// versions (<language>.dic beside it) are taken in once and moved to its
+/// "imported" directory.
+QString userDataPath();
+/// A file or directory was moved, copied or deleted (e.g. by a file
+/// manager): the words ignored in the file, or in the files under the
+/// directory, follow it.
+void moveSpellingData(const QString& from, const QString& to);
+void copySpellingData(const QString& from, const QString& to);
+void removeSpellingData(const QString& path);
+/// Where earlier versions kept a language's user dictionary
+/// (<language>.dic) and own corrections (<language>.corrections); read no
+/// more.
 QString userDictionaryPath(const QString& dictionaryName);
-/// The user's own corrections of a language, shared by all programs:
-/// <GenericDataLocation>/siplasplas/spell/<language>.corrections, lines
-/// "typed<TAB>correction".
 QString userCorrectionsPath(const QString& dictionaryName);
 
 /// Downloaded lists of word forms with their counts, shared by all programs
@@ -156,10 +166,19 @@ public:
     QList<QPair<QString, QString>> userCorrections() const;
     void addCorrection(const QString& typed, const QString& correction);
     void removeCorrection(const QString& typed);
-    /// Accepts the word in this checker only (e.g. one document, for the session).
+    /// The file whose text is checked: the words ignored in it are kept for
+    /// it (userDataPath()) and come back when it is opened again. Empty (the
+    /// default): ignored for this session only.
+    void setDocumentPath(const QString& path);
+    QString documentPath() const;
+    /// Accepts the word in this checker: for the document's file from now
+    /// on, or for this session without one.
     void ignore(const QString& word);
-    /// Takes in words another program added to the shared user dictionary
-    /// (checks the file's time; CodeEditSpelling calls it before each pass).
+    /// The ignored words, and taking one back.
+    QStringList ignoredWords() const;
+    void unignore(const QString& word);
+    /// Takes in what another program changed: user words, and the words
+    /// ignored in the document (CodeEditSpelling calls it before each pass).
     void refreshUserDictionary();
 
 private:

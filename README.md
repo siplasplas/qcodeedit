@@ -125,8 +125,9 @@ Options:
   [docs/ENCODING.md](docs/ENCODING.md).
 - `QCE_BUILD_SPELL=ON` (default) — builds `qcodeedit-spell` (spell checking
   with hunspell: wavy underlines in comments, strings and plain text,
-  suggestions, a user dictionary shared by all programs). Needs hunspell's
-  development files (`libhunspell-dev`); skipped without them. See
+  suggestions, a user dictionary shared by all programs, words ignored per
+  file, in one SQLite database). Needs the development files of hunspell and
+  SQLite (`libhunspell-dev`, `libsqlite3-dev`); skipped without them. See
   [docs/SPELL.md](docs/SPELL.md).
 - `QCE_BUILD_SPELL_DOWNLOADER=ON` (default) — builds `qcodeedit-spelldata`:
   downloads a list of the most frequent word forms of a language

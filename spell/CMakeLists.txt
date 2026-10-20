@@ -1,14 +1,17 @@
 # qcodeedit-spell — optional spell checking with hunspell: dictionaries, a
 # user dictionary shared by all programs, and underlining misspelled words in
 # the editor. Kept apart from the core library so that only applications that
-# want it need hunspell.
+# want it need hunspell and SQLite.
 
+# The user's words, corrections and ignored words are kept in SQLite.
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
     pkg_check_modules(HUNSPELL IMPORTED_TARGET hunspell)
+    pkg_check_modules(SQLITE3 IMPORTED_TARGET sqlite3)
 endif()
-if(NOT HUNSPELL_FOUND)
-    message(STATUS "qcodeedit: hunspell not found (e.g. libhunspell-dev); qcodeedit-spell is not built")
+if(NOT HUNSPELL_FOUND OR NOT SQLITE3_FOUND)
+    message(STATUS "qcodeedit: hunspell or SQLite not found (libhunspell-dev, libsqlite3-dev); "
+                   "qcodeedit-spell is not built")
     return()
 endif()
 
@@ -19,6 +22,8 @@ add_library(qcodeedit-spell STATIC
     src/FormIndex.h
     src/SpellingReview.cpp
     src/UserDictionaryDialog.cpp
+    src/UserStore.cpp
+    src/UserStore.h
     include/qce/spell/SpellChecker.h
     include/qce/spell/CodeEditSpelling.h
     include/qce/spell/SpellingReview.h
@@ -33,7 +38,7 @@ target_include_directories(qcodeedit-spell
 
 target_link_libraries(qcodeedit-spell
     PUBLIC  qcodeedit::qcodeedit Qt6::Widgets
-    PRIVATE PkgConfig::HUNSPELL
+    PRIVATE PkgConfig::HUNSPELL PkgConfig::SQLITE3
 )
 
 add_library(qcodeedit::spell ALIAS qcodeedit-spell)

@@ -138,7 +138,10 @@ qce_add_test(test_extra_selections INTERNAL)
 # Spell checking with the system's hunspell dictionaries (skips without them).
 if(TARGET qcodeedit::spell AND TARGET qcodeedit::kate)
     add_executable(test_spell test_spell.cpp)
-    target_link_libraries(test_spell PRIVATE qcodeedit::spell qcodeedit::kate Qt6::Test)
+    # The test opens the shared database itself, as another program would.
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(TEST_SQLITE3 REQUIRED IMPORTED_TARGET sqlite3)
+    target_link_libraries(test_spell PRIVATE qcodeedit::spell qcodeedit::kate Qt6::Test PkgConfig::TEST_SQLITE3)
     add_test(NAME test_spell COMMAND test_spell)
     set_tests_properties(test_spell PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()

@@ -1,6 +1,7 @@
 #include <qce/spell/SpellChecker.h>
 
 #include "FormIndex.h"
+#include "UserStore.h"
 
 #include <hunspell.hxx>
 
@@ -70,14 +71,13 @@ struct Loaded {
     QString dicPath;
     QString encoding;
     bool utf8 = false;
-    QString userPath;
-    QDateTime userModified;
+    // The user's words and own corrections of the dictionary's language,
+    // from the shared store (UserStore.h); read again when it changes.
+    QString language;
     QSet<QString> userWords;
-    // The user's own corrections (typed word -> correction), shared by all
-    // programs like the user dictionary; read again when the file changes.
-    QString correctionsPath;
-    QDateTime correctionsModified;
+    qint64 userStamp = -1;
     QHash<QString, QString> corrections;
+    qint64 correctionsStamp = -1;
     // All word forms by class, for suggestions (see FormIndex.h): the cache
     // file, built in the background the first time; 0 not started, 1
     // building, 2 done (the file may still be missing: dictionary not
@@ -162,63 +162,26 @@ struct Loaded {
         QStringDecoder decoder(encoding.toLatin1().constData());
         return decoder(QByteArray::fromStdString(text));
     }
-    // Adds the user dictionary's words that are new (another program may
-    // have added some).
+    // Takes in the user words this or another program added or removed;
+    // true when they changed.
     bool refreshUserWords() {
-        const QFileInfo info(userPath);
-        if (!info.exists() || info.lastModified() == userModified) return false;
-        userModified = info.lastModified();
-        QFile file(userPath);
-        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
-        bool added = false;
-        QTextStream in(&file);
-        while (!in.atEnd()) {
-            const QString word = in.readLine().trimmed();
-            if (word.isEmpty() || userWords.contains(word)) continue;
-            userWords.insert(word);
-            hunspell->add(encode(word));
-            added = true;
-        }
-        return added;
+        const qint64 stamp = detail::UserStore::instance().stamp();
+        if (stamp == userStamp) return false;
+        userStamp = stamp;
+        const QSet<QString> now = detail::UserStore::instance().words(language);
+        if (now == userWords) return false;
+        for (const QString& word : now)
+            if (!userWords.contains(word)) hunspell->add(encode(word));
+        for (const QString& word : std::as_const(userWords))
+            if (!now.contains(word)) hunspell->remove(encode(word));
+        userWords = now;
+        return true;
     }
     void refreshCorrections() {
-        const QFileInfo info(correctionsPath);
-        const QDateTime modified = info.exists() ? info.lastModified() : QDateTime();
-        if (modified == correctionsModified) return;
-        correctionsModified = modified;
-        corrections.clear();
-        QFile file(correctionsPath);
-        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
-        QTextStream in(&file);
-        while (!in.atEnd()) {
-            const QString line = in.readLine();
-            const qsizetype tab = line.indexOf(QLatin1Char('\t'));
-            if (tab <= 0) continue;
-            const QString typed = line.left(tab).trimmed(), correction = line.mid(tab + 1).trimmed();
-            if (!typed.isEmpty() && !correction.isEmpty()) corrections.insert(typed, correction);
-        }
-    }
-    void saveCorrections() {
-        QDir().mkpath(QFileInfo(correctionsPath).absolutePath());
-        QSaveFile file(correctionsPath);
-        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
-        QStringList typed = corrections.keys();
-        typed.sort(Qt::CaseInsensitive);
-        QTextStream out(&file);
-        for (const QString& word : typed) out << word << '\t' << corrections.value(word) << '\n';
-        out.flush();
-        if (file.commit()) correctionsModified = QFileInfo(correctionsPath).lastModified();
-    }
-    void saveUserWords() {
-        QDir().mkpath(QFileInfo(userPath).absolutePath());
-        QSaveFile file(userPath);
-        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
-        QStringList words(userWords.cbegin(), userWords.cend());
-        words.sort(Qt::CaseInsensitive);
-        QTextStream out(&file);
-        for (const QString& word : words) out << word << '\n';
-        out.flush();
-        if (file.commit()) userModified = QFileInfo(userPath).lastModified();
+        const qint64 stamp = detail::UserStore::instance().stamp();
+        if (stamp == correctionsStamp) return;
+        correctionsStamp = stamp;
+        corrections = detail::UserStore::instance().corrections(language);
     }
 };
 
@@ -239,9 +202,8 @@ struct Registry {
                                                           QFile::encodeName(dictionary.dicPath).constData());
             result->encoding = qtEncodingName(result->hunspell->get_dict_encoding());
             result->utf8 = result->encoding.compare(QLatin1String("UTF-8"), Qt::CaseInsensitive) == 0;
-            result->userPath = userDictionaryPath(name);
+            result->language = languageOf(name);
             result->refreshUserWords();
-            result->correctionsPath = userCorrectionsPath(name);
             result->refreshCorrections();
             break;
         }
@@ -357,6 +319,24 @@ QString packageHint(const QString& language) {
     return packages.value(code, QStringLiteral("hunspell-") + code);
 }
 
+QString userDataPath() {
+    const QString base = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    if (base.isEmpty()) return {};
+    return base + QStringLiteral("/siplasplas/spell/spelling.sqlite");
+}
+
+void moveSpellingData(const QString& from, const QString& to) {
+    detail::UserStore::instance().movePath(QFileInfo(from).absoluteFilePath(), QFileInfo(to).absoluteFilePath());
+}
+
+void copySpellingData(const QString& from, const QString& to) {
+    detail::UserStore::instance().copyPath(QFileInfo(from).absoluteFilePath(), QFileInfo(to).absoluteFilePath());
+}
+
+void removeSpellingData(const QString& path) {
+    detail::UserStore::instance().removePath(QFileInfo(path).absoluteFilePath());
+}
+
 QString userCorrectionsPath(const QString& dictionaryName) {
     const QString base = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
     if (base.isEmpty()) return {};
@@ -462,7 +442,10 @@ bool buildWordFrequencies(const QString& dictionaryName, const QString& countsPa
 struct SpellChecker::Private {
     QStringList names;
     QList<std::shared_ptr<Loaded>> dictionaries;
-    QSet<QString> ignored;
+    QSet<QString> ignored;          // this session
+    QString documentPath;           // whose ignored words are kept (UserStore)
+    QSet<QString> keptIgnored;
+    qint64 ignoredStamp = -1;
     mutable QHash<QString, bool> cache;
     mutable int cacheGeneration = -1;
     HunspellSuggestions hunspellSuggestions = HunspellSuggestions::WhenNoneFound;
@@ -503,7 +486,8 @@ SpellChecker::HunspellSuggestions SpellChecker::hunspellSuggestions() const { re
 bool SpellChecker::isReady() const { return !d->dictionaries.isEmpty(); }
 
 bool SpellChecker::check(const QString& word) const {
-    if (d->dictionaries.isEmpty() || word.isEmpty() || d->ignored.contains(word)) return true;
+    if (d->dictionaries.isEmpty() || word.isEmpty() || d->ignored.contains(word) || d->keptIgnored.contains(word))
+        return true;
     if (d->cacheGeneration != registry().generation) {
         d->cache.clear();
         d->cacheGeneration = registry().generation;
@@ -690,17 +674,8 @@ bool SpellChecker::suggestionIndexReady() const {
 void SpellChecker::addToDictionary(const QString& word) {
     if (d->dictionaries.isEmpty() || word.trimmed().isEmpty()) return;
     const std::shared_ptr<Loaded>& loaded = d->dictionaries.front();
-    if (!loaded->userWords.contains(word)) {
-        QDir().mkpath(QFileInfo(loaded->userPath).absolutePath());
-        QFile file(loaded->userPath);
-        if (file.open(QIODevice::Append | QIODevice::Text)) {
-            QTextStream(&file) << word << '\n';
-            file.close();
-        }
-        loaded->userWords.insert(word);
-        loaded->userModified = QFileInfo(loaded->userPath).lastModified();
-    }
-    loaded->hunspell->add(loaded->encode(word));
+    detail::UserStore::instance().addWord(loaded->language, word);
+    loaded->refreshUserWords();
     ++registry().generation;
 }
 
@@ -716,9 +691,8 @@ QStringList SpellChecker::userWords() const {
 void SpellChecker::removeFromDictionary(const QString& word) {
     if (d->dictionaries.isEmpty()) return;
     const std::shared_ptr<Loaded>& loaded = d->dictionaries.front();
-    if (!loaded->userWords.remove(word)) return;
-    loaded->saveUserWords();
-    loaded->hunspell->remove(loaded->encode(word));
+    detail::UserStore::instance().removeWord(loaded->language, word);
+    loaded->refreshUserWords();
     ++registry().generation;
 }
 
@@ -737,27 +711,63 @@ QList<QPair<QString, QString>> SpellChecker::userCorrections() const {
 
 void SpellChecker::addCorrection(const QString& typed, const QString& correction) {
     if (d->dictionaries.isEmpty() || typed.trimmed().isEmpty() || correction.trimmed().isEmpty()) return;
-    const std::shared_ptr<Loaded>& loaded = d->dictionaries.front();
-    loaded->refreshCorrections();
-    loaded->corrections.insert(typed.trimmed(), correction.trimmed());
-    loaded->saveCorrections();
+    detail::UserStore::instance().addCorrection(d->dictionaries.front()->language, typed.trimmed(), correction.trimmed());
 }
 
 void SpellChecker::removeCorrection(const QString& typed) {
     if (d->dictionaries.isEmpty()) return;
-    const std::shared_ptr<Loaded>& loaded = d->dictionaries.front();
-    loaded->refreshCorrections();
-    if (loaded->corrections.remove(typed)) loaded->saveCorrections();
+    detail::UserStore::instance().removeCorrection(d->dictionaries.front()->language, typed);
 }
 
 void SpellChecker::refreshUserDictionary() {
     for (const auto& loaded : d->dictionaries)
         if (loaded->refreshUserWords()) ++registry().generation;
+    // The document's ignored words, also those another program ignored.
+    if (!d->documentPath.isEmpty()) {
+        const qint64 stamp = detail::UserStore::instance().stamp();
+        if (stamp != d->ignoredStamp) {
+            d->ignoredStamp = stamp;
+            const QSet<QString> kept = detail::UserStore::instance().ignored(d->documentPath);
+            if (kept != d->keptIgnored) {
+                d->keptIgnored = kept;
+                d->cache.clear();
+            }
+        }
+    }
 }
+
+void SpellChecker::setDocumentPath(const QString& path) {
+    d->documentPath = path.isEmpty() ? QString() : QFileInfo(path).absoluteFilePath();
+    d->keptIgnored = d->documentPath.isEmpty() ? QSet<QString>()
+                                                : detail::UserStore::instance().ignored(d->documentPath);
+    d->ignoredStamp = detail::UserStore::instance().stamp();
+    d->cache.clear();
+}
+
+QString SpellChecker::documentPath() const { return d->documentPath; }
 
 void SpellChecker::ignore(const QString& word) {
     d->ignored.insert(word);
     d->cache.remove(word);
+    if (!d->documentPath.isEmpty()) {
+        detail::UserStore::instance().addIgnored(d->documentPath, word);
+        d->keptIgnored.insert(word);
+    }
+}
+
+QStringList SpellChecker::ignoredWords() const {
+    QSet<QString> all = d->ignored;
+    all.unite(d->keptIgnored);
+    QStringList words(all.cbegin(), all.cend());
+    words.sort(Qt::CaseInsensitive);
+    return words;
+}
+
+void SpellChecker::unignore(const QString& word) {
+    d->ignored.remove(word);
+    d->keptIgnored.remove(word);
+    d->cache.remove(word);
+    if (!d->documentPath.isEmpty()) detail::UserStore::instance().removeIgnored(d->documentPath, word);
 }
 
 QList<QPair<int, int>> checkableWords(const QString& text, int start, int end) {

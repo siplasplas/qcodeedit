@@ -5,8 +5,8 @@ hunspell. Like the other parts of qcodeedit it gives mechanisms only: the
 toggle, the language menu, the context menu and any dialog are the
 application's.
 
-Building it needs hunspell's development files (`libhunspell-dev` on
-Debian/Ubuntu); without them the library is skipped and the rest of qcodeedit
+Building it needs the development files of hunspell and SQLite
+(`libhunspell-dev`, `libsqlite3-dev` on Debian/Ubuntu); without them the library is skipped and the rest of qcodeedit
 builds as before (`QCE_BUILD_SPELL`, on by default).
 
 ```cmake
@@ -72,11 +72,22 @@ comes first (`pl_PL`, `de_DE`), English is `en_US`. The languages detected by
 
 ## User dictionary
 
-**Add to Dictionary** writes the word to a user dictionary shared by all
-programs using qcodeedit-spell: `~/.local/share/siplasplas/spell/<language>.dic`
-(e.g. `pl.dic` for pl_PL), one word per line. A word added in one program is
-known in the others: `CodeEditSpelling` takes in words added elsewhere before
-each check (`SpellChecker::refreshUserDictionary()`).
+The user's own spelling data is one SQLite database shared by all programs
+using qcodeedit-spell: `~/.local/share/siplasplas/spell/spelling.sqlite`
+(`userDataPath()`). It holds the user dictionary and the own corrections of
+each language (`pl` for pl_PL), and the words ignored in each file, by its
+path. **Add to Dictionary** writes the word there; a word added in one program
+is known in the others: `CodeEditSpelling` takes in changes made elsewhere
+before each check (`SpellChecker::refreshUserDictionary()`). User dictionaries
+of earlier versions (`<language>.dic` beside the database) are taken in once
+and moved to its `imported` directory.
+
+**Ignore** keeps the word for the document's file when the application sets
+it (`CodeEditSpelling::setDocumentPath()`): it is not underlined there again
+after the file is opened later, but still is in other files; without a file
+it is ignored for the session only. A file manager moving, copying or deleting
+files or directories calls `moveSpellingData()`, `copySpellingData()` or
+`removeSpellingData()` so that the ignored words follow them.
 
 `SpellChecker` can be used on its own (`check()`, `suggestions()`,
 `addToDictionary()`, `ignore()`); it is not thread-safe.

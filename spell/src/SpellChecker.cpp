@@ -63,6 +63,18 @@ QString qtEncodingName(const std::string& hunspellName) {
     return name.isEmpty() ? QStringLiteral("ISO-8859-1") : name;
 }
 
+// The .aff lets words compound freely (COMPOUNDFLAG or COMPOUNDBEGIN), not
+// only by COMPOUNDRULE (English ordinals: "21st").
+bool compoundsWords(const QString& affPath) {
+    QFile file(affPath);
+    if (!file.open(QIODevice::ReadOnly)) return false;
+    while (!file.atEnd()) {
+        const QByteArray line = file.readLine();
+        if (line.startsWith("COMPOUNDFLAG") || line.startsWith("COMPOUNDBEGIN")) return true;
+    }
+    return false;
+}
+
 // A dictionary loaded once for the program, with the shared user dictionary.
 struct Loaded {
     std::unique_ptr<Hunspell> hunspell;
@@ -71,6 +83,9 @@ struct Loaded {
     QString dicPath;
     QString encoding;
     bool utf8 = false;
+    // Words compound freely (COMPOUNDFLAG, COMPOUNDBEGIN: German, Dutch):
+    // hunspell glues them, the forms have none of those.
+    bool compounds = false;
     // The user's words and own corrections of the dictionary's language,
     // from the shared store (UserStore.h); read again when it changes.
     QString language;
@@ -207,6 +222,7 @@ struct Registry {
             result->encoding = qtEncodingName(result->hunspell->get_dict_encoding());
             result->utf8 = result->encoding.compare(QLatin1String("UTF-8"), Qt::CaseInsensitive) == 0;
             result->language = languageOf(name);
+            result->compounds = compoundsWords(dictionary.affPath);
             result->refreshUserWords();
             result->refreshCorrections();
             break;
@@ -598,11 +614,23 @@ QList<SpellChecker::Suggestion> SpellChecker::findSuggestions(const QString& wor
                               std::make_move_iterator(found.end()));
         }
     }
+    // Shift held a letter too long ("GEmeinsinn"): the word with one capital,
+    // when right, is a candidate even if no form has it (a compound word).
+    int leading = 0;
+    while (leading < word.size() && word[leading].isUpper()) ++leading;
+    if (leading >= 2 && leading < word.size()) {
+        const QString oneCapital = word.left(1) + word.mid(1).toLower();
+        if (check(oneCapital))
+            candidates.emplace_back(detail::score(word, oneCapital, detail::kSuggestionLimit), oneCapital);
+    }
     // Hunspell's suggestions take most of the time; they may be left out
-    // when the forms already have candidates.
+    // when the forms already have candidates, unless the dictionary makes
+    // compound words ("Betriebsystem" → Betriebssystem, not among the forms).
     QStringList hunspellOrder;
-    if (!indexed || candidates.empty() || d->hunspellSuggestions == HunspellSuggestions::Always) {
-        for (const auto& loaded : d->dictionaries) {
+    const bool fromForms = indexed && !candidates.empty() && d->hunspellSuggestions != HunspellSuggestions::Always;
+    for (const auto& loaded : d->dictionaries) {
+        if (fromForms && !loaded->compounds) continue;
+        {
             const std::string encoded = loaded->encode(word);
             if (encoded.empty()) continue;
             for (const std::string& suggestion : loaded->hunspell->suggest(encoded)) {

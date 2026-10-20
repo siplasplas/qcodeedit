@@ -175,7 +175,13 @@ time, under a second afterwards).
 Hunspell's own suggestions take most of that time, so by default they are
 asked only when the forms have no candidate: the same results on that list
 (one tie broken differently elsewhere) in about 7 ms a word instead of 28;
-`setHunspellSuggestions(Always)` adds them always.
+`setHunspellSuggestions(Always)` adds them always. A dictionary whose words
+compound freely (COMPOUNDFLAG or COMPOUNDBEGIN in its .aff: German, Dutch)
+asks hunspell always too, since the forms have no compound words
+("Betriebsystem" → Betriebssystem; about 20 ms a word in German). A word
+with Shift held too long gets its one-capital spelling when the dictionary
+knows it ("BEtriebssystem" → Betriebssystem, also a compound). On a German
+text typed without umlauts 48 of 62 mistakes get the right first suggestion.
 
 Word frequency, when installed for the dictionary's language, puts common
 words before rare ones: `siplasplas/spell/freq/<language>.lemma.freq` in a

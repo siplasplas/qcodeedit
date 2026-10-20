@@ -78,7 +78,11 @@ using qcodeedit-spell: `~/.local/share/siplasplas/spell/spelling.sqlite`
 each language (`pl` for pl_PL), and the words ignored in each file, by its
 path. **Add to Dictionary** writes the word there; a word added in one program
 is known in the others: `CodeEditSpelling` takes in changes made elsewhere
-before each check (`SpellChecker::refreshUserDictionary()`). User dictionaries
+before each check (`SpellChecker::refreshUserDictionary()`). A word of the
+user's is right whatever hunspell says (hunspell rejects an added "Kazaa"
+when the dictionary has "KaZaA"); one added in lower case is right also
+capitalised or in capitals, and replaces those spellings added before
+("kazaa" after "Kazaa"), while they add nothing to it. User dictionaries
 of earlier versions (`<language>.dic` beside the database) are taken in once
 and moved to its `imported` directory.
 

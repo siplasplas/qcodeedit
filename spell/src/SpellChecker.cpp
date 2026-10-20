@@ -563,7 +563,17 @@ bool SpellChecker::check(const QString& word) const {
     }
     if (auto it = d->cache.constFind(word); it != d->cache.cend()) return it.value();
     bool right = false;
+    // The user's words count whatever hunspell says: it rejects an added
+    // "Kazaa" when the dictionary has "KaZaA" (its lower case is kept for
+    // capitals only). Added in lower case, a word may also begin with a
+    // capital or be all capitals, as the dictionary's words.
+    const QString lower = word.toLower();
+    const bool capitalized = word == lower.left(1).toUpper() + lower.mid(1) || word == word.toUpper();
     for (const auto& loaded : d->dictionaries) {
+        if (loaded->userWords.contains(word) || (capitalized && loaded->userWords.contains(lower))) {
+            right = true;
+            break;
+        }
         const std::string encoded = loaded->encode(word);
         if (!encoded.empty() && loaded->hunspell->spell(encoded)) {
             right = true;
@@ -802,7 +812,17 @@ QString SpellChecker::keyboardLayout() const {
 void SpellChecker::addToDictionary(const QString& word) {
     if (d->dictionaries.isEmpty() || word.trimmed().isEmpty()) return;
     const std::shared_ptr<Loaded>& loaded = d->dictionaries.front();
-    detail::UserStore::instance().addWord(loaded->language, word);
+    loaded->refreshUserWords();
+    const QString lower = word.toLower();
+    // A word in lower case covers its capitalised and all-capitals spellings
+    // (check()): it replaces them ("kazaa" after "Kazaa"), and they add
+    // nothing to it.
+    if (word != lower && loaded->userWords.contains(lower)) return;
+    detail::UserStore& store = detail::UserStore::instance();
+    if (word == lower)
+        for (const QString& other : {lower.left(1).toUpper() + lower.mid(1), lower.toUpper()})
+            if (other != lower && loaded->userWords.contains(other)) store.removeWord(loaded->language, other);
+    store.addWord(loaded->language, word);
     loaded->refreshUserWords();
     ++registry().generation;
 }

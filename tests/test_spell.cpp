@@ -298,6 +298,39 @@ private slots:
         QVERIFY(!ignoredIn(m_home.filePath(QStringLiteral("moved/b.txt"))));
     }
 
+    // Hunspell rejects an added word whose lower case belongs to a
+    // dictionary word in mixed case ("Kazaa", the dictionary has "KaZaA");
+    // the user's words count anyway.
+    void addedWordLikeMixedCaseOne() {
+        if (!installed(QStringLiteral("pl"))) QSKIP("No Polish dictionary (hunspell-pl)");
+        SpellChecker checker;
+        checker.setLanguages({QStringLiteral("pl")});
+        if (!checker.check(QStringLiteral("KaZaA"))) QSKIP("The Polish dictionary has no KaZaA");
+        QVERIFY(!checker.check(QStringLiteral("Kazaa")));
+        checker.addToDictionary(QStringLiteral("Kazaa"));
+        QVERIFY(checker.check(QStringLiteral("Kazaa")));
+        QVERIFY(checker.check(QStringLiteral("KAZAA")));
+        QVERIFY(!checker.check(QStringLiteral("kazaa")));  // added with a capital
+        checker.removeFromDictionary(QStringLiteral("Kazaa"));
+        QVERIFY(!checker.check(QStringLiteral("Kazaa")));
+        // Added in lower case: also with a capital, and the dictionary's own.
+        checker.addToDictionary(QStringLiteral("kazaa"));
+        QVERIFY(checker.check(QStringLiteral("kazaa")));
+        QVERIFY(checker.check(QStringLiteral("Kazaa")));
+        QVERIFY(checker.check(QStringLiteral("KaZaA")));
+        checker.removeFromDictionary(QStringLiteral("kazaa"));
+        QVERIFY(!checker.check(QStringLiteral("Kazaa")));
+        // Lower case after a capital replaces it; a capital after lower case
+        // adds nothing.
+        checker.addToDictionary(QStringLiteral("Kazaa"));
+        checker.addToDictionary(QStringLiteral("kazaa"));
+        QVERIFY(checker.userWords().contains(QStringLiteral("kazaa")));
+        QVERIFY(!checker.userWords().contains(QStringLiteral("Kazaa")));
+        checker.addToDictionary(QStringLiteral("Kazaa"));
+        QVERIFY(!checker.userWords().contains(QStringLiteral("Kazaa")));
+        checker.removeFromDictionary(QStringLiteral("kazaa"));
+    }
+
     // The user's own corrections are the only, sure suggestion of their word;
     // words and corrections can be removed again.
     void userCorrectionsAndRemovals() {

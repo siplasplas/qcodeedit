@@ -171,6 +171,13 @@ public:
     /// The keyboard layout its suggestions assume: keyboardLayoutFor() the
     /// language of its first dictionary.
     QString keyboardLayout() const;
+    /// qce::spell::checkableWords(), deciding about a character AltGr types
+    /// on a letter key after a letter (© on r, ” on b of the Polish
+    /// keyboard): AltGr not let go, so one misspelled word, when a part
+    /// around it is wrong and the word is right with it as its key's letter
+    /// ("któ©ych" → których, "zró”" → zrób) or without it ("któ©re");
+    /// otherwise the sign itself ("Firma©", a closing ”), between words.
+    QList<QPair<int, int>> checkableWords(const QString& text, int start, int end) const;
     /// Two words typed with the space one letter off: the letters of `first`
     /// and `second` joined and split one letter to the left or right into two
     /// right words, "w1 w2" (e.g. "n", "aoknie" → "na oknie"; "mam", "yz" →

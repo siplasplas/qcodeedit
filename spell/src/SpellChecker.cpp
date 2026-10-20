@@ -930,22 +930,10 @@ void SpellChecker::unignore(const QString& word) {
     if (!d->documentPath.isEmpty()) detail::UserStore::instance().removeIgnored(d->documentPath, word);
 }
 
-// Punctuation typed with AltGr on a letter key right after a letter typed
-// with AltGr ("zró”": ” is AltGr+b on the Polish keyboard): AltGr not let
-// go, part of the word; but a closing quotation mark when a quotation („ “ «)
-// is open before it in the text.
-bool altGrHeldOn(const QString& text, int at) {
-    if (at <= 0 || !detail::punctuationOnLetterKey(text[at])) return false;
-    const QChar before = text[at - 1];
-    if (!before.isLetter() || detail::foldChar(before) == before.toLower()) return false;
-    if (at + 1 < text.size() && text[at + 1].isLetter()) return true;
-    int open = 0;
-    for (int i = 0; i < at; ++i) {
-        const char16_t c = text[i].unicode();
-        if (c == u'„' || c == u'“' || c == u'«') ++open;
-        else if ((c == u'”' || c == u'»') && open > 0) --open;
-    }
-    return open == 0;
+// Not a letter, typed with AltGr on a letter key (an apostrophe is one of
+// its own).
+bool isAltGrMark(QChar c) {
+    return !c.isLetter() && !isApostrophe(c) && detail::onLetterKey(c);
 }
 
 QList<QPair<int, int>> checkableWords(const QString& text, int start, int end) {
@@ -967,15 +955,14 @@ QList<QPair<int, int>> checkableWords(const QString& text, int start, int end) {
             const int wordStart = j;
             while (j < token.size()) {
                 if (isWordChar(token[j])) ++j;
-            // A symbol AltGr types on a letter key between letters is AltGr
-            // not let go ("któ©re"); at the word's end it may be the sign
-            // itself ("Firma©").
-            else if (j > wordStart && j + 1 < token.size() && token[j + 1].isLetter()
-                     && detail::typedOnLetterKey(token[j]))
-                ++j;
-            else if (j > wordStart && altGrHeldOn(text, tokenStart + j)) ++j;
                 else if (isApostrophe(token[j]) && j > wordStart && j + 1 < token.size()
                          && token[j - 1].isLetter() && token[j + 1].isLetter())
+                    ++j;
+                // A character AltGr types on a letter key after a letter (©
+                // on r, ” on b of the Polish keyboard) stays with the word for
+                // now: SpellChecker::checkableWords() tells AltGr not let go
+                // from the sign itself.
+                else if (j > wordStart && token[j - 1].isLetter() && isAltGrMark(token[j]))
                     ++j;
                 else
                     break;
@@ -985,6 +972,51 @@ QList<QPair<int, int>> checkableWords(const QString& text, int start, int end) {
         }
     }
     return words;
+}
+
+QList<QPair<int, int>> SpellChecker::checkableWords(const QString& text, int start, int end) const {
+    QList<QPair<int, int>> result;
+    for (const auto& [at, length] : qce::spell::checkableWords(text, start, end)) {
+        const QString word = text.mid(at, length);
+        QList<int> marks;
+        for (int i = 0; i < word.size(); ++i)
+            if (isAltGrMark(word[i])) marks << i;
+        if (marks.isEmpty()) {
+            result.append({at, length});
+            continue;
+        }
+        // AltGr not let go: a part around the mark is wrong, and the word is
+        // right with the mark as its key's letter ("któ©ych" → których,
+        // "zró”" → zrób) or without it ("któ©re" → które); other mistakes
+        // not counted. Then it is one misspelled word.
+        QString keyed = word, removed;
+        bool partWrong = false;
+        int from = 0;
+        for (int i = 0; i <= word.size(); ++i) {
+            if (i < word.size() && !marks.contains(i)) {
+                removed += word[i];
+                continue;
+            }
+            if (i < word.size()) keyed[i] = detail::foldChar(word[i]);
+            const QString part = word.mid(from, i - from);
+            if (!part.isEmpty() && !check(part)) partWrong = true;
+            from = i + 1;
+        }
+        if (partWrong && (check(keyed) || check(removed))) {
+            result.append({at, length});
+            continue;
+        }
+        // Otherwise the marks are signs ("Firma©", a closing ”): the parts are
+        // words of their own.
+        from = 0;
+        for (int i = 0; i <= word.size(); ++i) {
+            if (i < word.size() && !marks.contains(i)) continue;
+            const QString part = word.mid(from, i - from);
+            if (!part.isEmpty() && worthChecking(part)) result.append({at + from, i - from});
+            from = i + 1;
+        }
+    }
+    return result;
 }
 
 } // namespace qce::spell

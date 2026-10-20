@@ -118,23 +118,25 @@ private slots:
         QCOMPARE(words, (QStringList{QStringLiteral("Zwykłe"), QStringLiteral("słowa"), QStringLiteral("don't")}));
         // Only inside the given columns.
         QCOMPARE(checkableWords(text, 7, 12).size(), 1);
-        // On the Polish keyboard © is AltGr+r: between letters a slip inside
-        // the word; alone or at a word's end the sign itself.
+    }
+
+    // A character AltGr types on a letter key (© on r, ” on b of the Polish
+    // keyboard) after a letter: AltGr not let go when a part around it is
+    // wrong and the word is right with it as its key's letter or without it;
+    // otherwise the sign itself, between words.
+    void altGrMarksInWords() {
+        if (!installed(QStringLiteral("pl"))) QSKIP("No Polish dictionary (hunspell-pl)");
         const QString before = keyboardLayout();
         QVERIFY(setKeyboardLayout(QStringLiteral("pl")));
-        const QString held = QStringLiteral("Słowa któ©re © Firma© i");
-        words.clear();
-        for (const auto& word : checkableWords(held, 0, int(held.size())))
-            words << held.mid(word.first, word.second);
-        QCOMPARE(words, (QStringList{QStringLiteral("Słowa"), QStringLiteral("któ©re"), QStringLiteral("Firma")}));
-        // ” is AltGr+b: after ó AltGr not let go, part of the word; closing an
-        // open „ a quotation mark.
-        const QString quoted = QStringLiteral("Mam zró” to, „zrób” i");
-        words.clear();
-        for (const auto& word : checkableWords(quoted, 0, int(quoted.size())))
-            words << quoted.mid(word.first, word.second);
-        QCOMPARE(words, (QStringList{QStringLiteral("Mam"), QStringLiteral("zró”"), QStringLiteral("to"),
-                                     QStringLiteral("zrób")}));
+        SpellChecker checker;
+        checker.setLanguages({QStringLiteral("pl")});
+        const QString text = QStringLiteral("Mam któ©re i któ©ych, zró” to, są” i „zrób”, Firma© ©");
+        QStringList words;
+        for (const auto& word : checker.checkableWords(text, 0, int(text.size())))
+            words << text.mid(word.first, word.second);
+        QCOMPARE(words, (QStringList{QStringLiteral("Mam"), QStringLiteral("któ©re"), QStringLiteral("któ©ych"),
+                                     QStringLiteral("zró”"), QStringLiteral("to"), QStringLiteral("są"),
+                                     QStringLiteral("zrób"), QStringLiteral("Firma")}));
         setKeyboardLayout(before);
     }
 

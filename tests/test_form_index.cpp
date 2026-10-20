@@ -251,7 +251,7 @@ private slots:
         QCOMPARE(foldChar(QChar(0x00A9)), QChar(u'r'));
         QCOMPARE(foldChar(QChar(u'ß')), QChar(u't'));
         QCOMPARE(foldChar(QChar(u'ź')), QChar(u'z'));
-        QVERIFY(typedOnLetterKey(QChar(0x00A9)));
+        QVERIFY(onLetterKey(QChar(0x00A9)));
         QVERIFY(keysTouch(QChar(u'z'), QChar(u'x')));
         QVERIFY(score(QStringLiteral("któ©ych"), QStringLiteral("których"), kSuggestionLimit) < 0.5);
         // German: QWERTZ; ẞ is Shift+AltGr+s, so ß counts as an s ("Strasse"

@@ -29,12 +29,13 @@ private:
         QStringList sureWrong;
     };
 
-    static QStringList wordsOf(const QString& path) {
+    // The words as the editor checks them.
+    static QStringList wordsOf(const QString& path, const SpellChecker& checker) {
         QFile file(path);
         if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
         const QString text = QString::fromUtf8(file.readAll());
         QStringList words;
-        for (const auto& [start, length] : checkableWords(text, 0, int(text.size())))
+        for (const auto& [start, length] : checker.checkableWords(text, 0, int(text.size())))
             words.append(text.mid(start, length));
         return words;
     }
@@ -77,10 +78,10 @@ private:
 
     Result measure(const QString& language, const QString& name) {
         const QString dir = QStringLiteral(QCE_TEST_DATA_DIR "/spell/");
-        const QStringList published = wordsOf(dir + name + QStringLiteral(".orig.txt"));
-        const QStringList typed = wordsOf(dir + name + QStringLiteral(".typed.txt"));
         SpellChecker checker;
         checker.setLanguages({language});
+        const QStringList published = wordsOf(dir + name + QStringLiteral(".orig.txt"), checker);
+        const QStringList typed = wordsOf(dir + name + QStringLiteral(".typed.txt"), checker);
         Result result;
         if (!QTest::qWaitFor([&] { return checker.suggestionIndexReady(); }, 60000)) return result;
         for (const auto& [word, right] : typingMistakes(published, typed)) {

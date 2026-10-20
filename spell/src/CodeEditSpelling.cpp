@@ -219,7 +219,7 @@ void CodeEditSpelling::recheck() {
     for (int line = first; line <= last; ++line) {
         const QString text = doc->lineAt(line);
         for (const auto& range : m_area->spellCheckRanges(line)) {
-            for (const auto& word : checkableWords(text, range.first, range.second)) {
+            for (const auto& word : m_checker.checkableWords(text, range.first, range.second)) {
                 const int end = word.first + word.second;
                 if (edited && line == cursor.line && cursor.column >= word.first && cursor.column <= end)
                     m_typedWord = {line, word.first, end};
@@ -258,7 +258,7 @@ std::optional<CodeEditSpelling::Misspelling> CodeEditSpelling::misspelledWordAt(
     const QString text = doc->lineAt(position.line);
     for (const auto& range : m_area->spellCheckRanges(position.line)) {
         if (position.column < range.first || position.column > range.second) continue;
-        for (const auto& word : checkableWords(text, range.first, range.second)) {
+        for (const auto& word : m_checker.checkableWords(text, range.first, range.second)) {
             if (position.column < word.first || position.column > word.first + word.second) continue;
             const QString found = text.mid(word.first, word.second);
             if (m_checker.check(found)) return std::nullopt;
@@ -282,7 +282,7 @@ QList<CodeEditSpelling::Misspelling> CodeEditSpelling::misspelledWords(TextCurso
     for (int line = qMax(0, from.line); line <= lastLine; ++line) {
         const QString text = doc->lineAt(line);
         for (const auto& range : m_area->spellCheckRanges(line)) {
-            for (const auto& word : checkableWords(text, range.first, range.second)) {
+            for (const auto& word : m_checker.checkableWords(text, range.first, range.second)) {
                 const TextCursor start{line, word.first}, end{line, word.first + word.second};
                 if (start < from || to < end) continue;
                 const QString found = text.mid(word.first, word.second);

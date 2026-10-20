@@ -377,15 +377,6 @@ KeyboardScope::~KeyboardScope() {
     scopedKeyboard = m_previous;
 }
 
-bool typedOnLetterKey(QChar c) {
-    if (c.isLetter() || c.isPunct()) return false;
-    return onLetterKey(c);
-}
-
-bool punctuationOnLetterKey(QChar c) {
-    return c.isPunct() && onLetterKey(c);
-}
-
 bool onLetterKey(QChar c) {
     // On the keyboard in use, or any the desktop has.
     if (keyboard().keyOf.contains(c.unicode())) return true;

@@ -172,10 +172,10 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     addKind(tr("Single suggestion"), CheckedAtFirst::Single, tr("A single suggestion, sure or not"));
     addKind(tr("Single suggestion, not sure"), CheckedAtFirst::SingleNotSure,
             tr("A single suggestion not close enough to be sure, e.g. \"agents\" → agent"));
-    addKind(tr("Several suggestions"), CheckedAtFirst::Several, QString());
-    addKind(tr("Several, first close"), CheckedAtFirst::SeveralFirstClose,
+    addKind(tr("Several, first sure"), CheckedAtFirst::SeveralFirstClose,
             tr("Several suggestions, the first close enough to be sure if it were the only one"));
-    addKind(tr("Several, first not close"), CheckedAtFirst::SeveralFirstNotClose, QString());
+    addKind(tr("Several, first not sure"), CheckedAtFirst::SeveralFirstNotClose, QString());
+    addKind(tr("Several, any"), CheckedAtFirst::Several, tr("Several suggestions, the first sure or not"));
     addKind(tr("Words without suggestions"), CheckedAtFirst::NoSuggestions,
             tr("To add to the dictionary, ignore or give your own correction (Own Correction)"));
     const CheckedAtFirst shown = checkedAtFirst == CheckedAtFirst::None ? CheckedAtFirst::Every : checkedAtFirst;

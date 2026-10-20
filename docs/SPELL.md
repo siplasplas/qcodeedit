@@ -285,8 +285,8 @@ finding the corrections took. It is made for reviewing a text a kind of word
 at a time, opened again for the next kind: "Show" lists the words of one kind
 (`CheckedAtFirst`, a name of earlier versions; the application keeps the
 user's choice): all words, sure corrections, a single suggestion, a single one
-not sure, several suggestions, several with the first close or not, words
-without suggestions. Nothing is checked at first; an action applied checks or
+not sure, several suggestions with the first sure, with the first not sure,
+or any, words without suggestions. Nothing is checked at first; an action applied checks or
 unchecks all the words shown, or the rows selected (those two actions let
 several rows be selected, with Ctrl and Shift). Correct corrects the checked
 words of the kind shown only, the others stay for the next review: e.g. sure

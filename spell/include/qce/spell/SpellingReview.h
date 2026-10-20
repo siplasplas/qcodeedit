@@ -64,8 +64,8 @@ struct SpellingReviewItem {
 /// closer), line and context, sorted as in the text, alphabetically or by
 /// score. Made for reviewing a text a kind at a time, the window opened
 /// again for the next kind: "Show" lists the words of one kind (all, sure
-/// corrections, a single suggestion, a single one not sure, several, several
-/// with the first close or not, words without suggestions); nothing is
+/// corrections, a single suggestion, a single one not sure, several with the
+/// first sure, with the first not sure, or any, words without suggestions); nothing is
 /// checked at first; an action applied checks or unchecks all the words shown
 /// or the rows selected (the last two let several rows be selected, with Ctrl
 /// and Shift). Correct corrects the checked words of the kind shown only; the

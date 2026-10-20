@@ -138,6 +138,9 @@ public:
     };
     /// The grammar mistake at `position` (in its words or right after them), if any.
     std::optional<GrammarMistake> grammarMistakeAt(TextCursor position);
+    /// All grammar mistakes in the lines from `from` to `to`, in order, where
+    /// checking applies (e.g. for reviewing the text or the selection).
+    QList<GrammarMistake> grammarMistakes(TextCursor from, TextCursor to);
 
     /// Checks the visible lines now (normally done by a timer).
     void recheck();

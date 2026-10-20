@@ -85,6 +85,13 @@ if (auto mistake = spelling->grammarMistakeAt(area->cursorPosition()))
         menu.addAction(text, [=] { spelling->replaceWord(range, text); });
 ```
 
+`openGrammarReview(*spelling, parent)` (`GrammarReview.h`) lists the grammar
+mistakes of the text or of the selection's lines in a window that is not
+modal: the words, the problem, a correction to choose, line and context;
+"Show" picks one rule; Correct corrects the checked mistakes shown as one
+undo step and looks for mistakes again. `grammarMistakes(from, to)` gives
+them to a program's own window.
+
 ## Dictionaries and languages
 
 ```cpp

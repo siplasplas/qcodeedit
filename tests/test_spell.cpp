@@ -1,4 +1,5 @@
 #include <qce/spell/CodeEditSpelling.h>
+#include <qce/spell/GrammarReview.h>
 #include <qce/spell/SpellChecker.h>
 
 #include <qce/CodeEditArea.h>
@@ -13,6 +14,8 @@
 #endif
 
 #include <QDir>
+#include <QPushButton>
+#include <QTreeWidget>
 #include <QRegularExpression>
 #include <QFile>
 #include <QTemporaryDir>
@@ -240,6 +243,36 @@ private slots:
         QCOMPARE(area.extraSelections(CodeEditArea::GrammarLayer).size(), 1);
         spelling.setGrammarChecker(nullptr);
         QVERIFY(area.extraSelections(CodeEditArea::GrammarLayer).isEmpty());
+    }
+
+    void grammarReview() {
+        if (!installed(QStringLiteral("pl"))) QSKIP("No Polish dictionary (hunspell-pl)");
+        SimpleTextDocument doc;
+        doc.setText(QStringLiteral("Wiem, ze jest dobrze.\nWiem, ze jestt.\nMyślę, ze tak."));
+        CodeEditArea area;
+        area.setDocument(&doc);
+        CodeEditSpelling spelling(&area);
+        spelling.setLanguages({QStringLiteral("pl")});
+        spelling.setGrammarChecker(std::make_shared<FakeGrammar>());
+        const auto all = spelling.grammarMistakes({0, 0}, {2, 14});
+        QCOMPARE(all.size(), 2);  // not the line with a misspelled word
+        QCOMPARE(all[1].start, (TextCursor{2, 7}));
+
+        GrammarReviewDialog review(spelling, 0, 2, false);
+        QCOMPARE(review.mistakeCount(), 2);
+        auto* list = review.findChild<QTreeWidget*>();
+        QVERIFY(list);
+        list->topLevelItem(1)->setCheckState(0, Qt::Checked);
+        QPushButton* correct = nullptr;
+        for (auto* button : review.findChildren<QPushButton*>())
+            if (button->text() == GrammarReviewDialog::tr("&Correct")) correct = button;
+        QVERIFY(correct);
+        correct->click();
+        QCOMPARE(doc.lineAt(2), QStringLiteral("Myślę, że tak."));
+        QCOMPARE(review.correctedSoFar(), 1);
+        QCOMPARE(review.mistakeCount(), 1);  // looked for again
+        area.undoStack()->undo();
+        QCOMPARE(doc.lineAt(2), QStringLiteral("Myślę, ze tak."));
     }
 
     void underlinesSuggestsAndReplaces() {

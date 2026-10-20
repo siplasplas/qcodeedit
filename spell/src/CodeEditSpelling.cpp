@@ -221,6 +221,16 @@ QList<CodeEditSpelling::GrammarMistake> CodeEditSpelling::grammarMistakes(int li
     return result;
 }
 
+QList<CodeEditSpelling::GrammarMistake> CodeEditSpelling::grammarMistakes(TextCursor from, TextCursor to) {
+    QList<GrammarMistake> result;
+    if (!m_area || !m_area->document() || !m_enabled || !grammarActive()) return result;
+    const int last = qMin(to.line, m_area->document()->lineCount() - 1);
+    for (int line = qMax(0, from.line); line <= last; ++line)
+        for (const GrammarMistake& mistake : grammarMistakes(line))
+            if (!(mistake.end <= from) && mistake.start < to) result.append(mistake);
+    return result;
+}
+
 std::optional<CodeEditSpelling::GrammarMistake> CodeEditSpelling::grammarMistakeAt(TextCursor position) {
     if (!m_area || !m_area->document() || !m_enabled || !grammarActive()) return std::nullopt;
     if (position.line < 0 || position.line >= m_area->document()->lineCount()) return std::nullopt;

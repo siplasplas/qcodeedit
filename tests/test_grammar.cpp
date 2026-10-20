@@ -64,6 +64,14 @@ const char* const kGrammarDictionary =
     "mam\tmama\tsubst:pl:gen:f\tnazwa_pospolita\t\n"
     "mama\tmama\tsubst:sg:nom:f\tnazwa_pospolita\t\n"
     "dzwoniła\tdzwonić\tpraet:sg:f:imperf\t\t\n"
+    "po\tpo\tprep:loc\t\t\n"
+    "jechałem\tjechać\tpraet:sg:m1.m2.m3:pri:imperf\t\t\n"
+    "pojechałem\tpojechać\tpraet:sg:m1.m2.m3:pri:perf\t\t\n"
+    "z\tz\tprep:gen:nwok\t\t\n"
+    "z\tz\tprep:inst:nwok\t\t\n"
+    "ż\tż\tpart\t\t\n"
+    "pielgrzymka\tpielgrzymka\tsubst:sg:nom:f\tnazwa_pospolita\t\n"
+    "pielgrzymką\tpielgrzymka\tsubst:sg:inst:f\tnazwa_pospolita\t\n"
     "juz\tjuz\tsubst:sg:nom.acc:m3\tnazwa_pospolita\ttechn.|hist.\n"
     "już\tjuż\tpart\t\t\n";
 
@@ -210,6 +218,16 @@ private slots:
         // this one is left alone.
         QVERIFY(check(grammar, "piękna dziewczynie").empty());
     
+        // Two words as one, a space typed by mistake, offered first.
+        const std::vector<Finding> split = check(grammar, "Po jechałem");
+        QVERIFY(!split.empty() && !split.front().suggestions.empty());
+        QCOMPARE(split.front().suggestions.front().word, std::string("Pojechałem"));
+        QCOMPARE(split.front().suggestions.front().tokens, size_t(2));
+        // No word of one letter the language lacks ("ż").
+        const std::vector<Finding> pilgrimage = check(grammar, "z pielgrzymka");
+        QVERIFY(suggests(pilgrimage, "government", 1, "pielgrzymką"));
+        QVERIFY(!suggests(pilgrimage, "government", 0, "ż"));
+
         // A word known only as rare, one diacritic from a common one.
         QVERIFY(suggests(check(grammar, "juz jest"), "rare word", 0, "już"));
         QVERIFY(check(grammar, "już jest").empty());

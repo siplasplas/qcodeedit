@@ -393,6 +393,8 @@ bool loadGrammarRules(const std::string& path, GrammarRules& rules, std::string*
         } else if (section == "not-after") {
             if (fields.size() != 2) return fail("a word and a preposition");
             rules.notAfter.emplace_back(toLower(fromUtf8(fields[0])), toLower(fromUtf8(fields[1])));
+        } else if (section == "one-letter-words") {
+            for (const std::string& f : fields) rules.oneLetterWords.push_back(toLower(fromUtf8(f)));
         } else if (section == "idioms") {
             if (fields.size() != 2) return fail("a preposition and a word");
             rules.idioms.push_back(toLower(fromUtf8(fields[0] + " " + fields[1])));
@@ -612,6 +614,13 @@ std::vector<Finding> Grammar::check(const std::vector<Token>& tokens) const {
         const char* rule = broken(k);
         if (!rule) continue;
         Finding finding{k, rule, {}};
+        // The two words as one, a space typed by mistake ("Po jechałem":
+        // Pojechałem), first.
+        {
+            const std::string joined = tokens[k].text + tokens[k + 1].text;
+            const Word w = analyse(k, joined);
+            if (w.known && !w.rare) finding.suggestions.push_back({k, joined, 2});
+        }
         // Words one slip away that leave the pairs around them unbroken; for
         // two verbs, the first one as the second one's subject.
         const bool verbs = std::string_view(rule) == "verbs";
@@ -619,6 +628,13 @@ std::vector<Finding> Grammar::check(const std::vector<Token>& tokens) const {
             if (verbs && t != k) continue;
             const Word kept = words[t];
             for (const std::string& variant : slipVariants(tokens[t].text)) {
+                // A word of one letter only when the language has it ("w",
+                // not "ż" or "P").
+                const std::u32string chars = toLower(fromUtf8(variant));
+                if (chars.size() == 1
+                    && std::find(m_rules.oneLetterWords.begin(), m_rules.oneLetterWords.end(), chars)
+                           == m_rules.oneLetterWords.end())
+                    continue;
                 words[t] = analyse(t, variant);
                 if (words[t].known && !words[t].rare && !(t > 0 && broken(t - 1)) && !broken(t)
                     && (!verbs || (subjectFits(words[t], words[k + 1]) && (m_forms.empty() || words[t].frequent))))
@@ -639,10 +655,18 @@ std::vector<Finding> Grammar::check(const std::vector<Token>& tokens) const {
         if (!m_forms.empty()) {
             std::vector<Suggestion> kept;
             for (const Suggestion& x : finding.suggestions)
-                if (diacritic(x) || uses(x) > 0) kept.push_back(x);
+                if (x.tokens > 1 || diacritic(x) || uses(x) > 0) kept.push_back(x);
             finding.suggestions = std::move(kept);
         }
+        // A joined word or a diacritic is far likelier than other slips:
+        // with one of them, the others are left out ("Po" → "Poł").
+        const auto likeliest = [&](const Suggestion& x) { return x.tokens > 1 || diacritic(x); };
+        if (std::any_of(finding.suggestions.begin(), finding.suggestions.end(), likeliest))
+            finding.suggestions.erase(std::remove_if(finding.suggestions.begin(), finding.suggestions.end(),
+                                                     [&](const Suggestion& x) { return !likeliest(x); }),
+                                      finding.suggestions.end());
         std::stable_sort(finding.suggestions.begin(), finding.suggestions.end(), [&](const Suggestion& a, const Suggestion& b) {
+            if ((a.tokens > 1) != (b.tokens > 1)) return a.tokens > 1;
             if (diacritic(a) != diacritic(b)) return diacritic(a);
             return uses(a) > uses(b);
         });

@@ -70,6 +70,10 @@ za
 # A word before a preposition that makes it no preposition ("co za dzień").
 co za
 
+[one-letter-words]
+# The words of one letter a typing slip may be offered as.
+a i o u w z
+
 [idioms]
 # A preposition and a word kept in an old form.
 za mąż

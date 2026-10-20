@@ -41,6 +41,7 @@ std::vector<Token> tokenize(std::string_view text);
 struct Suggestion {
     size_t token;
     std::string word;
+    size_t tokens = 1;  ///< how many tokens from `token` it replaces (2: "Po jechałem" → Pojechałem)
 };
 
 struct Finding {
@@ -65,6 +66,7 @@ struct GrammarRules {
     std::vector<std::string> notAdjectives, notNouns, phraseGoesOn, coordinators, too;
     std::vector<std::pair<std::u32string, std::u32string>> notAfter;  ///< word, preposition
     std::vector<std::u32string> idioms;                              ///< "preposition word", in lower case
+    std::vector<std::u32string> oneLetterWords;  ///< the words of one letter that may be offered
 };
 
 /// Reads a rules file; false, with `error` set, when it cannot be read or a

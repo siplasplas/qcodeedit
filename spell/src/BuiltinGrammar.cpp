@@ -75,7 +75,7 @@ public:
             issue.rule = QString::fromStdString(finding.rule);
             issue.message = messageFor(finding.rule);
             for (const grammar::Suggestion& s : finding.suggestions)
-                issue.replacements.append({startOf(s.token), endOf(s.token), QString::fromStdString(s.word)});
+                issue.replacements.append({startOf(s.token), endOf(s.token + s.tokens - 1), QString::fromStdString(s.word)});
             issues.append(issue);
         }
         return issues;

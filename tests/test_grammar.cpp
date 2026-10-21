@@ -75,6 +75,14 @@ const char* const kGrammarDictionary =
     "za\tza\tprep:acc\t\t\n"
     "naśladowanie\tnaśladowanie\tsubst:sg:nom.acc:n\tnazwa_pospolita\t\n"
     "naśladowaniem\tnaśladowanie\tsubst:sg:inst:n\tnazwa_pospolita\t\n"
+    "w\tw\tprep:acc:nwok\t\t\n"
+    "w\tw\tprep:loc:nwok\t\t\n"
+    "przeciwna\tprzeciwny\tadj:sg:nom.voc:f:pos\t\t\n"
+    "przeciwną\tprzeciwny\tadj:sg:acc:f:pos\t\t\n"
+    "przeciwną\tprzeciwny\tadj:sg:inst:f:pos\t\t\n"
+    "stroną\tstrona\tsubst:sg:inst:f\tnazwa_pospolita\t\n"
+    "stronę\tstrona\tsubst:sg:acc:f\tnazwa_pospolita\t\n"
+    "strona\tstrona\tsubst:sg:nom:f\tnazwa_pospolita\t\n"
     "juz\tjuz\tsubst:sg:nom.acc:m3\tnazwa_pospolita\ttechn.|hist.\n"
     "już\tjuż\tpart\t\t\n";
 
@@ -235,6 +243,14 @@ private slots:
         const std::vector<Finding> imitation = check(grammar, "z naśladowanie");
         QVERIFY(suggests(imitation, "government", 1, "naśladowaniem"));
         QVERIFY(!suggests(imitation, "government", 0, "za"));
+
+        // No slip mends it: after the preposition the noun takes its case and
+        // the adjective agrees with it, as one change of both.
+        const std::vector<Finding> direction = check(grammar, "w przeciwna stroną");
+        QVERIFY(!direction.empty() && !direction.front().suggestions.empty());
+        QCOMPARE(direction.front().suggestions.front().word, std::string("przeciwną stronę"));
+        QCOMPARE(direction.front().suggestions.front().token, size_t(1));
+        QCOMPARE(direction.front().suggestions.front().tokens, size_t(2));
 
         // A word known only as rare, one diacritic from a common one.
         QVERIFY(suggests(check(grammar, "juz jest"), "rare word", 0, "już"));

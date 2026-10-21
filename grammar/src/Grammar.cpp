@@ -283,6 +283,22 @@ bool comparablePart(const std::string& pos) {
     return false;
 }
 
+// The letters to change to make one word another (Levenshtein).
+size_t editDistance(const std::u32string& a, const std::u32string& b) {
+    std::vector<size_t> row(b.size() + 1);
+    for (size_t j = 0; j <= b.size(); ++j) row[j] = j;
+    for (size_t i = 1; i <= a.size(); ++i) {
+        size_t diagonal = row[0];
+        row[0] = i;
+        for (size_t j = 1; j <= b.size(); ++j) {
+            const size_t above = row[j];
+            row[j] = std::min({row[j] + 1, row[j - 1] + 1, diagonal + (a[i - 1] == b[j - 1] ? 0 : 1)});
+            diagonal = above;
+        }
+    }
+    return row[b.size()];
+}
+
 // The most words offered for a finding.
 constexpr size_t kMaxSuggestions = 3;
 
@@ -413,6 +429,8 @@ bool loadGrammarRules(const std::string& path, GrammarRules& rules, std::string*
         } else if (section == "not-after") {
             if (fields.size() != 2) return fail("a word and a preposition");
             rules.notAfter.emplace_back(toLower(fromUtf8(fields[0])), toLower(fromUtf8(fields[1])));
+        } else if (section == "endings") {
+            for (const std::string& f : fields) rules.endings.push_back(fromUtf8(f));
         } else if (section == "one-letter-words") {
             for (const std::string& f : fields) rules.oneLetterWords.push_back(toLower(fromUtf8(f)));
         } else if (section == "idioms") {
@@ -618,6 +636,145 @@ std::vector<Finding> Grammar::check(const std::vector<Token>& tokens) const {
 
     const Complements* complements = m_hasComplements ? &m_complements : nullptr;
     const auto broken = [&](size_t k) { return brokenRule(m_rules, tokens, words, k, complements); };
+
+    // An adjective and a noun agreeing in number, case and gender (a
+    // feminine adjective with a masculine personal noun too), in one of
+    // `cases` when given.
+    const auto agreeing = [&](const Word& adjective, const Word& nounWord, uint8_t cases) {
+        for (const Parsed& a : adjective.readings)
+            for (const Parsed& n : nounWord.readings)
+                if (isAdjectival(m_rules, a) && isNoun(m_rules, n) && (a.numbers & n.numbers) && (a.cases & n.cases)
+                    && (!cases || (a.cases & n.cases & cases))
+                    && ((a.genders & n.genders) || ((a.genders & 8) && (n.genders & 1) && (n.numbers & 1))))
+                    return true;
+        return false;
+    };
+    // Other forms of the word at `t` (of the lemmas of its readings): its
+    // stem, shared with the lemma, with each ending of the rules; each with
+    // its readings of that lemma only.
+    struct Form {
+        std::string text;
+        Word word;
+    };
+    const auto formsOf = [&](size_t t) {
+        std::vector<Form> forms;
+        const std::u32string original = fromUtf8(tokens[t].text);
+        const std::u32string lower = toLower(original);
+        const bool capital = !original.empty() && original[0] != lower[0];
+        std::vector<std::string> lemmas;
+        for (const Parsed& r : words[t].readings)
+            if (!contains(lemmas, r.lemma)) lemmas.push_back(r.lemma);
+        std::set<std::u32string> tried;
+        for (const std::string& lemma : lemmas) {
+            const std::u32string base = toLower(fromUtf8(lemma));
+            size_t stem = 0;
+            while (stem < lower.size() && stem < base.size() && lower[stem] == base[stem]) ++stem;
+            if (stem < 2) continue;
+            for (const size_t cut : {stem, stem - 1}) {
+                for (const std::u32string* ending : [&] {
+                         std::vector<const std::u32string*> all{nullptr};
+                         for (const std::u32string& e : m_rules.endings) all.push_back(&e);
+                         return all;
+                     }()) {
+                    std::u32string candidate = base.substr(0, cut) + (ending ? *ending : std::u32string());
+                    if (candidate == lower || !tried.insert(candidate).second) continue;
+                    if (capital) candidate[0] = toUpper(candidate[0]);
+                    Word w = analyse(t, toUtf8(candidate));
+                    std::vector<Parsed> same;
+                    for (Parsed& r : w.readings)
+                        if (r.lemma == lemma) same.push_back(std::move(r));
+                    if (same.empty()) continue;
+                    w.readings = std::move(same);
+                    forms.push_back({toUtf8(candidate), std::move(w)});
+                }
+            }
+        }
+        return forms;
+    };
+    const auto allOf = [&](const Word& w, auto predicate) {
+        return !w.readings.empty() && std::all_of(w.readings.begin(), w.readings.end(), predicate);
+    };
+    const auto adjectival = [&](const Parsed& r) { return isAdjectival(m_rules, r); };
+    const auto noun = [&](const Parsed& r) { return isNoun(m_rules, r) || r.pos == "ger"; };
+    // The cases a preposition word takes (0: not a preposition).
+    const auto prepositionCases = [&](size_t t) -> uint8_t {
+        uint8_t cases = 0;
+        for (const Parsed& r : words[t].readings) {
+            if (!r.usual) continue;
+            if (r.pos == "prep") cases |= r.cases;
+            else if (r.pos != "part") return 0;
+        }
+        return cases;
+    };
+    // Repairs of a finding at k by other forms: the phrase after a
+    // preposition (an adjective and noun, or a noun), or an adjective agreeing
+    // with its noun; the fewest letters changed first.
+    const auto inflectionRepairs = [&](size_t k, const char* rule) {
+        std::vector<std::pair<size_t, Suggestion>> scored;
+        const auto distance = [&](size_t t, const std::string& form) {
+            return editDistance(toLower(fromUtf8(tokens[t].text)), toLower(fromUtf8(form)));
+        };
+        // The pairs from `from` to `to` unbroken with the words changed.
+        const auto clean = [&](size_t from, size_t to) {
+            for (size_t j = from; j <= to && j + 1 < words.size(); ++j)
+                if (broken(j)) return false;
+            return true;
+        };
+        // An adjective at `a`, its noun at `a + 1`, after a preposition at `a - 1` (cases) or not.
+        const auto repairPhrase = [&](size_t a, uint8_t cases) {
+            const Word keptAdjective = words[a], keptNoun = words[a + 1];
+            // After a preposition the noun takes its case (or is right
+            // already); without one the noun stays and the adjective agrees.
+            std::vector<Form> nouns;
+            if (cases) nouns = formsOf(a + 1);
+            nouns.push_back({tokens[a + 1].text, keptNoun});
+            std::vector<Form> adjectives = formsOf(a);
+            adjectives.push_back({tokens[a].text, keptAdjective});
+            for (const Form& n : nouns) {
+                bool fits = !cases;
+                for (const Parsed& r : n.word.readings) fits = fits || (r.cases & cases);
+                if (!fits) continue;
+                words[a + 1] = n.word;
+                // The noun's number kept is likelier.
+                bool sameNumber = false;
+                for (const Parsed& r : n.word.readings)
+                    for (const Parsed& o : keptNoun.readings) sameNumber = sameNumber || (r.numbers & o.numbers);
+                for (const Form& adjective : adjectives) {
+                    if (adjective.text == tokens[a].text && n.text == tokens[a + 1].text) continue;
+                    words[a] = adjective.word;
+                    if (agreeing(adjective.word, n.word, cases) && clean(a > 0 ? a - 1 : 0, a + 1))
+                        scored.push_back({distance(a, adjective.text) + distance(a + 1, n.text) + (sameNumber ? 0 : 1),
+                                          adjective.text == tokens[a].text ? Suggestion{a + 1, n.text}
+                                          : n.text == tokens[a + 1].text ? Suggestion{a, adjective.text}
+                                                                         : Suggestion{a, adjective.text + " " + n.text, 2}});
+                }
+            }
+            words[a] = keptAdjective;
+            words[a + 1] = keptNoun;
+        };
+        const std::string_view name(rule);
+        if (name == "government" && k + 2 < words.size() && allOf(words[k + 1], adjectival) && allOf(words[k + 2], noun)) {
+            repairPhrase(k + 1, prepositionCases(k));
+        } else if (name == "government" && k + 1 < words.size() && allOf(words[k + 1], noun)) {
+            const Word kept = words[k + 1];
+            for (const Form& n : formsOf(k + 1)) {
+                words[k + 1] = n.word;
+                if (clean(k, k + 1)) scored.push_back({distance(k + 1, n.text), {k + 1, n.text}});
+            }
+            words[k + 1] = kept;
+        } else if (name == "agreement" && k + 1 < words.size()) {
+            const uint8_t cases = k > 0 && words[k - 1].word ? prepositionCases(k - 1) : 0;
+            repairPhrase(k, cases);
+        }
+        std::stable_sort(scored.begin(), scored.end(), [](const auto& x, const auto& y) { return x.first < y.first; });
+        std::vector<Suggestion> result;
+        for (const auto& [score, suggestion] : scored)
+            if (std::none_of(result.begin(), result.end(), [&](const Suggestion& r) {
+                    return r.token == suggestion.token && r.word == suggestion.word;
+                }))
+                result.push_back(suggestion);
+        return result;
+    };
     std::vector<Finding> findings;
     for (size_t k = 0; k < words.size(); ++k) {
         // A word with rare readings only, one diacritic from a common one
@@ -656,10 +813,12 @@ std::vector<Finding> Grammar::check(const std::vector<Token>& tokens) const {
         {
             const std::string joined = tokens[k].text + tokens[k + 1].text;
             const Word w = analyse(k, joined);
-            if (w.known && !w.rare) {
-                finding.suggestions.push_back({k, joined, 2});
-                joinedSeen = m_forms.empty() || usesOf(joined) > 0;
-            }
+            // Seen in the corpus, or a verb (a prefix typed apart: "po jechałem").
+            const bool verb = std::any_of(w.readings.begin(), w.readings.end(), [](const Parsed& r) {
+                return r.pos == "fin" || r.pos == "praet" || r.pos == "inf" || r.pos == "impt";
+            });
+            joinedSeen = w.known && !w.rare && (m_forms.empty() || usesOf(joined) > 0 || verb);
+            if (joinedSeen) finding.suggestions.push_back({k, joined, 2});
         }
         // Words one slip away. A preposition is not changed but into a
         // conjunction or particle ("ze" → "że"), common in the corpus: the
@@ -702,6 +861,8 @@ std::vector<Finding> Grammar::check(const std::vector<Token>& tokens) const {
                     if (!samePart) continue;
                 }
                 if (verbs && !(subjectFits(words[t], words[k + 1]) && (m_forms.empty() || words[t].frequent))) continue;
+                // For agreement, agreeing, not only escaping the rule ("krótki chwil").
+                if (std::string_view(rule) == "agreement" && !agreeing(words[k], words[k + 1], 0)) continue;
                 if (windowClean()) finding.suggestions.push_back({t, variant});
             }
             words[t] = kept;
@@ -739,6 +900,11 @@ std::vector<Finding> Grammar::check(const std::vector<Token>& tokens) const {
             if (rank(a) != rank(b)) return rank(a) < rank(b);
             return usesOf(a.word) > usesOf(b.word);
         });
+        // No slip mends it: other forms of the words. After a preposition
+        // the noun takes a case it takes and the adjective before it agrees
+        // with the noun ("w przeciwna stroną" → "w przeciwną stronę"); an
+        // adjective alone agrees with its noun ("krótki chwilę" → krótką).
+        if (finding.suggestions.empty() && !verbs) finding.suggestions = inflectionRepairs(k, rule);
         if (finding.suggestions.size() > kMaxSuggestions) finding.suggestions.resize(kMaxSuggestions);
         if (verbs && finding.suggestions.empty()) continue;
         findings.push_back(std::move(finding));

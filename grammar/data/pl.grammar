@@ -70,6 +70,14 @@ za
 # A word before a preposition that makes it no preposition ("co za dzień").
 co za
 
+[endings]
+# Endings of nouns and adjectives: a word's other forms are its stem (what
+# it shares with its lemma) with one of them ("stroną" → "stronę").
+a ą e ę i y o u ie ia iu io ią ię
+em om ów owi ami ach ach ami mi
+ego emu ej ym im ymi imi ych ich ą e i
+iego iemu iej
+
 [one-letter-words]
 # The words of one letter a typing slip may be offered as.
 a i o u w z

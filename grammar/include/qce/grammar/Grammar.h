@@ -67,6 +67,7 @@ struct GrammarRules {
     std::vector<std::pair<std::u32string, std::u32string>> notAfter;  ///< word, preposition
     std::vector<std::u32string> idioms;                              ///< "preposition word", in lower case
     std::vector<std::u32string> oneLetterWords;  ///< the words of one letter that may be offered
+    std::vector<std::u32string> endings;         ///< inflectional endings, for other forms of a word
 };
 
 /// Reads a rules file; false, with `error` set, when it cannot be read or a

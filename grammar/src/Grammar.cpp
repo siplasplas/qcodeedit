@@ -768,7 +768,9 @@ std::vector<Finding> Grammar::check(const std::vector<Token>& tokens) const {
         }
         std::stable_sort(scored.begin(), scored.end(), [](const auto& x, const auto& y) { return x.first < y.first; });
         std::vector<Suggestion> result;
+        // Only those little worse than the best ("krótką", not also "krótkie chwile").
         for (const auto& [score, suggestion] : scored)
+            if (score <= scored.front().first + 1)
             if (std::none_of(result.begin(), result.end(), [&](const Suggestion& r) {
                     return r.token == suggestion.token && r.word == suggestion.word;
                 }))
@@ -909,7 +911,22 @@ std::vector<Finding> Grammar::check(const std::vector<Token>& tokens) const {
         if (verbs && finding.suggestions.empty()) continue;
         findings.push_back(std::move(finding));
     }
-    return findings;
+    // One mistake reported once: an adjective not agreeing with its noun
+    // right after a preposition whose finding mends the same words ("przez
+    // krótka chwilę").
+    std::vector<Finding> merged;
+    for (Finding& finding : findings) {
+        if (!merged.empty() && finding.rule == "agreement" && merged.back().rule == "government"
+            && merged.back().token + 1 == finding.token) {
+            const auto& before = merged.back().suggestions;
+            const bool same = before.empty() == finding.suggestions.empty()
+                && (before.empty() || (before.front().token == finding.suggestions.front().token
+                                       && before.front().word == finding.suggestions.front().word));
+            if (same) continue;
+        }
+        merged.push_back(std::move(finding));
+    }
+    return merged;
 }
 
 } // namespace qce::grammar

@@ -3,14 +3,18 @@
 #include <qce/CodeEditArea.h>
 #include <qce/ITextDocument.h>
 
+#include <QApplication>
+#include <QClipboard>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSet>
+#include <QShortcut>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -72,7 +76,20 @@ GrammarReviewDialog::GrammarReviewDialog(CodeEditSpelling& spelling, int firstLi
     m_list->setRootIsDecorated(false);
     m_list->setHeaderLabels({tr("Words"), tr("Correction"), tr("Problem"), tr("Line"), tr("Context")});
     m_list->header()->setStretchLastSection(true);
+    m_list->setSelectionMode(QAbstractItemView::ExtendedSelection);
     layout->addWidget(m_list, 1);
+    // The selected rows to the clipboard: Ctrl+C or the context menu.
+    auto* copy = new QShortcut(QKeySequence::Copy, m_list, nullptr, nullptr, Qt::WidgetShortcut);
+    connect(copy, &QShortcut::activated, this, &GrammarReviewDialog::copyRows);
+    m_list->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_list, &QWidget::customContextMenuRequested, this, [this](const QPoint& position) {
+        if (m_list->selectedItems().isEmpty()) return;
+        QMenu menu(this);
+        QAction* rows = menu.addAction(tr("&Copy Rows"), this, &GrammarReviewDialog::copyRows);
+        rows->setShortcut(QKeySequence::Copy);
+        rows->setToolTip(tr("Words, correction, problem, line and the whole line of text, separated by tabs"));
+        menu.exec(m_list->viewport()->mapToGlobal(position));
+    });
 
     m_summary = new QLabel(this);
     layout->addWidget(m_summary);
@@ -156,6 +173,22 @@ void GrammarReviewDialog::collect() {
     for (int column : {WordsColumn, CorrectionColumn, ProblemColumn, LineColumn}) m_list->resizeColumnToContents(column);
     m_list->setColumnWidth(CorrectionColumn, qMax(m_list->columnWidth(CorrectionColumn), 140));
     filter();
+}
+
+void GrammarReviewDialog::copyRows() {
+    CodeEditArea* area = m_spelling ? m_spelling->area() : nullptr;
+    QStringList lines;
+    for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* row = m_list->topLevelItem(i);
+        if (row->isHidden() || !row->isSelected()) continue;
+        const auto& mistake = m_mistakes[row->data(WordsColumn, kIndexRole).toInt()];
+        QString correction = row->text(CorrectionColumn);
+        if (auto* box = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn))) correction = box->currentText();
+        const QString text = area && area->document() ? area->document()->lineAt(mistake.start.line) : QString();
+        lines << QStringList{row->text(WordsColumn), correction, row->text(ProblemColumn), row->text(LineColumn), text}
+                     .join(QLatin1Char('\t'));
+    }
+    if (!lines.isEmpty()) QApplication::clipboard()->setText(lines.join(QLatin1Char('\n')) + QLatin1Char('\n'));
 }
 
 void GrammarReviewDialog::filter() {

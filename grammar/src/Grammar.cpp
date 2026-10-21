@@ -89,12 +89,14 @@ Fit fitsPreposition(const GrammarRules& rules, const Word& next, uint8_t cases, 
     for (const Parsed& r : next.readings) {
         const bool adjectival = r.pos == "adj" || r.pos == "pact" || r.pos == "ppas" || r.pos == "num";
         if (adjectiveOnly && !adjectival) continue;
-        if ((isNominal(r.pos) && (r.cases & cases)) || r.pos == "num") return Fit::Yes;
+        // A post-prepositional adjective in a case it takes too ("po polsku",
+        // "od dawna"; not "do angielsku").
+        if (((isNominal(r.pos) || r.pos == "adjp") && (r.cases & cases)) || r.pos == "num") return Fit::Yes;
         if (adjectiveOnly) continue;
         // Parts of fixed phrases ("za młodu", "ad hoc"), and a conjunction
         // between prepositions ("przed i po wojnie").
         const bool coordinator = r.pos == "conj" && contains(rules.coordinators, r.lemma);
-        if (r.pos == "adjp" || coordinator || (r.usual && (r.pos == "brev" || r.pos == "frag" || r.pos == "interj")))
+        if (coordinator || (r.usual && (r.pos == "brev" || r.pos == "frag" || r.pos == "interj")))
             return Fit::Yes;
         if (too && (r.pos == "adj" || r.pos == "pact" || r.pos == "ppas")) return Fit::Yes;
         if ((r.pos == "adv" || r.pos == "prep") && !vocalic) return Fit::Yes;
@@ -153,7 +155,25 @@ bool governmentBroken(const GrammarRules& rules, const std::vector<Token>& token
             || (nextText.size() <= 4 && n + 1 < tokens.size() && tokens[n + 1].text == ".");
         if (abbreviation) return false;
         const Fit fit = fitsPreposition(rules, next, cases, too, vocalic, adjectiveOnly);
-        if (fit == Fit::Yes) return false;
+        if (fit == Fit::Yes) {
+            // An adjective in the case: the noun after it must be in it too
+            // ("w przeciwną stroną": "w" takes no instrumental).
+            const bool adjectiveOnlyReadings = !next.readings.empty()
+                && std::all_of(next.readings.begin(), next.readings.end(), [&](const Parsed& r) { return isAdjectival(rules, r); });
+            if (adjectiveOnlyReadings && n + 1 < words.size() && words[n + 1].word && words[n + 1].known
+                && !words[n + 1].capital) {
+                const Word& noun = words[n + 1];
+                const bool allNouns = std::all_of(noun.readings.begin(), noun.readings.end(),
+                                                  [&](const Parsed& r) { return isNoun(rules, r); });
+                // The cases in which they agree (one phrase), none taken by the preposition.
+                uint8_t agreed = 0;
+                for (const Parsed& a : next.readings)
+                    for (const Parsed& r : noun.readings)
+                        if ((a.numbers & r.numbers) && (a.genders & r.genders)) agreed |= a.cases & r.cases;
+                if (allNouns && agreed && !(agreed & cases)) return true;
+            }
+            return false;
+        }
         if (fit == Fit::No) return true;
         adjectiveOnly = fit == Fit::Adjective;
     }
@@ -614,18 +634,41 @@ std::vector<Finding> Grammar::check(const std::vector<Token>& tokens) const {
         const char* rule = broken(k);
         if (!rule) continue;
         Finding finding{k, rule, {}};
+        const bool verbs = std::string_view(rule) == "verbs";
+        const bool government = std::string_view(rule) == "government";
+        // How often a word is in the corpus (0 without counts).
+        const auto usesOf = [&](const std::string& word) {
+            long count = 0;
+            if (const auto it = m_forms.find(toUtf8(toLower(fromUtf8(word)))); it != m_forms.end())
+                for (const auto& [pos, n] : it->second) count += n;
+            return count;
+        };
+        // A change fits when it leaves the words around unbroken: the pair
+        // before, its own pairs and the one after.
+        const auto windowClean = [&]() {
+            for (size_t j = k > 0 ? k - 1 : 0; j <= k + 1 && j + 1 < words.size(); ++j)
+                if (broken(j)) return false;
+            return true;
+        };
         // The two words as one, a space typed by mistake ("Po jechałem":
-        // Pojechałem), first.
+        // Pojechałem).
+        bool joinedSeen = false;
         {
             const std::string joined = tokens[k].text + tokens[k + 1].text;
             const Word w = analyse(k, joined);
-            if (w.known && !w.rare) finding.suggestions.push_back({k, joined, 2});
+            if (w.known && !w.rare) {
+                finding.suggestions.push_back({k, joined, 2});
+                joinedSeen = m_forms.empty() || usesOf(joined) > 0;
+            }
         }
-        // Words one slip away that leave the pairs around them unbroken; for
-        // two verbs, the first one as the second one's subject.
-        const bool verbs = std::string_view(rule) == "verbs";
+        // Words one slip away. A preposition is not changed but into a
+        // conjunction or particle ("ze" → "że"), common in the corpus: the
+        // words after it are mended ("z naśladowanie" → naśladowaniem), each
+        // keeping its part of speech. For two verbs, the first one as the
+        // second one's subject.
         for (const size_t t : {k, k + 1}) {
             if (verbs && t != k) continue;
+            const bool preposition = government && t == k;
             const Word kept = words[t];
             for (const std::string& variant : slipVariants(tokens[t].text)) {
                 // A word of one letter only when the language has it ("w",
@@ -636,39 +679,65 @@ std::vector<Finding> Grammar::check(const std::vector<Token>& tokens) const {
                            == m_rules.oneLetterWords.end())
                     continue;
                 words[t] = analyse(t, variant);
-                if (words[t].known && !words[t].rare && !(t > 0 && broken(t - 1)) && !broken(t)
-                    && (!verbs || (subjectFits(words[t], words[k + 1]) && (m_forms.empty() || words[t].frequent))))
-                    finding.suggestions.push_back({t, variant});
+                if (!words[t].known || words[t].rare) continue;
+                // Not an abbreviation (it would need a dot: "zł").
+                if (std::all_of(words[t].readings.begin(), words[t].readings.end(),
+                                [](const Parsed& r) { return r.pos == "brev"; }))
+                    continue;
+                if (preposition) {
+                    // Into a conjunction or particle only ("że"), common.
+                    const bool sameKind = std::any_of(words[t].readings.begin(), words[t].readings.end(),
+                                                      [](const Parsed& r) { return r.pos == "prep" || isNominal(r.pos); });
+                    const bool function = std::any_of(words[t].readings.begin(), words[t].readings.end(), [](const Parsed& r) {
+                        return r.pos == "comp" || r.pos == "conj" || r.pos == "part";
+                    });
+                    if (sameKind || !function || (!m_forms.empty() && usesOf(variant) == 0)) continue;
+                } else if (!verbs) {
+                    // An adjective or noun stays one: a form of it mends the phrase
+                    // ("angielski" not into the adverb "angielsko").
+                    const bool samePart = std::any_of(kept.readings.begin(), kept.readings.end(), [&](const Parsed& o) {
+                        return std::any_of(words[t].readings.begin(), words[t].readings.end(),
+                                           [&](const Parsed& r) { return r.pos == o.pos; });
+                    });
+                    if (!samePart) continue;
+                }
+                if (verbs && !(subjectFits(words[t], words[k + 1]) && (m_forms.empty() || words[t].frequent))) continue;
+                if (windowClean()) finding.suggestions.push_back({t, variant});
             }
             words[t] = kept;
         }
-        // A diacritic first (the likeliest slip), then by how often the word
-        // is in the corpus; with corpus counts other slips only to words seen
-        // there (not "ze" → "zek"); a few at most.
-        const auto diacritic = [&](const Suggestion& x) { return diacriticsOnly(m_rules, x.word, tokens[x.token].text); };
-        const auto uses = [&](const Suggestion& x) {
-            long count = 0;
-            if (const auto it = m_forms.find(toUtf8(toLower(fromUtf8(x.word)))); it != m_forms.end())
-                for (const auto& [pos, n] : it->second) count += n;
-            return count;
+        // Likelier first: a joined word seen in the corpus, a diacritic, a
+        // changed ending (the last letters), then by how often the word is
+        // in the corpus. With corpus counts, other changes only to words
+        // seen there (not "ze" → "zek").
+        const auto diacritic = [&](const Suggestion& x) {
+            return x.tokens == 1 && diacriticsOnly(m_rules, x.word, tokens[x.token].text);
         };
+        const auto ending = [&](const Suggestion& x) {
+            if (x.tokens != 1) return false;
+            const std::u32string a = toLower(fromUtf8(tokens[x.token].text)), b = toLower(fromUtf8(x.word));
+            size_t common = 0;
+            while (common < a.size() && common < b.size() && a[common] == b[common]) ++common;
+            return a.size() >= 4 && common + 2 >= a.size();
+        };
+        const auto joinedFirst = [&](const Suggestion& x) { return x.tokens > 1 && joinedSeen; };
         if (!m_forms.empty()) {
-            std::vector<Suggestion> kept;
+            std::vector<Suggestion> keptSuggestions;
             for (const Suggestion& x : finding.suggestions)
-                if (x.tokens > 1 || diacritic(x) || uses(x) > 0) kept.push_back(x);
-            finding.suggestions = std::move(kept);
+                if (x.tokens > 1 || diacritic(x) || ending(x) || usesOf(x.word) > 0) keptSuggestions.push_back(x);
+            finding.suggestions = std::move(keptSuggestions);
         }
         // A joined word or a diacritic is far likelier than other slips:
         // with one of them, the others are left out ("Po" → "Poł").
-        const auto likeliest = [&](const Suggestion& x) { return x.tokens > 1 || diacritic(x); };
+        const auto likeliest = [&](const Suggestion& x) { return joinedFirst(x) || diacritic(x); };
         if (std::any_of(finding.suggestions.begin(), finding.suggestions.end(), likeliest))
             finding.suggestions.erase(std::remove_if(finding.suggestions.begin(), finding.suggestions.end(),
                                                      [&](const Suggestion& x) { return !likeliest(x); }),
                                       finding.suggestions.end());
+        const auto rank = [&](const Suggestion& x) { return joinedFirst(x) ? 0 : diacritic(x) ? 1 : ending(x) ? 2 : 3; };
         std::stable_sort(finding.suggestions.begin(), finding.suggestions.end(), [&](const Suggestion& a, const Suggestion& b) {
-            if ((a.tokens > 1) != (b.tokens > 1)) return a.tokens > 1;
-            if (diacritic(a) != diacritic(b)) return diacritic(a);
-            return uses(a) > uses(b);
+            if (rank(a) != rank(b)) return rank(a) < rank(b);
+            return usesOf(a.word) > usesOf(b.word);
         });
         if (finding.suggestions.size() > kMaxSuggestions) finding.suggestions.resize(kMaxSuggestions);
         if (verbs && finding.suggestions.empty()) continue;

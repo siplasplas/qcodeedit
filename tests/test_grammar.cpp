@@ -72,6 +72,9 @@ const char* const kGrammarDictionary =
     "ż\tż\tpart\t\t\n"
     "pielgrzymka\tpielgrzymka\tsubst:sg:nom:f\tnazwa_pospolita\t\n"
     "pielgrzymką\tpielgrzymka\tsubst:sg:inst:f\tnazwa_pospolita\t\n"
+    "za\tza\tprep:acc\t\t\n"
+    "naśladowanie\tnaśladowanie\tsubst:sg:nom.acc:n\tnazwa_pospolita\t\n"
+    "naśladowaniem\tnaśladowanie\tsubst:sg:inst:n\tnazwa_pospolita\t\n"
     "juz\tjuz\tsubst:sg:nom.acc:m3\tnazwa_pospolita\ttechn.|hist.\n"
     "już\tjuż\tpart\t\t\n";
 
@@ -227,6 +230,11 @@ private slots:
         const std::vector<Finding> pilgrimage = check(grammar, "z pielgrzymka");
         QVERIFY(suggests(pilgrimage, "government", 1, "pielgrzymką"));
         QVERIFY(!suggests(pilgrimage, "government", 0, "ż"));
+
+        // The preposition stays; the noun after it is mended.
+        const std::vector<Finding> imitation = check(grammar, "z naśladowanie");
+        QVERIFY(suggests(imitation, "government", 1, "naśladowaniem"));
+        QVERIFY(!suggests(imitation, "government", 0, "za"));
 
         // A word known only as rare, one diacritic from a common one.
         QVERIFY(suggests(check(grammar, "juz jest"), "rare word", 0, "już"));

@@ -248,6 +248,16 @@ connect(editor->area(), &qce::CodeEditArea::cursorPositionChanged,
 });
 ```
 
+To show a position with some rows around it, e.g. a search match that should
+not end up on the last row, `ensureVisible()` scrolls only when the position
+is out of view and then keeps `marginRows` rows above or below it in view;
+`pageLineCount()` is the number of rows shown whole:
+
+```cpp
+editor->area()->ensureVisible(match, 4);
+editor->area()->setSelection(matchStart, matchEnd);
+```
+
 ## Testing
 
 Qt Test suites covering cursor logic, wrap layout, rules highlighter,

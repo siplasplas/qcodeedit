@@ -165,6 +165,14 @@ public:
     /// visualRow(cursorPosition()) == visualRowCount() - 1. Up and Down move
     /// by these rows.
     int visualRow(TextCursor pos) const { return visualRowOf(pos); }
+    /// The rows of the viewport shown whole (a row cut off at the bottom does
+    /// not count); at least 1.
+    int pageLineCount() const;
+    /// Shows `pos`, scrolling only when it is not in view, so that
+    /// `marginRows` rows above or below it stay in view as well (fewer when
+    /// the viewport has few rows): e.g. a search match not left on the last
+    /// row. Rows: wrapped rows with word wrap, lines without it.
+    void ensureVisible(TextCursor pos, int marginRows = 0);
 
     void setReadOnly(bool ro);
     bool readOnly() const { return m_readOnly; }
@@ -334,8 +342,7 @@ private:
     TextCursor cursorFromPoint(const QPoint& pt) const;
     /// `extraColumns` widens the area kept visible to the right of `pos`
     /// (used for the input-method pre-edit).
-    void ensureCursorVisible(TextCursor pos, int extraColumns = 0);
-    int  pageLineCount() const;
+    void ensureCursorVisible(TextCursor pos, int extraColumns = 0, int marginRows = 0);
 
     // --- Word-wrap helpers ---
     void rebuildWrapLayout();

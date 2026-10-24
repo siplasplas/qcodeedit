@@ -1395,31 +1395,32 @@ TextCursor CodeEditArea::cursorFromPoint(const QPoint& pt) const {
     return m_cursorCtrl->clamp({lineNum, col});
 }
 
-void CodeEditArea::ensureCursorVisible(TextCursor pos, int extraColumns) {
+void CodeEditArea::ensureVisible(TextCursor pos, int marginRows) {
+    ensureCursorVisible(m_cursorCtrl->clamp(pos), 0, marginRows);
+}
+
+void CodeEditArea::ensureCursorVisible(TextCursor pos, int extraColumns, int marginRows) {
     QScrollBar* vBar = verticalScrollBar();
 
     // Only rows shown whole count: the last visible row of the viewport state
     // includes one cut off at the bottom (it is painted), and a cursor there
     // would stay half hidden, e.g. after Enter on the last row.
-    if (m_wordWrap) {
-        const int row   = visualRowOf(pos);
-        const int first = m_viewportState.firstVisibleRow;
-        const int last  = first + pageLineCount() - 1;
+    const int page   = pageLineCount();
+    // A margin of at most a third of the page, so that the row still fits
+    const int margin = qBound(0, marginRows, (page - 1) / 3);
+    auto scrollTo = [&](int row, int first) {
+        const int last = first + page - 1;
         if (row < first) {
-            vBar->setValue(row);
+            vBar->setValue(qMax(0, row - margin));
         } else if (row > last) {
-            vBar->setValue(qMax(0, row - pageLineCount() + 1));
+            vBar->setValue(qMax(0, row - page + 1 + margin));
         }
+    };
+    if (m_wordWrap) {
+        scrollTo(visualRowOf(pos), m_viewportState.firstVisibleRow);
         return; // no horizontal scroll in wrap mode
     }
-
-    const int first = m_viewportState.firstVisibleLine;
-    const int last  = first + pageLineCount() - 1;
-    if (pos.line < first) {
-        vBar->setValue(pos.line);
-    } else if (pos.line > last) {
-        vBar->setValue(qMax(0, pos.line - pageLineCount() + 1));
-    }
+    scrollTo(pos.line, m_viewportState.firstVisibleLine);
 
     const int charWidth = m_viewportState.charWidth;
     if (charWidth <= 0) return;

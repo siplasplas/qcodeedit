@@ -75,7 +75,7 @@ void LineNumberGutter::paint(QPainter& painter,
     const int last  = vp.lastVisibleLine;
     const int lineCount = m_doc->lineCount();
 
-    if (vp.wordWrap && !vp.rows.isEmpty()) {
+    if (!vp.rows.isEmpty()) { // (also without word wrap: folded lines left out)
         for (int ri = 0; ri < vp.rows.size(); ++ri) {
             const auto& row = vp.rows[ri];
             if (row.logicalLine >= lineCount) continue;

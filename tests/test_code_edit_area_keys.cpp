@@ -592,6 +592,36 @@ private slots:
         }
     }
 
+    // Folding without word wrap: the collapsed lines leave the rows, the
+    // viewport and the arrow keys, as with it.
+    void folding_withoutWordWrap() {
+        SimpleTextDocument doc;
+        CodeEditArea area;
+        BraceFoldingProvider provider;
+        setUpFolded(doc, area, provider);   // "a", "f() {" (lines 2-4 folded), "b"
+        area.setWordWrap(false);
+        activate(&area);
+        QVERIFY(collapsedAt(area, 1));
+        QCOMPARE(area.visualRowCount(), 3);
+        const ViewportState& vp = area.viewportState();
+        QVERIFY(vp.rows.size() >= 3);
+        QCOMPARE(vp.rows[0].logicalLine, 0);
+        QCOMPARE(vp.rows[1].logicalLine, 1);
+        QVERIFY(!vp.rows[1].foldPlaceholder.isEmpty());
+        QCOMPARE(vp.rows[2].logicalLine, 5);
+
+        area.setCursorPosition({1, 0});
+        QTest::keyClick(&area, Qt::Key_Down);
+        QCOMPARE(area.cursorPosition().line, 5);
+        QTest::keyClick(&area, Qt::Key_Up);
+        QCOMPARE(area.cursorPosition().line, 1);
+
+        // Unfolded, every line is a row again.
+        area.toggleFoldAt(1);
+        QCOMPARE(area.visualRowCount(), 6);
+        QCOMPARE(area.viewportState().rows[2].logicalLine, 2);
+    }
+
     // Home and End of a wrapped line: the screen row first, pressed again the line.
     void homeEnd_wrappedLine_rowThenLine() {
         SimpleTextDocument doc;

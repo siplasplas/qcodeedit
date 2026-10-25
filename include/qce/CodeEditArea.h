@@ -346,6 +346,9 @@ private:
 
     // --- Word-wrap helpers ---
     void rebuildWrapLayout();
+    /// The row layout is built (with and without word wrap: without it a row
+    /// per visible line, so that folding works in both).
+    bool hasRows() const;
     int  visualRowOf(TextCursor pos) const;
     /// `delta` rows up (< 0) or down: wrapped rows with word wrap, keeping
     /// the character cell; lines without it. Unchanged at the first or last row.

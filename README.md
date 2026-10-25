@@ -45,7 +45,8 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
   runs lazily (visible lines first, the rest in the background), and fold
   regions are rebuilt from markers collected while highlighting
 - Code folding keeps collapsed blocks collapsed while you edit, and they move
-  with their text when lines are added or removed above them
+  with their text when lines are added or removed above them; folding works
+  with and without word wrap (without it a row per visible line)
 - Input methods (since 1.5.0): IME composition (fcitx5, ibus, Windows IME),
   compose sequences, dead keys and AltGr characters, with the candidate
   window placed at the caret (see `docs/API.md`)

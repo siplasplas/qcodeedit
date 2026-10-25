@@ -8,8 +8,9 @@ namespace qce {
 class ITextDocument;
 class FoldState;
 
-/// Maps visual rows to logical document positions for word-wrap mode.
-/// Rebuilt whenever the document or viewport changes.
+/// Maps visual rows to logical document positions: wrapped rows with word
+/// wrap, without it one row per visible line (kNoWrap), so that folded lines
+/// are skipped either way. Rebuilt whenever the document or viewport changes.
 /// Each visual row covers one contiguous segment [startCol, endCol) of a
 /// logical line. A logical line with no overflow produces exactly one row.
 class WrapLayout {
@@ -20,8 +21,12 @@ public:
         int endCol      = 0; ///< One past last logical column (= line.size() on last row).
     };
 
+    /// availableVisualCols of no wrapping: a row per line, not measured.
+    static constexpr int kNoWrap = 0x7fffffff;
+
     /// Rebuild from document. availableVisualCols is the number of character
-    /// cells that fit in the viewport width (already excluding left padding).
+    /// cells that fit in the viewport width (already excluding left padding),
+    /// or kNoWrap.
     /// When foldState is non-null, lines it reports as not visible are skipped
     /// (they map to the previous visible line's first-row, so rowForCursor on
     /// a hidden line returns the row of the visible header of the collapsed

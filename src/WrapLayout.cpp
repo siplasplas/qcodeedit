@@ -57,8 +57,8 @@ void WrapLayout::rebuild(const ITextDocument* doc,
         m_lineFirstRow.push_back(lastVisibleFirstRow);
         const QString line = doc->lineAt(li);
 
-        if (line.isEmpty()) {
-            m_rows.push_back({li, 0, 0});
+        if (line.isEmpty() || availableVisualCols == kNoWrap) {
+            m_rows.push_back({li, 0, static_cast<int>(line.size())});
             continue;
         }
 

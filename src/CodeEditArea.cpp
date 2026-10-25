@@ -413,7 +413,7 @@ void CodeEditArea::setPlaceholderText(const QString& text) {
 int CodeEditArea::visualRowCount() const {
     if (!m_doc) return 1;
     // The wrap layout is empty until the viewport has a width.
-    if (m_wordWrap && m_wrapLayout->totalRows() > 0) return m_wrapLayout->totalRows();
+    if (hasRows()) return m_wrapLayout->totalRows();
     int rows = 0;
     for (int line = 0; line < m_doc->lineCount(); ++line)
         if (m_foldState.isLineVisible(line)) ++rows;
@@ -555,7 +555,7 @@ void CodeEditArea::paintEvent(QPaintEvent* e) {
     int caretVisualCol, caretVisualRow;
     if (m_doc) {
         caretVisualRow = visualRowOf(m_cursor);
-        const int rowStart = m_wordWrap
+        const int rowStart = hasRows()
             ? m_wrapLayout->rowAt(caretVisualRow).startCol : 0;
         const QString seg = m_doc->lineAt(m_cursor.line).mid(rowStart);
         caretVisualCol = LineRenderer::visualColumn(seg, m_cursor.column - rowStart, tabWidth());
@@ -1037,7 +1037,7 @@ QRect CodeEditArea::caretRect(bool withPreedit) const {
         return QRect(LineRenderer::kLeftPaddingPx, 0, 1, height);
     }
     const int row = visualRowOf(m_cursor);
-    const int rowStart = m_wordWrap ? m_wrapLayout->rowAt(row).startCol : 0;
+    const int rowStart = hasRows() ? m_wrapLayout->rowAt(row).startCol : 0;
     const int visualCol = LineRenderer::visualColumn(
         m_doc->lineAt(m_cursor.line).mid(rowStart), m_cursor.column - rowStart, tabWidth());
     int x = LineRenderer::kLeftPaddingPx + visualCol * vp.charWidth - vp.contentOffsetX;
@@ -1196,7 +1196,7 @@ void CodeEditArea::onTextReplacementFinished() {
                                               m_cursor, m_anchor, &m_cursor, &m_anchor));
     // The same text stays at the top of the view.
     const int topLine = qBound(0, r->topLine, qMax(0, m_doc->lineCount() - 1));
-    verticalScrollBar()->setValue(m_wordWrap ? m_wrapLayout->firstRowOf(topLine) : topLine);
+    verticalScrollBar()->setValue(hasRows() ? m_wrapLayout->firstRowOf(topLine) : topLine);
     m_caretPainter->resetBlink();
     ensureCursorVisible(m_cursor);
     viewport()->update();
@@ -1231,8 +1231,11 @@ void CodeEditArea::refreshViewportState() {
     s.contentOffsetY = 0;
     s.wordWrap       = m_wordWrap;
 
-    if (m_wordWrap) {
-        s.contentOffsetX = 0;
+    // Rows with and without word wrap (without it a row per visible line);
+    // lines only before the layout is built
+    if (hasRows()) {
+        s.contentOffsetX = (!m_wordWrap && charWidth > 0)
+            ? horizontalScrollBar()->value() * charWidth : 0;
         const int totalRows = m_wrapLayout->totalRows();
         if (lineHeight > 0 && totalRows > 0) {
             const int firstRow = verticalScrollBar()->value();
@@ -1296,19 +1299,14 @@ void CodeEditArea::updateScrollBarRanges() {
     const int vpW = viewport()->width();
     const int visibleLines = (lineHeight > 0) ? (vpH / lineHeight) : 0;
 
+    // Vertically rows (folded lines left out), lines before the layout is built
+    const int rowCount = hasRows() ? m_wrapLayout->totalRows() : (m_doc ? m_doc->lineCount() : 0);
+    verticalScrollBar()->setRange(0, qMax(0, rowCount - visibleLines));
+    verticalScrollBar()->setPageStep(qMax(1, visibleLines));
+    verticalScrollBar()->setSingleStep(1);
     if (m_wordWrap) {
-        const int totalRows = m_wrapLayout->totalRows();
-        const int vMax = qMax(0, totalRows - visibleLines);
-        verticalScrollBar()->setRange(0, vMax);
-        verticalScrollBar()->setPageStep(qMax(1, visibleLines));
-        verticalScrollBar()->setSingleStep(1);
         horizontalScrollBar()->setRange(0, 0);
     } else {
-        const int lineCount = m_doc ? m_doc->lineCount() : 0;
-        const int vMax = qMax(0, lineCount - visibleLines);
-        verticalScrollBar()->setRange(0, vMax);
-        verticalScrollBar()->setPageStep(qMax(1, visibleLines));
-        verticalScrollBar()->setSingleStep(1);
 
         const int visibleCols = (charWidth > 0) ? (vpW / charWidth) : 0;
         const int maxCols = m_doc ? m_doc->maxLineLength() : 0;
@@ -1380,10 +1378,10 @@ TextCursor CodeEditArea::cursorFromPoint(const QPoint& pt) const {
 
     const int tw = tabWidth();
 
-    if (m_wordWrap && !vp.rows.isEmpty()) {
+    if (!vp.rows.isEmpty()) {
         const int ri = qBound(0, pt.y() / vp.lineHeight, vp.rows.size() - 1);
         const ViewportState::RowInfo& row = vp.rows[ri];
-        const int targetX = pt.x() - LineRenderer::kLeftPaddingPx;
+        const int targetX = pt.x() - LineRenderer::kLeftPaddingPx + vp.contentOffsetX;
         const QString seg = m_doc->lineAt(row.logicalLine)
                                 .mid(row.startCol, row.endCol - row.startCol);
         int visual = 0, segCol = 0;
@@ -1434,11 +1432,12 @@ void CodeEditArea::ensureCursorVisible(TextCursor pos, int extraColumns, int mar
             vBar->setValue(qMax(0, row - page + 1 + margin));
         }
     };
-    if (m_wordWrap) {
+    if (hasRows())
         scrollTo(visualRowOf(pos), m_viewportState.firstVisibleRow);
+    else
+        scrollTo(pos.line, m_viewportState.firstVisibleLine);
+    if (m_wordWrap)
         return; // no horizontal scroll in wrap mode
-    }
-    scrollTo(pos.line, m_viewportState.firstVisibleLine);
 
     const int charWidth = m_viewportState.charWidth;
     if (charWidth <= 0) return;
@@ -1463,22 +1462,29 @@ int CodeEditArea::pageLineCount() const {
 // --- Word-wrap helpers ---------------------------------------------------
 
 void CodeEditArea::rebuildWrapLayout() {
-    if (!m_wordWrap || !m_doc) return;
+    if (!m_doc) return;
     const QFontMetrics fm(font());
     const int cw = fm.horizontalAdvance(QLatin1Char('M'));
     if (cw <= 0) return;
-    const int availCols = qMax(1, (viewport()->width() - LineRenderer::kLeftPaddingPx) / cw);
+    // Without word wrap a row per line: folded lines are skipped as with it
+    const int availCols = m_wordWrap
+        ? qMax(1, (viewport()->width() - LineRenderer::kLeftPaddingPx) / cw)
+        : WrapLayout::kNoWrap;
     const FoldState* fs = (m_foldState.regions().isEmpty()) ? nullptr : &m_foldState;
     m_wrapLayout->rebuild(m_doc, availCols, tabWidth(), fs);
 }
 
+bool CodeEditArea::hasRows() const {
+    return m_doc && m_wrapLayout->totalRows() > 0;
+}
+
 int CodeEditArea::visualRowOf(TextCursor pos) const {
-    if (!m_wordWrap) return pos.line;
+    if (!hasRows()) return pos.line;
     return m_wrapLayout->rowForCursor(pos.line, pos.column);
 }
 
 TextCursor CodeEditArea::moveVisualRows(TextCursor c, int delta) const {
-    if (!m_wordWrap || !m_doc || m_wrapLayout->totalRows() == 0) {
+    if (!hasRows()) {
         return delta < 0 ? m_cursorCtrl->moveUp(c, -delta) : m_cursorCtrl->moveDown(c, delta);
     }
     const int row = visualRowOf(c);
@@ -1701,7 +1707,7 @@ void CodeEditArea::showReadOnlyHint() {
     int vRow = visualRowOf(m_cursor);
     int vCol = m_cursor.column;
     if (m_doc && m_viewportState.isValid()) {
-        const int rowStart = m_wordWrap ? m_wrapLayout->rowAt(vRow).startCol : 0;
+        const int rowStart = hasRows() ? m_wrapLayout->rowAt(vRow).startCol : 0;
         vCol = LineRenderer::visualColumn(
             m_doc->lineAt(m_cursor.line).mid(rowStart),
             m_cursor.column - rowStart, tabWidth());
@@ -1821,7 +1827,7 @@ QRegion CodeEditArea::selectionRegion() const {
     const auto band = LineRenderer::backgroundBand(font(), vp.lineHeight);
     QRegion region;
 
-    if (m_wordWrap && !vp.rows.isEmpty()) {
+    if (!vp.rows.isEmpty()) {
         for (int ri = 0; ri < vp.rows.size(); ++ri) {
             const ViewportState::RowInfo& row = vp.rows[ri];
             // Skip rows outside selection's logical line range.
@@ -1843,11 +1849,11 @@ QRegion CodeEditArea::selectionRegion() const {
                 vcEnd = LineRenderer::visualColumn(seg, selEndInSeg, tw);
             } else {
                 vcEnd = qMax(LineRenderer::visualColumn(seg, seg.size(), tw),
-                             vp.viewportWidth / vp.charWidth + 1);
+                             (vp.viewportWidth + vp.contentOffsetX) / vp.charWidth + 1);
             }
 
             const int topY = vp.contentOffsetY + ri * vp.lineHeight;
-            const int x = LineRenderer::kLeftPaddingPx + vcStart * vp.charWidth;
+            const int x = LineRenderer::kLeftPaddingPx + vcStart * vp.charWidth - vp.contentOffsetX;
             const int w = (vcEnd - vcStart) * vp.charWidth;
             if (w > 0) region += QRect(x, topY + band.offset, w, band.height);
         }
@@ -1919,7 +1925,7 @@ void CodeEditArea::paintPreedit(QPainter& painter) {
         painter.fillRect(x, topY + band.offset, vp.viewportWidth - x, band.height, bg);
     }
     const QString& line = m_doc->lineAt(m_cursor.line);
-    const int rowEnd = m_wordWrap ? m_wrapLayout->rowAt(row).endCol : int(line.size());
+    const int rowEnd = hasRows() ? m_wrapLayout->rowAt(row).endCol : int(line.size());
     const QVector<StyleSpan>* spans =
         (m_highlighter && m_cursor.line < m_validLines && m_cursor.line < m_lineSpans.size())
             ? &m_lineSpans[m_cursor.line]

@@ -49,13 +49,14 @@ struct ViewportState {
     /// True when the editor is in word-wrap mode.
     bool wordWrap = false;
 
-    /// First / last visible visual row index (= firstVisibleLine/lastVisibleLine
-    /// when wordWrap is false; may differ when wrap is active).
+    /// First / last visible visual row index (rows leave folded lines out, and
+    /// with word wrap a line may take several).
     int firstVisibleRow = 0;
     int lastVisibleRow  = -1;
 
-    /// Per-visual-row descriptor. Populated only when wordWrap=true; empty
-    /// otherwise. Element 0 corresponds to firstVisibleRow.
+    /// Per-visual-row descriptor, with and without word wrap (without it a row
+    /// per visible line); empty only before the area has laid out its rows.
+    /// Element 0 corresponds to firstVisibleRow.
     struct RowInfo {
         int  logicalLine = -1; ///< 0-based document line
         int  startCol    = 0; ///< first logical column of this visual row

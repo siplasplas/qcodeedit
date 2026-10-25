@@ -54,7 +54,9 @@ void LineRenderer::paint(QPainter& painter,
     // will draw off-screen and simply be clipped by the painter.
     const int baseX = kLeftPaddingPx - vp.contentOffsetX;
 
-    if (vp.wordWrap && !vp.rows.isEmpty()) {
+    // Rows (with word wrap, and without it a row per visible line: folded
+    // lines are left out); lines only before the area has its row layout
+    if (!vp.rows.isEmpty()) {
         for (int ri = 0; ri < vp.rows.size(); ++ri) {
             const auto& row = vp.rows[ri];
             const int topY = vp.contentOffsetY + ri * lineHeight;
@@ -73,17 +75,17 @@ void LineRenderer::paint(QPainter& painter,
             }
 
             drawSegmentWithSpans(painter, line, row.startCol, drawEnd,
-                                 kLeftPaddingPx, baselineY, vp.charWidth, spans,
+                                 baseX, baselineY, vp.charWidth, spans,
                                  topY, lineHeight, m_decorationsProvider ? m_decorationsProvider(row.logicalLine) : nullptr);
             if (m_showWhitespace) {
                 const QString seg = line.mid(row.startCol, drawEnd - row.startCol);
-                paintWhitespaceMarkers(painter, seg, kLeftPaddingPx, baselineY,
+                paintWhitespaceMarkers(painter, seg, baseX, baselineY,
                                        vp.charWidth);
             }
             if (!row.foldPlaceholder.isEmpty()) {
                 const QString drawnSeg = line.mid(row.startCol, drawEnd - row.startCol);
                 const int segVisualLen = cellCount(expandTabsAt(drawnSeg, 0));
-                const int segEndX = kLeftPaddingPx + segVisualLen * vp.charWidth;
+                const int segEndX = baseX + segVisualLen * vp.charWidth;
                 drawFoldPlaceholder(painter, row.foldPlaceholder,
                                     segEndX, topY, lineHeight);
             }

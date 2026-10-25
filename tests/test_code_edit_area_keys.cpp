@@ -547,6 +547,95 @@ private slots:
                           QPoint(leftPadding + 3 * cw + cw / 4, 5));
         QCOMPARE(area.cursorPosition().column, 4);
     }
+
+    // Ctrl+Down/Up scroll a row; the cursor keeps its place while on screen and
+    // stays on the first or last row of the screen when it would go off it
+    // (with and without wrapping).
+    void ctrlUpDown_scrollKeepingCursorOnScreen() {
+        for (const bool wrap : {false, true}) {
+            SimpleTextDocument doc;
+            QString text;
+            for (int i = 0; i < 60; ++i)
+                text += QStringLiteral("line %1\n").arg(i);
+            doc.setText(text);
+            CodeEditArea area;
+            area.setDocument(&doc);
+            area.setWordWrap(wrap);
+            area.resize(300, 200);
+            activate(&area);
+            QScrollBar* vBar = area.verticalScrollBar();
+            const int page = area.pageLineCount();
+            QVERIFY(page > 3);
+
+            area.setCursorPosition({2, 3});
+            QTest::keyClick(&area, Qt::Key_Down, Qt::ControlModifier);
+            QCOMPARE(vBar->value(), 1);
+            QCOMPARE(area.cursorPosition(), (TextCursor{2, 3}));
+
+            // Scrolled past it, the cursor stays on the first row of the screen.
+            QTest::keyClick(&area, Qt::Key_Down, Qt::ControlModifier);
+            QTest::keyClick(&area, Qt::Key_Down, Qt::ControlModifier);
+            QCOMPARE(vBar->value(), 3);
+            QCOMPARE(area.cursorPosition().line, 3);
+
+            // Back up: the cursor stays where it is while on screen, then on its last row.
+            for (int i = 0; i < 3; ++i)
+                QTest::keyClick(&area, Qt::Key_Up, Qt::ControlModifier);
+            QCOMPARE(vBar->value(), 0);
+            QCOMPARE(area.cursorPosition().line, 3);
+            area.setCursorPosition({page - 1, 0});
+            QTest::keyClick(&area, Qt::Key_Down, Qt::ControlModifier);
+            QTest::keyClick(&area, Qt::Key_Up, Qt::ControlModifier);
+            QCOMPARE(vBar->value(), 0);
+            QCOMPARE(area.cursorPosition().line, page - 1);
+            QVERIFY2(!area.hasSelection(), wrap ? "wrap" : "no wrap");
+        }
+    }
+
+    // Home and End of a wrapped line: the screen row first, pressed again the line.
+    void homeEnd_wrappedLine_rowThenLine() {
+        SimpleTextDocument doc;
+        QString line;
+        for (int i = 0; i < 30; ++i)
+            line += QStringLiteral("word%1 ").arg(i, 2, 10, QLatin1Char('0'));
+        doc.setText(line);
+        CodeEditArea area;
+        area.setDocument(&doc);
+        area.setWordWrap(true);
+        area.resize(260, 300);
+        activate(&area);
+        QVERIFY(area.visualRowCount() > 2);
+
+        // On the second screen row of the line.
+        area.setCursorPosition({0, 0});
+        QTest::keyClick(&area, Qt::Key_Down);
+        const TextCursor inRow = area.cursorPosition();
+        QVERIFY(inRow.column > 0);
+        QTest::keyClick(&area, Qt::Key_End);
+        const TextCursor rowEnd = area.cursorPosition();
+        QVERIFY(rowEnd.column > inRow.column && rowEnd.column < line.size());
+        QCOMPARE(area.visualRow(rowEnd), area.visualRow(inRow));
+        QTest::keyClick(&area, Qt::Key_End);
+        QCOMPARE(area.cursorPosition().column, int(line.size()));
+
+        // Home: the start of the screen row, then of the line.
+        area.setCursorPosition(inRow);
+        QTest::keyClick(&area, Qt::Key_End);
+        QTest::keyClick(&area, Qt::Key_Home);
+        const TextCursor rowStart = area.cursorPosition();
+        QVERIFY(rowStart.column > 0 && rowStart.column <= inRow.column);
+        QCOMPARE(area.visualRow(rowStart), area.visualRow(inRow));
+        QTest::keyClick(&area, Qt::Key_Home);
+        QCOMPARE(area.cursorPosition().column, 0);
+
+        // Without wrapping Home and End go to the line at once.
+        area.setWordWrap(false);
+        area.setCursorPosition({0, 10});
+        QTest::keyClick(&area, Qt::Key_End);
+        QCOMPARE(area.cursorPosition().column, int(line.size()));
+        QTest::keyClick(&area, Qt::Key_Home);
+        QCOMPARE(area.cursorPosition().column, 0);
+    }
 };
 
 QTEST_MAIN(TestCodeEditAreaKeys)

@@ -9,7 +9,10 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
 ## Features (v0.2)
 
 - Mono-font text rendering via `QPainter::drawText`
-- Keyboard navigation: arrows, Home/End, Ctrl+Home/End, PgUp/PgDn
+- Keyboard navigation: arrows, Home/End, Ctrl+Home/End, PgUp/PgDn; Ctrl+Up/Down
+  scroll the text a row, the cursor staying in its place while on screen (at the
+  first or last row of the screen otherwise); with word wrap Home/End go to the
+  start/end of the screen row, pressed there to the start/end of the line
 - Logical cursor with auto-scroll (position tracked, visible caret in v0.3)
 - `cursorPositionChanged` signal for status-bar wiring
 - Configurable tab width (default 4 spaces)

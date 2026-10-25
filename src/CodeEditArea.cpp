@@ -628,8 +628,26 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
 
     switch (e->key()) {
     // --- Navigation ---
-    case Qt::Key_Up:       move(moveVisualRows(c, -1));                     break;
-    case Qt::Key_Down:     move(moveVisualRows(c, 1));                      break;
+    case Qt::Key_Up:
+    case Qt::Key_Down: {
+        const int delta = e->key() == Qt::Key_Up ? -1 : 1;
+        if (!cmd) {
+            move(moveVisualRows(c, delta));
+            break;
+        }
+        // Ctrl+Up/Down: the text scrolls a row, the cursor stays where it is in
+        // the document while it is on screen; one that would go off it stays
+        // on the first or last row of the screen (as in Kate), so that the
+        // next arrow key does not jump back to it
+        QScrollBar* vBar = verticalScrollBar();
+        vBar->setValue(vBar->value() + delta);
+        const int first = vBar->value();
+        const int last  = first + pageLineCount() - 1;
+        const int row   = visualRowOf(c);
+        if (row < first)     move(moveVisualRows(c, first - row));
+        else if (row > last) move(moveVisualRows(c, last - row));
+        break;
+    }
     case Qt::Key_Left:
         move(ctrl ? cc.moveWordLeft(c) : cc.moveLeft(c));
         break;
@@ -637,9 +655,9 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
         move(ctrl ? cc.moveWordRight(c) : cc.moveRight(c));
         break;
     case Qt::Key_Home:     move(ctrl ? cc.moveToDocumentStart(c)
-                                     : cc.moveToLineStart(c));              break;
+                                     : moveToRowStart(c));                  break;
     case Qt::Key_End:      move(ctrl ? cc.moveToDocumentEnd(c)
-                                     : cc.moveToLineEnd(c));                break;
+                                     : moveToRowEnd(c));                    break;
     case Qt::Key_PageUp:   move(cc.movePageUp(c, pageLineCount()));         break;
     case Qt::Key_PageDown: move(cc.movePageDown(c, pageLineCount()));       break;
 
@@ -1487,6 +1505,31 @@ TextCursor CodeEditArea::moveVisualRows(TextCursor c, int delta) const {
         segCol = codepoints::prevIndex(seg, int(seg.size()));
     }
     return m_cursorCtrl->clamp({to.logicalLine, to.startCol + segCol});
+}
+
+// Home of a wrapped line: the start of the screen row; at the start of a row
+// that is not the line's first, the start of the line
+TextCursor CodeEditArea::moveToRowStart(TextCursor c) const {
+    if (!m_wordWrap || !m_doc || m_wrapLayout->totalRows() == 0)
+        return m_cursorCtrl->moveToLineStart(c);
+    const WrapLayout::Row& row = m_wrapLayout->rowAt(visualRowOf(c));
+    if (row.logicalLine != c.line || c.column == row.startCol)
+        return m_cursorCtrl->moveToLineStart(c);
+    return {c.line, row.startCol};
+}
+
+// End of a wrapped line: the end of the screen row (its last character: the
+// position after it is the start of the next row); there already, or on the
+// line's last row, the end of the line
+TextCursor CodeEditArea::moveToRowEnd(TextCursor c) const {
+    if (!m_wordWrap || !m_doc || m_wrapLayout->totalRows() == 0)
+        return m_cursorCtrl->moveToLineEnd(c);
+    const WrapLayout::Row& row = m_wrapLayout->rowAt(visualRowOf(c));
+    const QString line = m_doc->lineAt(c.line);
+    if (row.logicalLine != c.line || row.endCol >= line.size() || row.endCol <= row.startCol)
+        return m_cursorCtrl->moveToLineEnd(c);
+    const TextCursor rowEnd{c.line, codepoints::prevIndex(line, row.endCol)};
+    return c == rowEnd ? m_cursorCtrl->moveToLineEnd(c) : rowEnd;
 }
 
 // --- Highlighting helpers ------------------------------------------------

@@ -350,6 +350,9 @@ private:
     /// `delta` rows up (< 0) or down: wrapped rows with word wrap, keeping
     /// the character cell; lines without it. Unchanged at the first or last row.
     TextCursor moveVisualRows(TextCursor c, int delta) const;
+    /// Home and End with word wrap: the screen row first, then the line.
+    TextCursor moveToRowStart(TextCursor c) const;
+    TextCursor moveToRowEnd(TextCursor c) const;
 
     // --- Highlighting helpers ---
     void rebuildHighlightCache();

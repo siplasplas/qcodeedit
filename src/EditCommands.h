@@ -7,6 +7,8 @@
 #include <QStringList>
 #include <QVector>
 
+#include <functional>
+
 namespace qce {
 
 class ITextDocument;
@@ -72,10 +74,13 @@ public:
         QStringList inserted;
     };
     /// `runs` in the order they were made (from the last one up).
+    /// `beginBatch` and `endBatch` (the view's) wrap each redo and undo, so
+    /// that the view follows the many runs once.
     ReplaceLinesCommand(ITextDocument* doc, QVector<Run> runs,
                         TextCursor cursorBefore, TextCursor anchorBefore,
                         TextCursor cursorAfter, TextCursor anchorAfter,
-                        TextCursor* viewCursor, TextCursor* viewAnchor);
+                        TextCursor* viewCursor, TextCursor* viewAnchor,
+                        std::function<void()> beginBatch = {}, std::function<void()> endBatch = {});
 
     void redo() override;
     void undo() override;
@@ -86,6 +91,7 @@ private:
     TextCursor m_cursorBefore, m_anchorBefore, m_cursorAfter, m_anchorAfter;
     TextCursor* m_viewCursor;
     TextCursor* m_viewAnchor;
+    std::function<void()> m_beginBatch, m_endBatch;
     bool m_done = true;
 };
 

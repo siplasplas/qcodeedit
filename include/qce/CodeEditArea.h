@@ -328,6 +328,13 @@ private:
     int                                m_knownLineCount = 0;
     /// Earliest changed line whose re-highlight waits for that signal.
     int                                m_pendingRehighlightFrom = -1;
+    /// Document changes made as one (a text replaced by its differing lines,
+    /// its undo and redo, replaceRanges()): while the depth is above 0 each
+    /// change only moves the per-line caches; the highlighting, the folds,
+    /// the wrap layout and the view follow once, at the end, from the
+    /// earliest line changed (-1: none).
+    int                                m_batchDepth = 0;
+    int                                m_batchRehighlightFrom = -1;
     /// Lines [0, m_validLines) have up-to-date spans, end states and markers.
     int                                m_validLines = 0;
     /// Folds wait for the highlighting to reach the end of the document.
@@ -380,6 +387,10 @@ private:
     bool highlightComplete() const;
     /// min(startLine, pending changed line); clears the pending line.
     int  takePendingRehighlight(int startLine);
+    void beginBatch();
+    void endBatch();
+    /// In a batch: remembers the earliest line to re-highlight from, true.
+    bool batched(int startLine);
 
     // --- Folding helpers ---
     void rebuildFolds();

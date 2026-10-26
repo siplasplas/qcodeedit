@@ -410,11 +410,14 @@ bool CodeEditArea::replaceRanges(const QList<TextReplacement>& replacements, con
     // From the last run up: the line numbers of the runs above hold.
     std::reverse(runs.begin(), runs.end());
     const TextCursor cursorBefore = m_cursor, anchorBefore = m_anchor;
+    beginBatch();
     for (const ReplaceLinesCommand::Run& run : std::as_const(runs))
         m_doc->replaceLines(run.first, int(run.removed.size()), run.inserted);
+    endBatch();
     m_cursor = m_anchor = m_cursorCtrl->clamp(cursorAfter);
     auto* command = new ReplaceLinesCommand(m_doc, runs, cursorBefore, anchorBefore, m_cursor, m_anchor,
-                                            &m_cursor, &m_anchor);
+                                            &m_cursor, &m_anchor, [this]() { beginBatch(); },
+                                            [this]() { endBatch(); });
     command->setText(undoText);
     m_undoStack->push(command);
     updateAfterEdit();
@@ -1167,14 +1170,13 @@ void CodeEditArea::onLinesInserted(int startLine, int count) {
         // "<=": lines appended right after the prefix (e.g. at the end of a
         // fully highlighted document) can be highlighted now as well.
         if (startLine <= m_validLines) m_validLines += count;
-        for (int i = 0; i < count; ++i) {
-            m_lineEndStates.insert(startLine, HighlightState{});
-            m_lineSpans.insert(startLine, {});
-            m_lineFolds.insert(startLine, {});
-        }
-        rehighlightFrom(rehighlightStart);
+        m_lineEndStates.insert(startLine, count, HighlightState{});
+        m_lineSpans.insert(startLine, count, {});
+        m_lineFolds.insert(startLine, count, {});
+        if (m_batchDepth == 0) rehighlightFrom(rehighlightStart);
     }
     m_foldState.shiftLines(startLine, count);  // keep collapsed regions in place
+    if (batched(rehighlightStart)) return;
     rebuildFolds();
     rebuildWrapLayout();
     updateScrollBarRanges();
@@ -1191,14 +1193,14 @@ void CodeEditArea::onLinesRemoved(int startLine, int count) {
     const int rehighlightStart = takePendingRehighlight(startLine);
     if (m_highlighter) {
         if (startLine < m_validLines) m_validLines -= qMin(count, m_validLines - startLine);
-        for (int i = 0; i < count && startLine < m_lineEndStates.size(); ++i) {
-            m_lineEndStates.removeAt(startLine);
-            m_lineSpans.removeAt(startLine);
-            m_lineFolds.removeAt(startLine);
-        }
-        rehighlightFrom(rehighlightStart);
+        const int removable = qBound(0, int(m_lineEndStates.size()) - startLine, count);
+        m_lineEndStates.remove(startLine, removable);
+        m_lineSpans.remove(startLine, qBound(0, int(m_lineSpans.size()) - startLine, count));
+        m_lineFolds.remove(startLine, qBound(0, int(m_lineFolds.size()) - startLine, count));
+        if (m_batchDepth == 0) rehighlightFrom(rehighlightStart);
     }
     m_foldState.shiftLines(startLine, -count);
+    if (batched(rehighlightStart)) return;
     rebuildFolds();
     rebuildWrapLayout();
     updateScrollBarRanges();
@@ -1219,6 +1221,7 @@ void CodeEditArea::onLinesChanged(int startLine, int) {
             ? startLine : qMin(m_pendingRehighlightFrom, startLine);
         return;
     }
+    if (batched(startLine)) return;
     if (m_highlighter) {
         rehighlightFrom(startLine);
     }
@@ -1241,7 +1244,34 @@ TextCursor mapThroughRun(TextCursor pos, int first, int removed, int inserted) {
 }
 }
 
+void CodeEditArea::beginBatch() {
+    ++m_batchDepth;
+}
+
+bool CodeEditArea::batched(int startLine) {
+    if (m_batchDepth == 0) return false;
+    m_batchRehighlightFrom = m_batchRehighlightFrom < 0 ? startLine : qMin(m_batchRehighlightFrom, startLine);
+    return true;
+}
+
+// The end of a batch: what each change would have brought up to date, once.
+void CodeEditArea::endBatch() {
+    if (m_batchDepth == 0 || --m_batchDepth > 0 || m_batchRehighlightFrom < 0) return;
+    const int from = takePendingRehighlight(m_batchRehighlightFrom);
+    m_batchRehighlightFrom = -1;
+    m_cursor = m_cursorCtrl->clamp(m_cursor);
+    m_anchor = m_cursorCtrl->clamp(m_anchor);
+    if (m_highlighter) rehighlightFrom(from);
+    rebuildFolds();
+    rebuildWrapLayout();
+    updateScrollBarRanges();
+    refreshViewportState();
+    viewport()->update();
+    emit textChanged();
+}
+
 void CodeEditArea::onTextReplacementStarted() {
+    beginBatch();
     m_replacement = std::make_unique<Replacement>();
     m_replacement->cursorBefore = m_cursor;
     m_replacement->anchorBefore = m_anchor;
@@ -1261,13 +1291,15 @@ void CodeEditArea::onLinesReplaced(int first, const QStringList& removed, const 
 
 // The document has changed already; the command only records it for undo.
 void CodeEditArea::onTextReplacementFinished() {
+    endBatch();
     if (!m_replacement) return;
     const std::unique_ptr<Replacement> r = std::move(m_replacement);
     cancelPreedit(true);
     m_cursor = m_cursorCtrl->clamp(r->cursor);
     m_anchor = m_cursorCtrl->clamp(r->anchor);
     m_undoStack->push(new ReplaceLinesCommand(m_doc, r->runs, r->cursorBefore, r->anchorBefore,
-                                              m_cursor, m_anchor, &m_cursor, &m_anchor));
+                                              m_cursor, m_anchor, &m_cursor, &m_anchor,
+                                              [this]() { beginBatch(); }, [this]() { endBatch(); }));
     // The same text stays at the top of the view.
     const int topLine = qBound(0, r->topLine, qMax(0, m_doc->lineCount() - 1));
     verticalScrollBar()->setValue(hasRows() ? m_wrapLayout->firstRowOf(topLine) : topLine);

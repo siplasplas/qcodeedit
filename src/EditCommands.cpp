@@ -91,7 +91,8 @@ void RemoveCommand::undo() {
 ReplaceLinesCommand::ReplaceLinesCommand(ITextDocument* doc, QVector<Run> runs,
                                          TextCursor cursorBefore, TextCursor anchorBefore,
                                          TextCursor cursorAfter, TextCursor anchorAfter,
-                                         TextCursor* viewCursor, TextCursor* viewAnchor)
+                                         TextCursor* viewCursor, TextCursor* viewAnchor,
+                                         std::function<void()> beginBatch, std::function<void()> endBatch)
     : m_doc(doc),
       m_runs(std::move(runs)),
       m_cursorBefore(cursorBefore),
@@ -99,7 +100,9 @@ ReplaceLinesCommand::ReplaceLinesCommand(ITextDocument* doc, QVector<Run> runs,
       m_cursorAfter(cursorAfter),
       m_anchorAfter(anchorAfter),
       m_viewCursor(viewCursor),
-      m_viewAnchor(viewAnchor) {}
+      m_viewAnchor(viewAnchor),
+      m_beginBatch(std::move(beginBatch)),
+      m_endBatch(std::move(endBatch)) {}
 
 void ReplaceLinesCommand::redo() {
     if (m_done) {
@@ -107,9 +110,11 @@ void ReplaceLinesCommand::redo() {
         m_done = false;
         return;
     }
+    if (m_beginBatch) m_beginBatch();
     for (const Run& run : m_runs) {
         m_doc->replaceLines(run.first, run.removed.size(), run.inserted);
     }
+    if (m_endBatch) m_endBatch();
     *m_viewCursor = m_cursorAfter;
     *m_viewAnchor = m_anchorAfter;
 }
@@ -117,9 +122,11 @@ void ReplaceLinesCommand::redo() {
 void ReplaceLinesCommand::undo() {
     // The run made last is the topmost; its line numbers hold in the new
     // text, and those of the next one once it is undone.
+    if (m_beginBatch) m_beginBatch();
     for (auto it = m_runs.crbegin(); it != m_runs.crend(); ++it) {
         m_doc->replaceLines(it->first, it->inserted.size(), it->removed);
     }
+    if (m_endBatch) m_endBatch();
     *m_viewCursor = m_cursorBefore;
     *m_viewAnchor = m_anchorBefore;
 }

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(qcodeedit LANGUAGES CXX VERSION 1.65.6)
+project(qcodeedit LANGUAGES CXX VERSION 1.66.0)
 
 # --- Global options -----------------------------------------------------
 

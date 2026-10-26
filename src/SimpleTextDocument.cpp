@@ -60,11 +60,11 @@ TextCursor SimpleTextDocument::insertText(TextCursor pos, const QString& text) {
 
     // Multi-line: modify current line, then insert new ones after it.
     m_lines[pos.line] = prefix + parts.first();
+    // Room for the new lines at once, then filled: one line at a time moves
+    // the rest of the list each time.
+    m_lines.insert(pos.line + 1, parts.size() - 1, QString());
     for (int i = 1; i < parts.size(); ++i) {
-        const QString newLine = (i == parts.size() - 1)
-            ? parts.at(i) + suffix
-            : parts.at(i);
-        m_lines.insert(pos.line + i, newLine);
+        m_lines[pos.line + i] = (i == parts.size() - 1) ? parts.at(i) + suffix : parts.at(i);
     }
 
     invalidateCache();
@@ -108,9 +108,8 @@ QString SimpleTextDocument::removeText(TextCursor start, TextCursor end) {
                            + m_lines.at(end.line).mid(end.column);
 
     const int removeCount = end.line - start.line;
-    for (int i = 0; i < removeCount; ++i) {
-        m_lines.removeAt(start.line + 1);
-    }
+    // At once: one line at a time moves the rest of the list each time.
+    m_lines.remove(start.line + 1, removeCount);
     m_lines[start.line] = joined;
 
     invalidateCache();

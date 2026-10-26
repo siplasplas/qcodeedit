@@ -1461,7 +1461,7 @@ TextCursor CodeEditArea::cursorFromPoint(const QPoint& pt) const {
         int visual = 0, segCol = 0;
         while (segCol < seg.size()) {
             const int cw = (seg.at(segCol) == QLatin1Char('\t'))
-                ? (tw - (visual % tw)) : 1;
+                ? (tw - (visual % tw)) : codepoints::cellsAt(seg, segCol);
             if (targetX * 2 < (2 * visual + cw) * vp.charWidth) break;
             visual += cw;
             segCol = codepoints::nextIndex(seg, segCol);  // a surrogate pair is one cell
@@ -1477,7 +1477,7 @@ TextCursor CodeEditArea::cursorFromPoint(const QPoint& pt) const {
     int visual = 0, col = 0;
     while (col < lineStr.size()) {
         const int cw = (lineStr.at(col) == QLatin1Char('\t'))
-            ? (tw - (visual % tw)) : 1;
+            ? (tw - (visual % tw)) : codepoints::cellsAt(lineStr, col);
         if (targetX * 2 < (2 * visual + cw) * vp.charWidth) break;
         visual += cw;
         col = codepoints::nextIndex(lineStr, col);  // a surrogate pair is one cell
@@ -1574,7 +1574,7 @@ TextCursor CodeEditArea::moveVisualRows(TextCursor c, int delta) const {
     const QString seg = line.mid(to.startCol, to.endCol - to.startCol);
     int visual = 0, segCol = 0;
     while (segCol < seg.size()) {
-        const int cw = (seg.at(segCol) == QLatin1Char('\t')) ? (tw - (visual % tw)) : 1;
+        const int cw = (seg.at(segCol) == QLatin1Char('\t')) ? (tw - (visual % tw)) : codepoints::cellsAt(seg, segCol);
         if (2 * x < 2 * visual + cw) break;
         visual += cw;
         segCol = codepoints::nextIndex(seg, segCol);

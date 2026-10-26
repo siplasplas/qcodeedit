@@ -170,8 +170,8 @@ void LineRenderer::paintWhitespaceMarkers(QPainter& painter,
             const int tabSpaces = m_tabWidth - (visual % m_tabWidth);
             painter.drawText(baseX + visual * charWidth, baselineY, kArrow);
             visual += tabSpaces;
-        } else if (!codepoints::continuesPair(seg, i)) {
-            ++visual;
+        } else {
+            visual += codepoints::cellsAt(seg, i);
         }
     }
     painter.restore();
@@ -183,15 +183,17 @@ int LineRenderer::visualColumn(const QString& line, int charIndex, int tabWidth)
     for (int i = 0; i < limit; ++i) {
         if (line.at(i) == QLatin1Char('\t')) {
             visual = (visual / tabWidth + 1) * tabWidth;
-        } else if (!codepoints::continuesPair(line, i)) {
-            ++visual;  // a surrogate pair is one column
+        } else {
+            visual += codepoints::cellsAt(line, i);  // a surrogate pair is one character, a wide one two cells
         }
     }
     return visual;
 }
 
 int LineRenderer::cellCount(const QString& text) {
-    return codepoints::codePointColumn(text, int(text.size()));
+    int cells = 0;
+    for (int i = 0; i < text.size(); ++i) cells += codepoints::cellsAt(text, i);
+    return cells;
 }
 
 void LineRenderer::drawWavyUnderline(QPainter& painter, int x1, int x2, int baselineY,
@@ -216,21 +218,26 @@ void LineRenderer::drawWavyUnderline(QPainter& painter, int x1, int x2, int base
 
 void LineRenderer::drawCells(QPainter& painter, int x, int baselineY, int charWidth,
                              const QString& text) {
-    int runStart = 0;   // first index of the BMP run not drawn yet
+    int runStart = 0;   // first index of the run of one-cell BMP characters not drawn yet
     int runCell  = 0;   // its cell
     int cell     = 0;
     for (int i = 0; i < text.size();) {
-        if (!codepoints::isPairAt(text, i)) {
+        const bool pair = codepoints::isPairAt(text, i);
+        const int cells = codepoints::cellsAt(text, i);
+        if (!pair && cells == 1) {
             ++i;
             ++cell;
             continue;
         }
+        // A character outside the BMP or a wide one, drawn alone at its
+        // cell: its glyph's advance need not be a whole number of cells.
         if (runStart < i) {
             painter.drawText(x + runCell * charWidth, baselineY, text.mid(runStart, i - runStart));
         }
-        painter.drawText(x + cell * charWidth, baselineY, text.mid(i, 2));
-        i += 2;
-        ++cell;
+        const int length = pair ? 2 : 1;
+        painter.drawText(x + cell * charWidth, baselineY, text.mid(i, length));
+        i += length;
+        cell += cells;
         runStart = i;
         runCell  = cell;
     }
@@ -361,8 +368,8 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
         for (int i = 0; i < chunk.size(); ++i) {
             if (chunk.at(i) == QLatin1Char('\t')) {
                 visual = (visual / m_tabWidth + 1) * m_tabWidth;
-            } else if (!codepoints::continuesPair(chunk, i)) {
-                ++visual;
+            } else {
+                visual += codepoints::cellsAt(chunk, i);
             }
         }
         rawCol = chunkEnd;

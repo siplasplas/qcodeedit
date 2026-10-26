@@ -89,17 +89,21 @@ public:
                       int topY, int lineHeight, int charWidth,
                       const QVector<StyleSpan>* spans) const;
 
-    /// Visual column (number of displayed characters) at logical char index
-    /// `charIndex` in `line`, given `tabWidth`. Tabs advance to the next tab
-    /// stop; a surrogate pair (one character outside the BMP) is one column.
+    /// Visual column (cells) at logical char index `charIndex` in `line`,
+    /// given `tabWidth`. Tabs advance to the next tab stop; a surrogate pair
+    /// (one character outside the BMP) is one character; a wide character
+    /// (Chinese, ...) takes two cells (codepoints::cellsAt()).
     /// Used by CodeEditArea to position the caret and selection rects.
     static int visualColumn(const QString& line, int charIndex, int tabWidth);
 
-    /// Number of cells `text` (tabs already expanded) occupies: its code points.
+    /// Number of cells `text` (tabs already expanded) occupies: a cell a code
+    /// point, two for a wide one.
     static int cellCount(const QString& text);
 
     /// Draws `text` (tabs already expanded) with every code point at its
-    /// cell: x + cell * charWidth. A character outside the BMP comes from a
+    /// cell: x + cell * charWidth; a wide character (Chinese, ...) takes two
+    /// cells and is drawn alone, as its glyph from a fallback font is about
+    /// two cells wide, seldom exactly. A character outside the BMP comes from a
     /// fallback font whose advance can differ from the cell width; drawn as
     /// one run, it would shift the rest of the line off the caret and
     /// selection grid (six Egyptian hieroglyphs of 9 px in 8 px cells push

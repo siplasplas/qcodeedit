@@ -9,6 +9,12 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
 ## Features (v0.2)
 
 - Mono-font text rendering via `QPainter::drawText`
+- Characters on a grid of cells: an East Asian wide or fullwidth character
+  (Chinese, Japanese, Korean, fullwidth forms) takes two cells, as its glyph
+  does, so the caret, the selection, mouse clicks and word wrap stay on it
+  (詞源 is two characters of two cells); a character outside the BMP (an
+  Egyptian hieroglyph, an emoji) is one character of one cell, a CJK
+  ideograph outside it (Extension B, ...) one of two
 - Keyboard navigation: arrows, Home/End, Ctrl+Home/End, PgUp/PgDn; Ctrl+Up/Down
   scroll the text a row, the cursor staying in its place while on screen (at the
   first or last row of the screen otherwise); with word wrap Home/End go to the

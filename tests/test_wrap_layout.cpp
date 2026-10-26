@@ -19,6 +19,7 @@ private slots:
     void firstRowOf_correct();
     void collapsedRegions_matchIsLineVisible();
     void surrogatePair_neverSplitBetweenRows();
+    void wideCharacter_takesTwoCells();
 };
 
 using qce::WrapLayout;
@@ -196,6 +197,20 @@ void TestWrapLayout::surrogatePair_neverSplitBetweenRows() {
     QCOMPARE(wl.rowAt(2).endCol, 10);
     for (int r = 0; r < wl.totalRows(); ++r)
         QVERIFY(!line.at(wl.rowAt(r).startCol).isLowSurrogate());
+}
+
+// Four wide characters (詞源詞源, two cells each) and "ab" in rows of 5
+// cells: two wide (4 cells; the third would make 6), the other two (with
+// "a" they would fit, but "ab" is not broken), then "ab".
+void TestWrapLayout::wideCharacter_takesTwoCells() {
+    SimpleTextDocument doc;
+    doc.setText(QString::fromUcs4(U"詞源詞源ab"));
+    WrapLayout wl = buildLayout(doc, 5);
+    QCOMPARE(wl.totalRows(), 3);
+    QCOMPARE(wl.rowAt(0).endCol, 2);
+    QCOMPARE(wl.rowAt(1).startCol, 2);
+    QCOMPARE(wl.rowAt(1).endCol, 4);
+    QCOMPARE(wl.rowAt(2).endCol, 6);
 }
 
 QTEST_APPLESS_MAIN(TestWrapLayout)

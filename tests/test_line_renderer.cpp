@@ -19,6 +19,10 @@ private slots:
     void visualColumn_surrogatePair_isOneColumn();
     void cellCount_countsCodePoints();
     void drawCells_keepsTextAfterPairOnTheGrid();
+
+    // Wide characters (Chinese, ...) take two cells
+    void visualColumn_wideCharacter_isTwoCells();
+    void drawCells_keepsTextAfterWideOnTheGrid();
 };
 
 using qce::LineRenderer;
@@ -114,6 +118,49 @@ void TestLineRenderer::drawCells_keepsTextAfterPairOnTheGrid() {
     QVERIFY2(samePixels(6 * cw, pairs.width()).isEmpty(), qPrintable(samePixels(6 * cw, pairs.width())));
     // And "ab" (cells 0-1) is untouched by the pairs after it.
     QVERIFY2(samePixels(0, 2 * cw).isEmpty(), qPrintable(samePixels(0, 2 * cw)));
+}
+
+// "a" + 詞源 (etymology, U+8A5E U+6E90, wide) + "b": cells a=0, 詞 1-2, 源 3-4, b=5.
+static const QString kWideLine = QString::fromUcs4(U"a\u8A5E\u6E90b");
+
+void TestLineRenderer::visualColumn_wideCharacter_isTwoCells() {
+    QCOMPARE(LineRenderer::visualColumn(kWideLine, 1, 4), 1);
+    QCOMPARE(LineRenderer::visualColumn(kWideLine, 2, 4), 3);
+    QCOMPARE(LineRenderer::visualColumn(kWideLine, 3, 4), 5);
+    QCOMPARE(LineRenderer::cellCount(kWideLine), 6);
+    // A wide character outside the BMP (CJK Extension B, U+20000): two cells, one code point.
+    const QString extension = QString::fromUcs4(U"a\U00020000b");
+    QCOMPARE(LineRenderer::visualColumn(extension, 3, 4), 3);
+    QCOMPARE(LineRenderer::cellCount(extension), 4);
+}
+
+// Drawn as one run, the wide glyphs would place "b" by their own advances,
+// off the caret's grid; drawn alone at their cells, "b" is at cell 5.
+void TestLineRenderer::drawCells_keepsTextAfterWideOnTheGrid() {
+    QFont font(QStringLiteral("monospace"));
+    font.setStyleHint(QFont::Monospace);
+    const QFontMetrics fm(font);
+    const int cw = fm.horizontalAdvance(QLatin1Char('M'));
+    const int baseline = fm.ascent();
+    const auto render = [&](const std::function<void(QPainter&)>& draw) {
+        QImage img(cw * 10, fm.height(), QImage::Format_RGB32);
+        img.fill(Qt::white);
+        QPainter p(&img);
+        p.setFont(font);
+        p.setPen(Qt::black);
+        draw(p);
+        return img;
+    };
+    const QImage wide = render([&](QPainter& p) { LineRenderer::drawCells(p, 0, baseline, cw, kWideLine + QStringLiteral("cd")); });
+    const QImage plain = render([&](QPainter& p) {
+        p.drawText(0, baseline, QStringLiteral("a"));
+        p.drawText(5 * cw, baseline, QStringLiteral("bcd"));
+    });
+    // From cell 6 on ("cd"), and cell 0 ("a"), the pixels are the same.
+    for (const auto& [from, to] : {std::pair{6 * cw, int(wide.width())}, {0, cw}})
+        for (int x = from; x < to; ++x)
+            for (int y = 0; y < wide.height(); ++y)
+                QVERIFY2(wide.pixel(x, y) == plain.pixel(x, y), qPrintable(QStringLiteral("pixel (%1, %2)").arg(x).arg(y)));
 }
 
 QTEST_MAIN(TestLineRenderer)

@@ -77,10 +77,10 @@ void WrapLayout::rebuild(const ITextDocument* doc,
             while (endCol < line.size()) {
                 const QChar ch = line.at(endCol);
                 // The second half of a surrogate pair takes no cell, so a
-                // row never ends between the halves.
+                // row never ends between the halves; a wide character two.
                 const int cw = (ch == QLatin1Char('\t'))
                     ? (tabWidth - (visual % tabWidth))
-                    : (codepoints::continuesPair(line, endCol) ? 0 : 1);
+                    : codepoints::cellsAt(line, endCol);
                 if (visual + cw > availableVisualCols && endCol > col) {
                     break;
                 }

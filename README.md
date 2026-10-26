@@ -160,8 +160,9 @@ Options:
   differ (found by DiffMerge's libdiffcore), so a new text, e.g. a file
   changed on disk and read again, is one undo step that keeps the earlier
   undo history, and the cursor, the selection and the top of the view follow
-  the text they were in. With too many changed lines to compare in a moment
-  (more than 16 000, e.g. a column added to every line of a large file) the
+  the text they were in. With too many changed lines for the file's length to compare
+  in a moment (N·P steps above 10⁹: N lines, P of them changed; e.g. a
+  column added to every line of a large file) the
   lines between the common start and end are taken as one change at once,
   still one undo step. Linking `qcodeedit::diff` is enough; the program
   calls nothing (a program that loads a new file clears the undo history

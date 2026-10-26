@@ -10,19 +10,18 @@ namespace qce::diff {
 
 namespace {
 
-// libdiffcore takes about 1.6e-9 * D² seconds for D changed lines (both
-// sides, release build): 0.2 s for 9 000, 1.4 s for 27 000, 12.6 s for
-// 90 000, two minutes for a file of 130 000 lines all changed (a new
-// column). Beyond this many the texts are not compared line by line.
-constexpr qsizetype kMaxEdits = 16000;
+// libdiffcore is Wu, Manber, Myers and Miller's O(NP) algorithm: N the
+// longer sequence, P the deletions of the shortest edit script (a changed
+// line is a deletion and an insertion). Measured on 135 000 lines (release
+// build): N·P of 6·10⁸ took 0.2 s, 1.8·10⁹ 1.4 s, 6·10⁹ 12.6 s. Beyond this
+// the texts are not compared line by line (about half a second).
+constexpr double kMaxSteps = 1e9;
 
 } // namespace
 
 QVector<LineChange> lineChanges(const QStringList& oldLines, const QStringList& newLines) {
-    // Too many changes: the lines between the common start and end as one
-    // change, found in linear time. The edits are at least the lines of
-    // either side that the other lacks (counted with a hash of the lines
-    // between), so the estimate never takes a long comparison for a short one.
+    // The common start and end need no comparing: only the lines between go
+    // to libdiffcore, so that its N is theirs.
     const qsizetype shorter = std::min(oldLines.size(), newLines.size());
     qsizetype prefix = 0;
     while (prefix < shorter && oldLines[prefix] == newLines[prefix]) ++prefix;
@@ -33,30 +32,37 @@ QVector<LineChange> lineChanges(const QStringList& oldLines, const QStringList& 
     const qsizetype oldMiddle = oldLines.size() - prefix - suffix;
     const qsizetype newMiddle = newLines.size() - prefix - suffix;
     if (oldMiddle == 0 && newMiddle == 0) return {};
-    if (oldMiddle + newMiddle > kMaxEdits) {
+    const QStringList oldPart = oldLines.mid(prefix, oldMiddle), newPart = newLines.mid(prefix, newMiddle);
+    // Too many steps: the lines between as one change, found in linear time.
+    // P is at least the lines of the shorter side that the longer one lacks
+    // (counted with a hash), so the estimate never stops a quick comparison;
+    // it is counted only when N times the largest P could pass the limit.
+    const qsizetype n = std::max(oldMiddle, newMiddle);
+    const qsizetype m = std::min(oldMiddle, newMiddle);
+    if (double(n) * double(m) > kMaxSteps) {
         QHash<QString, qsizetype> counts;
         counts.reserve(oldMiddle);
-        for (qsizetype i = prefix; i < prefix + oldMiddle; ++i) ++counts[oldLines[i]];
+        for (const QString& line : oldPart) ++counts[line];
         qsizetype matched = 0;
-        for (qsizetype i = prefix; i < prefix + newMiddle; ++i) {
-            const auto it = counts.find(newLines[i]);
+        for (const QString& line : newPart) {
+            const auto it = counts.find(line);
             if (it != counts.end() && it.value() > 0) {
                 --it.value();
                 ++matched;
             }
         }
-        if (oldMiddle + newMiddle - 2 * matched > kMaxEdits)
-            return {{int(prefix), int(oldMiddle), int(prefix), int(newMiddle)}};
+        const qsizetype p = m - matched;
+        if (double(n) * double(p) > kMaxSteps) return {{int(prefix), int(oldMiddle), int(prefix), int(newMiddle)}};
     }
     diffcore::DiffOptions options;
     // Lines come without line breaks; every difference counts.
     options.ignoreEolStyle = false;
-    const diffcore::DiffResult result = diffcore::DiffEngine().compute(oldLines, newLines, options);
+    const diffcore::DiffResult result = diffcore::DiffEngine().compute(oldPart, newPart, options);
     QVector<LineChange> changes;
     for (const diffcore::Hunk& hunk : result.hunks) {
         if (hunk.type == diffcore::ChangeType::Equal) continue;
-        changes.append({hunk.leftRange.start, hunk.leftRange.count,
-                        hunk.rightRange.start, hunk.rightRange.count});
+        changes.append({int(prefix) + hunk.leftRange.start, hunk.leftRange.count,
+                        int(prefix) + hunk.rightRange.start, hunk.rightRange.count});
     }
     return changes;
 }

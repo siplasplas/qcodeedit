@@ -130,6 +130,19 @@ public:
     /// Insert `text` at the cursor, replacing the selection, as one undo step
     /// (the insert filter is not applied). Does nothing in a read-only view.
     void insertText(const QString& text);
+    /// A range of the text and what replaces it.
+    struct TextReplacement {
+        TextCursor start;
+        TextCursor end;
+        QString text;
+    };
+    /// Replaces the ranges (in the order of the text, not overlapping) with
+    /// their texts as one undo step named `undoText` (Replace All): the lines
+    /// with replacements are made anew, each run of them in one pass, so even
+    /// many replacements in very long lines take linear time. The cursor goes
+    /// after the first replacement. False, doing nothing, in a read-only view
+    /// or with nothing to replace.
+    bool replaceRanges(const QList<TextReplacement>& replacements, const QString& undoText = QString());
     /// Clipboard actions as Ctrl+X, Ctrl+C and Ctrl+V do them.
     void cut();
     void copy();

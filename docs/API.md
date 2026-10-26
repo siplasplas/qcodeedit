@@ -148,6 +148,19 @@ bool ok = area->canUndo();
 QUndoStack* stack = area->undoStack();  // wire to Edit menu actions
 ```
 
+**Replacing many ranges at once** (e.g. Replace All): `replaceRanges()` takes
+the ranges in the order of the text, not overlapping, each with its new text,
+and replaces them as one undo step. Each run of lines with replacements is
+made anew in one pass (its new length known first, allocated once), so even
+hundreds of thousands of replacements in lines of tens of thousands of
+characters take linear time, not one edit a replacement.
+
+```cpp
+QList<qce::CodeEditArea::TextReplacement> ranges;
+ranges.append({{0, 2}, {0, 3}, "&quot;"});   // start, end, new text
+area->replaceRanges(ranges, tr("Replace All"));
+```
+
 **Signals:**
 
 ```cpp

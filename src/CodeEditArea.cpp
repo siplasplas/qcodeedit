@@ -347,6 +347,80 @@ void CodeEditArea::insertText(const QString& text) {
     executeInsert(text);
 }
 
+bool CodeEditArea::replaceRanges(const QList<TextReplacement>& replacements, const QString& undoText) {
+    if (!m_doc || replacements.isEmpty()) return false;
+    if (m_readOnly) {
+        showReadOnlyHint();
+        return false;
+    }
+    cancelPreedit(true);
+    // Runs of lines (a run goes on over the next line when that has a
+    // replacement too), each made anew in one pass: its old lines joined,
+    // the new text's length known first (the old one plus each
+    // replacement's growth), so allocated once, the text between
+    // replacements copied once, shifted by the growth so far.
+    QVector<ReplaceLinesCommand::Run> runs;
+    TextCursor cursorAfter = m_cursor;
+    for (qsizetype first = 0; first < replacements.size();) {
+        const int firstLine = replacements[first].start.line;
+        int lastLine = replacements[first].end.line;
+        qsizetype last = first;
+        while (last + 1 < replacements.size() && replacements[last + 1].start.line <= lastLine + 1) {
+            ++last;
+            lastLine = std::max(lastLine, replacements[last].end.line);
+        }
+        ReplaceLinesCommand::Run run;
+        run.first = firstLine;
+        QVector<qsizetype> lineOffsets;  // of each line in the joined text
+        qsizetype oldLength = 0;
+        for (int line = firstLine; line <= lastLine; ++line) {
+            run.removed << m_doc->lineAt(line);
+            lineOffsets << oldLength;
+            oldLength += run.removed.back().size() + 1;
+        }
+        QString old;
+        old.reserve(oldLength);
+        for (const QString& line : std::as_const(run.removed)) {
+            if (!old.isEmpty() || &line != &run.removed.front()) old += QLatin1Char('\n');
+            old += line;
+        }
+        const auto offsetOf = [&](TextCursor at) { return lineOffsets[at.line - firstLine] + at.column; };
+        qsizetype length = old.size();
+        for (qsizetype i = first; i <= last; ++i)
+            length += replacements[i].text.size() - (offsetOf(replacements[i].end) - offsetOf(replacements[i].start));
+        QString built;
+        built.reserve(length);
+        qsizetype copied = 0;
+        for (qsizetype i = first; i <= last; ++i) {
+            const qsizetype start = offsetOf(replacements[i].start);
+            built += QStringView(old).mid(copied, start - copied);
+            built += replacements[i].text;
+            copied = offsetOf(replacements[i].end);
+            if (i == 0) {
+                const qsizetype newline = built.lastIndexOf(QLatin1Char('\n'));
+                cursorAfter = {firstLine + int(built.count(QLatin1Char('\n'))),
+                               int(newline < 0 ? built.size() : built.size() - newline - 1)};
+            }
+        }
+        built += QStringView(old).mid(copied);
+        run.inserted = built.split(QLatin1Char('\n'));
+        runs.append(std::move(run));
+        first = last + 1;
+    }
+    // From the last run up: the line numbers of the runs above hold.
+    std::reverse(runs.begin(), runs.end());
+    const TextCursor cursorBefore = m_cursor, anchorBefore = m_anchor;
+    for (const ReplaceLinesCommand::Run& run : std::as_const(runs))
+        m_doc->replaceLines(run.first, int(run.removed.size()), run.inserted);
+    m_cursor = m_anchor = m_cursorCtrl->clamp(cursorAfter);
+    auto* command = new ReplaceLinesCommand(m_doc, runs, cursorBefore, anchorBefore, m_cursor, m_anchor,
+                                            &m_cursor, &m_anchor);
+    command->setText(undoText);
+    m_undoStack->push(command);
+    updateAfterEdit();
+    return true;
+}
+
 void CodeEditArea::cut() {
     if (!hasSelection()) return;
     if (m_readOnly) { showReadOnlyHint(); return; }

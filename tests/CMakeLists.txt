@@ -134,6 +134,7 @@ qce_add_test(test_gutter_colors)
 qce_add_test(test_code_edit_area_keys)
 qce_add_test(test_code_edit_area_input_method)
 qce_add_test(test_extra_selections INTERNAL)
+qce_add_test(test_replace_ranges)
 
 # Grammar: the morphology file and the rules (plain C++, its own small data).
 if(TARGET qcodeedit::grammar)

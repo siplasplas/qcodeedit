@@ -619,10 +619,13 @@ void CodeEditArea::paintEvent(QPaintEvent* e) {
     }
     p.setPen(palette().text().color());
     m_renderer->setSelectionRegion(selectionRegion());
-    // Lazy highlighting: make sure every visible line is highlighted.
+    // Lazy highlighting: make sure every visible line is highlighted; a short
+    // document all of it, so that it is never shown partly highlighted.
     if (m_highlighter && m_doc && !highlightComplete()
             && m_lineEndStates.size() == m_doc->lineCount()) {
-        highlightUpTo(qMax(m_viewportState.lastVisibleLine, m_cursor.line) + 1);
+        const int n = m_doc->lineCount();
+        highlightUpTo(n <= kSyncHighlightLines
+                      ? n : qMax(m_viewportState.lastVisibleLine, m_cursor.line) + 1);
     }
     m_renderer->paint(p, m_doc, m_viewportState);
     paintPreedit(p);
@@ -1657,16 +1660,15 @@ void CodeEditArea::rebuildHighlightCache() {
     m_lineEndStates.resize(n);
     m_lineSpans.resize(n);
     m_lineFolds.resize(n);
-    if (n <= kSyncHighlightLines) {
-        highlightUpTo(n);
-    } else {
-        // Large document: paintEvent() highlights what is visible, the timer
-        // the rest, a slice at a time, without blocking the event loop.
-        m_highlightTimer->start();
-    }
+    // Highlight nothing yet: a new document, highlighter and palette often
+    // arrive together, and each used to re-highlight the whole document.
+    // paintEvent() highlights before anything is shown, the timer the rest,
+    // a slice at a time, without blocking the event loop.
+    m_highlightTimer->start();
 }
 
 int CodeEditArea::highlightedLineCount() const {
+    finishShortHighlight();
     return m_highlighter ? m_validLines : (m_doc ? m_doc->lineCount() : 0);
 }
 
@@ -1730,7 +1732,22 @@ void CodeEditArea::highlightChunk() {
         highlightUpTo(m_validLines + 512);
     }
     if (!highlightComplete()) return;
+    finishHighlighting();
+}
 
+void CodeEditArea::finishShortHighlight() const {
+    if (!m_highlighter || !m_doc || m_doc->lineCount() > kSyncHighlightLines
+            || m_lineEndStates.size() != m_doc->lineCount()) return;
+    // Painting may have highlighted it all while folds still wait for the timer.
+    if (highlightComplete() && !m_foldsPending) return;
+    // Queries see a short document highlighted at once, as they always did;
+    // only the work between them is deferred.
+    auto* self = const_cast<CodeEditArea*>(this);
+    self->highlightUpTo(m_doc->lineCount());
+    self->finishHighlighting();
+}
+
+void CodeEditArea::finishHighlighting() {
     m_highlightTimer->stop();
     if (m_foldsPending) {
         rebuildFolds();

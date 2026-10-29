@@ -199,13 +199,17 @@ public:
     bool showWhitespace() const;
 
     /// Attach a syntax highlighter (non-owning). Pass nullptr to disable
-    /// highlighting. Triggers a full re-highlight of the document.
+    /// highlighting. Schedules a full re-highlight of the document.
     void setHighlighter(IHighlighter* hl);
     IHighlighter* highlighter() const { return m_highlighter; }
 
     /// Documents longer than this are highlighted lazily: visible lines when
     /// painted, the rest in the background (fold regions follow once the
-    /// whole document is highlighted). Shorter ones are highlighted at once.
+    /// whole document is highlighted). Shorter ones count as highlighted at
+    /// once: the work is deferred until they are painted, the event loop
+    /// runs, or highlightedLineCount() or foldState() is asked, so that
+    /// several changes in a row (document, highlighter, palette) cost one
+    /// pass.
     static constexpr int kSyncHighlightLines = 5000;
 
     /// Number of lines from the top whose highlighting is up to date. Equals
@@ -219,8 +223,8 @@ public:
 
     /// Editor-owned fold state. Exposed so margins (gutter) can read it and
     /// invoke toggleFoldAt(). Non-const so FoldingGutter can call into it.
-    FoldState& foldState() { return m_foldState; }
-    const FoldState& foldState() const { return m_foldState; }
+    FoldState& foldState() { finishShortHighlight(); return m_foldState; }
+    const FoldState& foldState() const { finishShortHighlight(); return m_foldState; }
 
     /// If a region starts on `line`, toggle its collapsed state. Rebuilds
     /// layout and repaints.
@@ -384,6 +388,10 @@ private:
     void highlightUpTo(int lineCount);
     /// One background slice; finishes folds and layout at the end.
     void highlightChunk();
+    /// Stops the timer, builds pending folds and layout, emits the signal.
+    void finishHighlighting();
+    /// A short document whose highlighting was deferred is completed now.
+    void finishShortHighlight() const;
     bool highlightComplete() const;
     /// min(startLine, pending changed line); clears the pending line.
     int  takePendingRehighlight(int startLine);

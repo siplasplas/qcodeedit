@@ -48,7 +48,9 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
   `qce::words::isWholeWord()` / `wholeWordPattern()` give applications the
   matching whole-word test for search
 - Large files open at once: syntax highlighting of documents over 5000 lines
-  runs lazily (visible lines first, the rest in the background), and fold
+  runs lazily (visible lines first, the rest in the background); shorter ones
+  are highlighted once before they are shown, however many times the
+  document or highlighter changes before that; and fold
   regions are rebuilt from markers collected while highlighting
 - Code folding keeps collapsed blocks collapsed while you edit, and they move
   with their text when lines are added or removed above them; folding works

@@ -326,7 +326,7 @@ document again (see `IFoldingProvider::regionsFromLineMarkers`).
 Attach / detach:
 
 ```cpp
-area->setHighlighter(hl.get());   // non-owning; triggers full re-highlight
+area->setHighlighter(hl.get());   // non-owning; schedules a full re-highlight
 area->setHighlighter(nullptr);    // disable
 ```
 
@@ -335,6 +335,11 @@ highlighted lazily, so large files open at once: lines are highlighted when
 they are painted, the rest of the document in the background, in slices of a
 few milliseconds, without blocking the event loop. Fold regions appear when
 the background pass reaches the end. Edits re-highlight only what changed.
+
+Shorter documents count as highlighted at once, but the work waits until the
+document is painted, the event loop runs, or `highlightedLineCount()` or
+`foldState()` is called. Setting a document, a highlighter and a palette in a
+row therefore costs one highlighting pass, not one per call.
 
 ```cpp
 int done = area->highlightedLineCount();   // lines from the top that are up to date

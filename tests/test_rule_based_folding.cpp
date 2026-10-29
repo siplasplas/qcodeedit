@@ -70,6 +70,7 @@ private slots:
     void regionsFromLineMarkers_rejectsOtherHighlighter();
     void editor_usesMarkersAndMatchesFreshComputation();
     void smallDocument_isHighlightedAtOnce();
+    void smallDocument_changesInARowHighlightOnce();
     void largeDocument_highlightsLazilyThenFolds();
     void largeDocument_paintHighlightsVisibleLines();
     void largeDocument_editsDuringBackgroundHighlighting();
@@ -304,6 +305,55 @@ void TestRuleBasedFolding::smallDocument_isHighlightedAtOnce() {
     area.setFoldingProvider(&p);
     QCOMPARE(area.highlightedLineCount(), doc.lineCount());
     QCOMPARE(area.foldState().regions().size(), 1);
+}
+
+// Delegates to another highlighter and counts the lines it is asked for.
+class CountingHighlighter : public IHighlighter {
+public:
+    explicit CountingHighlighter(const IHighlighter* inner) : m_inner(inner) {}
+    mutable int lines = 0;
+    HighlightState initialState() const override { return m_inner->initialState(); }
+    void highlightLine(const QString& line, const HighlightState& in,
+                       QVector<StyleSpan>& spans, HighlightState& out) const override {
+        ++lines;
+        m_inner->highlightLine(line, in, spans, out);
+    }
+    void highlightLineWithFolds(const QString& line, const HighlightState& in,
+                                QVector<StyleSpan>& spans, HighlightState& out,
+                                QVector<FoldMarker>& folds) const override {
+        ++lines;
+        m_inner->highlightLineWithFolds(line, in, spans, out, folds);
+    }
+    const QVector<TextAttribute>& attributes() const override { return m_inner->attributes(); }
+private:
+    const IHighlighter* m_inner;
+};
+
+void TestRuleBasedFolding::smallDocument_changesInARowHighlightOnce() {
+    auto rules = makeBraceCommentHl();
+    CountingHighlighter hl(rules.get());
+    SimpleTextDocument doc;
+    doc.setText(QStringLiteral("{\n  x\n}\nend"));
+    CodeEditArea area;
+    // Highlighter, document, highlighter again and a document reset, as an
+    // application opening a file may do them: nothing is highlighted yet.
+    area.setHighlighter(&hl);
+    area.setDocument(&doc);
+    area.setHighlighter(&hl);
+    doc.setText(QStringLiteral("{\n  y\n}\nend"));
+    QCOMPARE(hl.lines, 0);
+    // Asking finishes it in a single pass; asking again costs nothing.
+    QCOMPARE(area.highlightedLineCount(), doc.lineCount());
+    QCOMPARE(hl.lines, doc.lineCount());
+    area.foldState();
+    QCOMPARE(area.highlightedLineCount(), doc.lineCount());
+    QCOMPARE(hl.lines, doc.lineCount());
+    // Without a query the event loop finishes it, again in one pass.
+    area.setHighlighter(&hl);
+    area.setHighlighter(&hl);
+    QTRY_COMPARE(hl.lines, 2 * doc.lineCount());
+    QTest::qWait(20);
+    QCOMPARE(hl.lines, 2 * doc.lineCount());
 }
 
 void TestRuleBasedFolding::largeDocument_highlightsLazilyThenFolds() {

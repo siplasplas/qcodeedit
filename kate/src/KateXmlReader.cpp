@@ -637,11 +637,11 @@ private:
                         QRegularExpression::UseUnicodePropertiesOption;
                     if (insensitive)
                         opts |= QRegularExpression::CaseInsensitiveOption;
+                    // Not optimize()d here: Qt compiles (and JIT-compiles) a
+                    // pattern on its first match. A definition with included
+                    // languages has thousands of patterns, most never used,
+                    // and compiling them all took a third of the load time.
                     hr.regex = QRegularExpression(pattern, opts);
-                    // Trigger pcre2 JIT compile once at load time — keeps
-                    // the hot match path in the JIT-ed fast loop. Dynamic
-                    // rules build their regex per-match and can't use this.
-                    hr.regex.optimize();
                     // Classify the pattern so matchAt can skip pcre2 for
                     // the handful of trivial shapes (\s, \S, [0-9]+, …)
                     // that dominate Kate files in practice. Dynamic rules

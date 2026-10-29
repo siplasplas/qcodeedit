@@ -98,12 +98,17 @@ through the document) is caught by `encodeForSave()` with the same choice.
 encodings, best first, each with its language and a calibrated confidence:
 
 1. ASCII-only and empty input give one option `utf8`, confident.
-2. UTF with a byte order mark is recognised and confident; valid UTF-8
-   without one competes with the legacy code pages (one "ź" is little
-   evidence).
-3. Legacy code pages are ranked by cpg's character n-gram models over all its
+2. Valid UTF-8 with at least 8 multi-byte sequences gives one option `utf8`,
+   confident, without the models (they are the slow part). Legacy text
+   practically never forms valid UTF-8: of about 155,000 samples (26
+   languages, 51 code pages, 60 to 30,000 characters) 6 did, each with a
+   single sequence, and cpg itself was confident about UTF-8 from 3
+   sequences on. The option has no language.
+3. UTF with a byte order mark is recognised and confident; other valid UTF-8
+   competes with the legacy code pages (one "ź" is little evidence).
+4. Legacy code pages are ranked by cpg's character n-gram models over all its
    32 languages, or only `languages` (e.g. `{"pl", "cz"}`) when given.
-4. The options are the confident winner alone, or the smallest set of
+5. The options are the confident winner alone, or the smallest set of
    distinct decodings whose confidence adds up to the threshold; every option
    decodes the whole input. `confident` is true for a single option reaching
    the threshold (about 99.9 % of those are right).

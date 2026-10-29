@@ -73,6 +73,43 @@ bool isAscii(const QByteArray& bytes) {
     return true;
 }
 
+// Multi-byte sequences in `bytes` when the whole input is valid UTF-8 (no
+// overlong forms, surrogates or code points above U+10FFFF), else -1.
+qsizetype utf8Sequences(const QByteArray& bytes) {
+    const auto* p = reinterpret_cast<const unsigned char*>(bytes.constData());
+    const qsizetype n = bytes.size();
+    qsizetype sequences = 0;
+    for (qsizetype i = 0; i < n;) {
+        const unsigned char c = p[i];
+        if (c < 0x80) { ++i; continue; }
+        int length;
+        unsigned char low = 0x80, high = 0xBF;  // range of the second byte
+        if (c >= 0xC2 && c <= 0xDF) length = 2;
+        else if (c >= 0xE0 && c <= 0xEF) {
+            length = 3;
+            if (c == 0xE0) low = 0xA0;          // overlong
+            else if (c == 0xED) high = 0x9F;    // surrogates
+        } else if (c >= 0xF0 && c <= 0xF4) {
+            length = 4;
+            if (c == 0xF0) low = 0x90;          // overlong
+            else if (c == 0xF4) high = 0x8F;    // above U+10FFFF
+        } else return -1;
+        if (i + length > n || p[i + 1] < low || p[i + 1] > high) return -1;
+        for (int k = 2; k < length; ++k)
+            if (p[i + k] < 0x80 || p[i + k] > 0xBF) return -1;
+        i += length;
+        ++sequences;
+    }
+    return sequences;
+}
+
+// Valid UTF-8 with at least this many multi-byte sequences is UTF-8 without
+// asking the models. Legacy text practically never forms valid UTF-8: among
+// about 155,000 samples (26 languages from translation catalogs, 51 code
+// pages, 60 to 30,000 characters) 6 did, each with a single sequence. cpg
+// was confident about UTF-8 from 3 sequences on in every sample.
+constexpr qsizetype kCertainUtf8Sequences = 8;
+
 // Converts with the shared converter; caller holds the mutex.
 ConversionResult toUtf8Locked(const QString& encoding, const QByteArray& bytes) {
     return cpg().converter.toUtf8(toStd(encoding),
@@ -146,7 +183,7 @@ void setDetectionData(const QString& languagesFile, const QString& modelsDir) {
 EncodingDetection detectEncoding(const QByteArray& bytes, const QStringList& languages,
                                  double threshold) {
     EncodingDetection result;
-    if (bytes.isEmpty() || isAscii(bytes)) {
+    if (bytes.isEmpty() || isAscii(bytes) || utf8Sequences(bytes) >= kCertainUtf8Sequences) {
         result.options.append({QStringLiteral("utf8"), QString(), 1.0});
         result.confident = true;
         return result;

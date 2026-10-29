@@ -55,8 +55,11 @@ struct EncodingDetection {
 ///
 /// - Empty input and pure ASCII: one option "utf8", confident (every
 ///   encoding gives the same text).
-/// - UTF with a BOM is recognised; valid UTF-8 without a BOM competes with
-///   the legacy code pages, since a few multi-byte sequences are little
+/// - Valid UTF-8 with at least 8 multi-byte sequences: one option "utf8",
+///   confident, without consulting the models (legacy text practically
+///   never forms valid UTF-8, and the statistics are the slow part).
+/// - UTF with a BOM is recognised; other valid UTF-8 competes with the
+///   legacy code pages, since a few multi-byte sequences are little
 ///   evidence.
 /// - Legacy code pages are ranked by cpg's language models over all
 ///   languages, or only `languages` when given (e.g. {"pl", "cz"}).

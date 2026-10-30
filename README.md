@@ -18,6 +18,13 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
 - Characters the editor font lacks (Hebrew in DejaVu Sans Mono) come from
   Liberation Mono or Cousine when installed: one cell wide and of a size
   that matches the font, not from a thin or proportional system fallback
+- Right-to-left text (Hebrew, Arabic) is drawn in the order of the Unicode
+  Bidirectional Algorithm: a line starting with such text reads right to
+  left (the period of a Hebrew sentence on its left), numbers and Latin words
+  in it left to right; syntax colors and underlines do not change the order.
+  Explicit embeddings and isolates (LRE, RLI, ...) and bracket pairs are not
+  followed. The caret, the selection and mouse clicks still go by the
+  logical order
 - Keyboard navigation: arrows, Home/End, Ctrl+Home/End, PgUp/PgDn; Ctrl+Up/Down
   scroll the text a row, the cursor staying in its place while on screen (at the
   first or last row of the screen otherwise); with word wrap Home/End go to the

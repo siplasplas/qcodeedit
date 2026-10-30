@@ -1,5 +1,7 @@
 #include "LineRenderer.h"
 
+#include "Bidi.h"
+
 #include <qce/CodePoints.h>
 #include <qce/ITextDocument.h>
 #include <qce/ViewportState.h>
@@ -88,9 +90,14 @@ void LineRenderer::paint(QPainter& painter,
                                  baseX, baselineY, vp.charWidth, spans,
                                  topY, lineHeight, m_decorationsProvider ? m_decorationsProvider(row.logicalLine) : nullptr);
             if (m_showWhitespace) {
-                const QString seg = line.mid(row.startCol, drawEnd - row.startCol);
-                paintWhitespaceMarkers(painter, seg, baseX, baselineY,
-                                       vp.charWidth);
+                if (bidi::hasRightToLeft(line)) {
+                    paintBidiWhitespaceMarkers(painter, line, row.startCol, drawEnd, baseX, baselineY,
+                                               vp.charWidth);
+                } else {
+                    const QString seg = line.mid(row.startCol, drawEnd - row.startCol);
+                    paintWhitespaceMarkers(painter, seg, baseX, baselineY,
+                                           vp.charWidth);
+                }
             }
             if (!row.foldPlaceholder.isEmpty()) {
                 const QString drawnSeg = line.mid(row.startCol, drawEnd - row.startCol);
@@ -114,7 +121,10 @@ void LineRenderer::paint(QPainter& painter,
                              baseX, baselineY, vp.charWidth, spans,
                              topY, lineHeight, m_decorationsProvider ? m_decorationsProvider(i) : nullptr);
         if (m_showWhitespace) {
-            paintWhitespaceMarkers(painter, line, baseX, baselineY, vp.charWidth);
+            if (bidi::hasRightToLeft(line))
+                paintBidiWhitespaceMarkers(painter, line, 0, int(line.size()), baseX, baselineY, vp.charWidth);
+            else
+                paintWhitespaceMarkers(painter, line, baseX, baselineY, vp.charWidth);
         }
     }
 }
@@ -285,6 +295,11 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
                                          int topY, int lineHeight,
                                          const QVector<ExtraSelection>* decorations) const {
     if (segStart >= segEnd) return;
+    if (bidi::hasRightToLeft(line)) {
+        drawBidiSegment(painter, line, segStart, segEnd, drawX, baselineY, charWidth, spans, topY, lineHeight,
+                        decorations);
+        return;
+    }
 
     // Fast path: no highlighting → single drawText.
     if ((!spans || spans->isEmpty() || !m_palette || m_palette->isEmpty())
@@ -387,6 +402,122 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
 
     painter.setPen(defaultPen);
     painter.setFont(defaultFont);
+}
+
+QVector<LineRenderer::BidiCell> LineRenderer::bidiRow(const QString& line, int segStart, int segEnd) const {
+    // Cells in logical order first: a tab reaches the next tab stop.
+    QVector<int> width(segEnd - segStart, 0);
+    int visual = 0;
+    for (int i = segStart; i < segEnd; i = codepoints::nextIndex(line, i)) {
+        const int w = line.at(i) == QLatin1Char('\t') ? m_tabWidth - visual % m_tabWidth
+                                                       : codepoints::cellsAt(line, i);
+        width[i - segStart] = w;
+        visual += w;
+    }
+    const bidi::Levels levels = bidi::levels(line);
+    QVector<BidiCell> row;
+    int cell = 0;
+    for (const int i : bidi::visualOrder(line, levels, segStart, segEnd)) {
+        row.append({i, cell, width[i - segStart], levels.levels[i]});
+        cell += width[i - segStart];
+    }
+    return row;
+}
+
+void LineRenderer::drawBidiSegment(QPainter& painter, const QString& line, int segStart, int segEnd,
+                                   int drawX, int baselineY, int charWidth, const QVector<StyleSpan>* spans,
+                                   int topY, int lineHeight, const QVector<ExtraSelection>* decorations) const {
+    const auto band = backgroundBand(m_font, lineHeight);
+    const QPen  defaultPen  = painter.pen();
+    const QFont defaultFont = painter.font();
+    const bool styled = spans && m_palette && !m_palette->isEmpty();
+    const auto attributeAt = [&](int column) {
+        if (!styled) return -1;
+        const auto it = std::lower_bound(spans->cbegin(), spans->cend(), column,
+            [](const StyleSpan& span, int c) { return span.start + span.length <= c; });
+        return it != spans->cend() && it->start <= column ? it->attributeId : -1;
+    };
+    const auto decorationAt = [&](int column) -> const ExtraSelection* {
+        if (!decorations) return nullptr;
+        const auto it = std::lower_bound(decorations->cbegin(), decorations->cend(), column,
+            [](const ExtraSelection& range, int c) { return range.end.column <= c; });
+        return it != decorations->cend() && it->start.column <= column ? &*it : nullptr;
+    };
+
+    const QVector<BidiCell> row = bidiRow(line, segStart, segEnd);
+    for (int k = 0; k < row.size();) {
+        // A run: one level, one style, consecutive in the line (in reverse
+        // for right to left).
+        const int level = row[k].level;
+        const bool rightToLeft = level % 2;
+        const int attrId = attributeAt(row[k].index);
+        const ExtraSelection* decoration = decorationAt(row[k].index);
+        int end = k + 1;
+        while (end < row.size() && row[end].level == level
+               && (rightToLeft ? codepoints::nextIndex(line, row[end].index) == row[end - 1].index
+                               : codepoints::nextIndex(line, row[end - 1].index) == row[end].index)
+               && attributeAt(row[end].index) == attrId && decorationAt(row[end].index) == decoration)
+            ++end;
+        // The run's text in logical order, tabs as spaces.
+        QString text;
+        for (int j = k; j < end; ++j) {
+            const BidiCell& c = row[rightToLeft ? end - 1 - (j - k) : j];
+            if (line.at(c.index) == QLatin1Char('\t')) text += QString(c.width, QLatin1Char(' '));
+            else text += line.mid(c.index, codepoints::nextIndex(line, c.index) - c.index);
+        }
+        const int cells = row[end - 1].cell + row[end - 1].width - row[k].cell;
+        const QRect rect(drawX + row[k].cell * charWidth, topY + band.offset, cells * charWidth, band.height);
+
+        QPen  pen = defaultPen;
+        QFont f   = defaultFont;
+        if (attrId >= 0 && attrId < m_palette->size()) {
+            const TextAttribute& a = (*m_palette)[attrId];
+            if (a.background.isValid() && lineHeight > 0) {
+                for (const QRect& piece : QRegion(rect).subtracted(m_selectionRegion)) painter.fillRect(piece, a.background);
+            }
+            if (a.foreground.isValid()) pen.setColor(a.foreground);
+            if (a.bold)      f.setBold(true);
+            if (a.italic)    f.setItalic(true);
+            if (a.underline) f.setUnderline(true);
+        }
+        if (decoration) {
+            if (decoration->background.isValid()) {
+                for (const QRect& piece : QRegion(rect).subtracted(m_selectionRegion))
+                    painter.fillRect(piece, decoration->background);
+            }
+            if (decoration->foreground.isValid()) pen.setColor(decoration->foreground);
+        }
+        painter.setPen(pen);
+        painter.setFont(f);
+        if (rightToLeft) {
+            // Right-to-left marks around it: Qt lays the whole run out right
+            // to left, neutrals at its ends too, and mirrors brackets.
+            static const QString kRlm(QChar(0x200F));
+            painter.drawText(rect.left(), baselineY, kRlm + text + kRlm);
+        } else {
+            drawCells(painter, rect.left(), baselineY, charWidth, text);
+        }
+        if (decoration && decoration->underline.isValid() && rect.width() > 0)
+            drawWavyUnderline(painter, rect.left(), rect.right() + 1, baselineY, decoration->underline);
+        k = end;
+    }
+    painter.setPen(defaultPen);
+    painter.setFont(defaultFont);
+}
+
+void LineRenderer::paintBidiWhitespaceMarkers(QPainter& painter, const QString& line, int segStart, int segEnd,
+                                              int baseX, int baselineY, int charWidth) const {
+    static const QString kDot(QChar(0x00B7));  // · middle dot
+    static const QString kArrow(QChar(0x2192)); // → rightwards arrow
+    painter.save();
+    QColor wsColor = painter.pen().color();
+    wsColor.setAlphaF(0.35);
+    painter.setPen(wsColor);
+    for (const BidiCell& c : bidiRow(line, segStart, segEnd)) {
+        if (line.at(c.index) == QLatin1Char(' ')) painter.drawText(baseX + c.cell * charWidth, baselineY, kDot);
+        else if (line.at(c.index) == QLatin1Char('\t')) painter.drawText(baseX + c.cell * charWidth, baselineY, kArrow);
+    }
+    painter.restore();
 }
 
 QString LineRenderer::expandTabs(const QString& line) const {

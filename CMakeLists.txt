@@ -53,6 +53,7 @@ add_library(qcodeedit STATIC
     src/CodeEditArea.cpp
     src/CodeEdit.cpp
     src/LineRenderer.cpp
+    src/Bidi.cpp
     src/CursorController.cpp
     src/CaretPainter.cpp
     src/LineNumberGutter.cpp

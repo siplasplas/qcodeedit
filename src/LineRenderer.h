@@ -149,6 +149,28 @@ private:
                               int topY = 0, int lineHeight = 0,
                               const QVector<ExtraSelection>* decorations = nullptr) const;
 
+    /// A code point of a row with right-to-left text, in the order on the
+    /// screen: its index in the line, its first cell (from the row's start)
+    /// and how many cells it takes, and its bidi level.
+    struct BidiCell { int index; int cell; int width; int level; };
+    /// The code points of line[segStart, segEnd) in the order on the screen
+    /// (bidi::visualOrder()); a tab is as wide as it is in logical order.
+    QVector<BidiCell> bidiRow(const QString& line, int segStart, int segEnd) const;
+
+    /// drawSegmentWithSpans() for a line with right-to-left text: the code
+    /// points in the order on the screen, a run of one level and one style
+    /// drawn as one piece (so that Arabic letters stay joined), a run right
+    /// to left in that direction (its brackets mirrored) from its leftmost
+    /// cell.
+    void drawBidiSegment(QPainter& painter, const QString& line, int segStart, int segEnd,
+                         int drawX, int baselineY, int charWidth, const QVector<StyleSpan>* spans,
+                         int topY, int lineHeight, const QVector<ExtraSelection>* decorations) const;
+
+    /// paintWhitespaceMarkers() for line[segStart, segEnd) with
+    /// right-to-left text: the markers in the order on the screen.
+    void paintBidiWhitespaceMarkers(QPainter& painter, const QString& line, int segStart, int segEnd,
+                                    int baseX, int baselineY, int charWidth) const;
+
     /// Draw the fold placeholder text in a faint rounded rectangle; used on
     /// lines that are the header of a collapsed region.
     void drawFoldPlaceholder(QPainter& painter, const QString& text,

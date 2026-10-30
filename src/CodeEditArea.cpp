@@ -1413,7 +1413,9 @@ void CodeEditArea::updateScrollBarRanges() {
     } else {
 
         const int visibleCols = (charWidth > 0) ? (vpW / charWidth) : 0;
-        const int maxCols = m_doc ? m_doc->maxLineLength() : 0;
+        // Characters of the longest line; a line of tabs or wide characters
+        // takes more cells, so at least up to the caret.
+        const int maxCols = m_doc ? qMax(m_doc->maxLineLength(), caretCellOf(m_cursor) + 1) : 0;
         const int hMax = qMax(0, maxCols - visibleCols);
         horizontalScrollBar()->setRange(0, hMax);
         horizontalScrollBar()->setPageStep(qMax(1, visibleCols));
@@ -1534,12 +1536,16 @@ void CodeEditArea::ensureCursorVisible(TextCursor pos, int extraColumns, int mar
     const int firstCol    = hBar->value();
     const int visibleCols = m_viewportState.viewportWidth / charWidth;
     const int lastCol     = firstCol + visibleCols - 1;
-    const int rightCol    = pos.column + extraColumns;
-    if (pos.column < firstCol) {
-        hBar->setValue(pos.column);
+    // The caret's cell on the screen: with tabs, wide characters or
+    // right-to-left text not its column.
+    const int caretCol    = caretCellOf(pos);
+    const int rightCol    = caretCol + extraColumns;
+    if (rightCol - visibleCols + 1 > hBar->maximum()) hBar->setMaximum(rightCol - visibleCols + 1);
+    if (caretCol < firstCol) {
+        hBar->setValue(caretCol);
     } else if (rightCol > lastCol) {
         // Keep the left end visible if the right end does not fit.
-        hBar->setValue(qMin(pos.column, qMax(0, rightCol - visibleCols + 1)));
+        hBar->setValue(qMin(caretCol, qMax(0, rightCol - visibleCols + 1)));
     }
 }
 

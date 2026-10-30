@@ -27,7 +27,9 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
   Hebrew word: on its left, where the next letter goes), a selection across
   a change of direction is shown as the pieces it covers there, and a click
   puts the caret at the nearer edge of the character under it; the arrow
-  keys move by the logical order, as in Kate and VS Code
+  keys move by the logical order, as in Kate and VS Code. Without word wrap
+  the view scrolls sideways to where the caret is drawn (also after tabs
+  and wide characters); with it every row is ordered on its own
 - Keyboard navigation: arrows, Home/End, Ctrl+Home/End, PgUp/PgDn; Ctrl+Up/Down
   scroll the text a row, the cursor staying in its place while on screen (at the
   first or last row of the screen otherwise); with word wrap Home/End go to the

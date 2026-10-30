@@ -50,8 +50,12 @@ public:
     static BackgroundBand backgroundBand(const QFont& font, int lineHeight);
 
     /// Sets the font used for drawing. Caller is responsible for setting the
-    /// same font on CodeEditArea so that QFontMetrics agrees.
-    void setFont(const QFont& font) { m_font = font; }
+    /// same font on CodeEditArea so that QFontMetrics agrees. Monospaced
+    /// families with more scripts (Liberation Mono, Cousine) come after the
+    /// font's own ones: a character it lacks (Hebrew in DejaVu Sans Mono)
+    /// comes from them, one cell wide and of a size that matches, rather
+    /// than from the system's choice (on Linux often the thin FreeMono).
+    void setFont(const QFont& font);
     const QFont& font() const { return m_font; }
 
     /// Number of space characters a tab expands to. v0.2 simplification;

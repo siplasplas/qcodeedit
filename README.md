@@ -15,6 +15,9 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
   (詞源 is two characters of two cells); a character outside the BMP (an
   Egyptian hieroglyph, an emoji) is one character of one cell, a CJK
   ideograph outside it (Extension B, ...) one of two
+- Characters the editor font lacks (Hebrew in DejaVu Sans Mono) come from
+  Liberation Mono or Cousine when installed: one cell wide and of a size
+  that matches the font, not from a thin or proportional system fallback
 - Keyboard navigation: arrows, Home/End, Ctrl+Home/End, PgUp/PgDn; Ctrl+Up/Down
   scroll the text a row, the cursor staying in its place while on screen (at the
   first or last row of the screen otherwise); with word wrap Home/End go to the

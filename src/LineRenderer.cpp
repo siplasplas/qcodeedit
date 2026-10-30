@@ -33,6 +33,16 @@ LineRenderer::BackgroundBand LineRenderer::backgroundBand(const QFont& font, int
     return {0, bounds.height() + 2 * padding, baseline};
 }
 
+void LineRenderer::setFont(const QFont& font) {
+    m_font = font;
+    QStringList families = font.families();
+    if (families.isEmpty()) families << font.family();
+    for (const QString& fallback : {QStringLiteral("Liberation Mono"), QStringLiteral("Cousine")}) {
+        if (!families.contains(fallback, Qt::CaseInsensitive)) families << fallback;
+    }
+    m_font.setFamilies(families);
+}
+
 void LineRenderer::paint(QPainter& painter,
                          const ITextDocument* doc,
                          const ViewportState& vp) const {

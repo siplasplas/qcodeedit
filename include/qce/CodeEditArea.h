@@ -374,6 +374,9 @@ private:
     /// per visible line, so that folding works in both).
     bool hasRows() const;
     int  visualRowOf(TextCursor pos) const;
+    /// The cell of the caret at `pos` in its row (LineRenderer::caretCell():
+    /// in the order on the screen when the line has right-to-left text).
+    int  caretCellOf(TextCursor pos) const;
     /// `delta` rows up (< 0) or down: wrapped rows with word wrap, keeping
     /// the character cell; lines without it. Unchanged at the first or last row.
     TextCursor moveVisualRows(TextCursor c, int delta) const;

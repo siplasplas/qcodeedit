@@ -23,8 +23,11 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
   left (the period of a Hebrew sentence on its left), numbers and Latin words
   in it left to right; syntax colors and underlines do not change the order.
   Explicit embeddings and isolates (LRE, RLI, ...) and bracket pairs are not
-  followed. The caret, the selection and mouse clicks still go by the
-  logical order
+  followed. The caret stands where it is drawn on the screen (after a
+  Hebrew word: on its left, where the next letter goes), a selection across
+  a change of direction is shown as the pieces it covers there, and a click
+  puts the caret at the nearer edge of the character under it; the arrow
+  keys move by the logical order, as in Kate and VS Code
 - Keyboard navigation: arrows, Home/End, Ctrl+Home/End, PgUp/PgDn; Ctrl+Up/Down
   scroll the text a row, the cursor staying in its place while on screen (at the
   first or last row of the screen otherwise); with word wrap Home/End go to the

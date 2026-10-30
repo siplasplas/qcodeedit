@@ -404,12 +404,86 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
     painter.setFont(defaultFont);
 }
 
-QVector<LineRenderer::BidiCell> LineRenderer::bidiRow(const QString& line, int segStart, int segEnd) const {
+namespace {
+
+// Cells of line[from, to) in logical order, tabs reaching the tab stops
+// counted from `from`.
+int cellsBetween(const QString& line, int from, int to, int tabWidth) {
+    int visual = 0;
+    to = qMin(to, int(line.size()));
+    for (int i = from; i < to; ++i) {
+        if (line.at(i) == QLatin1Char('\t')) visual = (visual / tabWidth + 1) * tabWidth;
+        else visual += codepoints::cellsAt(line, i);
+    }
+    return visual;
+}
+
+} // namespace
+
+int LineRenderer::caretCell(const QString& line, int rowStart, int rowEnd, int index, int tabWidth) {
+    if (!bidi::hasRightToLeft(line)) return cellsBetween(line, rowStart, index, tabWidth);
+    const QVector<BidiCell> row = bidiRow(line, rowStart, rowEnd, tabWidth);
+    if (index > rowStart) {
+        const int before = codepoints::prevIndex(line, index);
+        for (const BidiCell& c : row)
+            if (c.index == before) return c.level % 2 ? c.cell : c.cell + c.width;
+    }
+    for (const BidiCell& c : row)
+        if (c.index == index) return c.level % 2 ? c.cell + c.width : c.cell;
+    return row.isEmpty() ? 0 : row.back().cell + row.back().width;
+}
+
+int LineRenderer::indexAtX(const QString& line, int rowStart, int rowEnd, int x, int charWidth, int tabWidth) {
+    rowEnd = qMin(rowEnd, int(line.size()));
+    if (!bidi::hasRightToLeft(line)) {
+        int visual = 0, i = rowStart;
+        while (i < rowEnd) {
+            const int cw = line.at(i) == QLatin1Char('\t') ? tabWidth - visual % tabWidth : codepoints::cellsAt(line, i);
+            if (x * 2 < (2 * visual + cw) * charWidth) break;
+            visual += cw;
+            i = codepoints::nextIndex(line, i);  // a surrogate pair is one cell
+        }
+        return i;
+    }
+    const QVector<BidiCell> row = bidiRow(line, rowStart, rowEnd, tabWidth);
+    if (row.isEmpty()) return rowStart;
+    for (int k = 0; k < row.size(); ++k) {
+        const BidiCell& c = row[k];
+        if (x >= (c.cell + c.width) * charWidth && k + 1 < row.size()) continue;
+        if (x >= (c.cell + c.width) * charWidth) break;  // right of the text
+        const bool leftHalf = x * 2 < (2 * c.cell + c.width) * charWidth;
+        const bool before = (c.level % 2) ? !leftHalf : leftHalf;
+        return before ? c.index : codepoints::nextIndex(line, c.index);
+    }
+    const BidiCell& last = row.back();
+    return last.level % 2 ? last.index : codepoints::nextIndex(line, last.index);
+}
+
+QVector<std::pair<int, int>> LineRenderer::cellRanges(const QString& line, int rowStart, int rowEnd,
+                                                      int from, int to, int tabWidth) {
+    from = qMax(from, rowStart);
+    to = qMin(to, rowEnd);
+    if (from >= to) return {};
+    if (!bidi::hasRightToLeft(line))
+        return {{cellsBetween(line, rowStart, from, tabWidth), cellsBetween(line, rowStart, to, tabWidth)}};
+    QVector<std::pair<int, int>> ranges;
+    for (const BidiCell& c : bidiRow(line, rowStart, rowEnd, tabWidth)) {
+        if (c.index < from || c.index >= to) continue;
+        if (!ranges.isEmpty() && ranges.back().second == c.cell) ranges.back().second = c.cell + c.width;
+        else ranges.append({c.cell, c.cell + c.width});
+    }
+    return ranges;
+}
+
+QVector<LineRenderer::BidiCell> LineRenderer::bidiRow(const QString& line, int segStart, int segEnd,
+                                                      int tabWidth) {
     // Cells in logical order first: a tab reaches the next tab stop.
+    segEnd = qMin(segEnd, int(line.size()));
+    if (segStart >= segEnd) return {};
     QVector<int> width(segEnd - segStart, 0);
     int visual = 0;
     for (int i = segStart; i < segEnd; i = codepoints::nextIndex(line, i)) {
-        const int w = line.at(i) == QLatin1Char('\t') ? m_tabWidth - visual % m_tabWidth
+        const int w = line.at(i) == QLatin1Char('\t') ? tabWidth - visual % tabWidth
                                                        : codepoints::cellsAt(line, i);
         width[i - segStart] = w;
         visual += w;
@@ -444,7 +518,7 @@ void LineRenderer::drawBidiSegment(QPainter& painter, const QString& line, int s
         return it != decorations->cend() && it->start.column <= column ? &*it : nullptr;
     };
 
-    const QVector<BidiCell> row = bidiRow(line, segStart, segEnd);
+    const QVector<BidiCell> row = bidiRow(line, segStart, segEnd, m_tabWidth);
     for (int k = 0; k < row.size();) {
         // A run: one level, one style, consecutive in the line (in reverse
         // for right to left).
@@ -513,7 +587,7 @@ void LineRenderer::paintBidiWhitespaceMarkers(QPainter& painter, const QString& 
     QColor wsColor = painter.pen().color();
     wsColor.setAlphaF(0.35);
     painter.setPen(wsColor);
-    for (const BidiCell& c : bidiRow(line, segStart, segEnd)) {
+    for (const BidiCell& c : bidiRow(line, segStart, segEnd, m_tabWidth)) {
         if (line.at(c.index) == QLatin1Char(' ')) painter.drawText(baseX + c.cell * charWidth, baselineY, kDot);
         else if (line.at(c.index) == QLatin1Char('\t')) painter.drawText(baseX + c.cell * charWidth, baselineY, kArrow);
     }

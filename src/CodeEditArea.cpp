@@ -635,10 +635,7 @@ void CodeEditArea::paintEvent(QPaintEvent* e) {
     int caretVisualCol, caretVisualRow;
     if (m_doc) {
         caretVisualRow = visualRowOf(m_cursor);
-        const int rowStart = hasRows()
-            ? m_wrapLayout->rowAt(caretVisualRow).startCol : 0;
-        const QString seg = m_doc->lineAt(m_cursor.line).mid(rowStart);
-        caretVisualCol = LineRenderer::visualColumn(seg, m_cursor.column - rowStart, tabWidth());
+        caretVisualCol = caretCellOf(m_cursor);
     } else {
         caretVisualRow = m_cursor.line;
         caretVisualCol = m_cursor.column;
@@ -1117,10 +1114,8 @@ QRect CodeEditArea::caretRect(bool withPreedit) const {
         return QRect(LineRenderer::kLeftPaddingPx, 0, 1, height);
     }
     const int row = visualRowOf(m_cursor);
-    const int rowStart = hasRows() ? m_wrapLayout->rowAt(row).startCol : 0;
-    const int visualCol = LineRenderer::visualColumn(
-        m_doc->lineAt(m_cursor.line).mid(rowStart), m_cursor.column - rowStart, tabWidth());
-    int x = LineRenderer::kLeftPaddingPx + visualCol * vp.charWidth - vp.contentOffsetX;
+    const int visualCol = caretCellOf(m_cursor);
+    int x =LineRenderer::kLeftPaddingPx + visualCol * vp.charWidth - vp.contentOffsetX;
     if (withPreedit && !m_preedit.isEmpty()) {
         x += preeditCursorOffsetPx();
     }
@@ -1491,32 +1486,17 @@ TextCursor CodeEditArea::cursorFromPoint(const QPoint& pt) const {
         const int ri = qBound(0, pt.y() / vp.lineHeight, vp.rows.size() - 1);
         const ViewportState::RowInfo& row = vp.rows[ri];
         const int targetX = pt.x() - LineRenderer::kLeftPaddingPx + vp.contentOffsetX;
-        const QString seg = m_doc->lineAt(row.logicalLine)
-                                .mid(row.startCol, row.endCol - row.startCol);
-        int visual = 0, segCol = 0;
-        while (segCol < seg.size()) {
-            const int cw = (seg.at(segCol) == QLatin1Char('\t'))
-                ? (tw - (visual % tw)) : codepoints::cellsAt(seg, segCol);
-            if (targetX * 2 < (2 * visual + cw) * vp.charWidth) break;
-            visual += cw;
-            segCol = codepoints::nextIndex(seg, segCol);  // a surrogate pair is one cell
-        }
-        return m_cursorCtrl->clamp({row.logicalLine, row.startCol + segCol});
+        const int col = LineRenderer::indexAtX(m_doc->lineAt(row.logicalLine), row.startCol, row.endCol,
+                                               targetX, vp.charWidth, tw);
+        return m_cursorCtrl->clamp({row.logicalLine, col});
     }
 
     const int lineNum = qBound(0,
         vp.firstVisibleLine + pt.y() / vp.lineHeight,
         m_doc->lineCount() - 1);
     const int targetX = pt.x() - LineRenderer::kLeftPaddingPx + vp.contentOffsetX;
-    const QString lineStr = m_doc->lineAt(lineNum);
-    int visual = 0, col = 0;
-    while (col < lineStr.size()) {
-        const int cw = (lineStr.at(col) == QLatin1Char('\t'))
-            ? (tw - (visual % tw)) : codepoints::cellsAt(lineStr, col);
-        if (targetX * 2 < (2 * visual + cw) * vp.charWidth) break;
-        visual += cw;
-        col = codepoints::nextIndex(lineStr, col);  // a surrogate pair is one cell
-    }
+    const QString& lineStr = m_doc->lineAt(lineNum);
+    const int col = LineRenderer::indexAtX(lineStr, 0, int(lineStr.size()), targetX, vp.charWidth, tw);
     return m_cursorCtrl->clamp({lineNum, col});
 }
 
@@ -1592,6 +1572,20 @@ int CodeEditArea::visualRowOf(TextCursor pos) const {
     return m_wrapLayout->rowForCursor(pos.line, pos.column);
 }
 
+int CodeEditArea::caretCellOf(TextCursor pos) const {
+    if (!m_doc) return pos.column;
+    const QString& line = m_doc->lineAt(pos.line);
+    int rowStart = 0, rowEnd = int(line.size());
+    if (hasRows()) {
+        const WrapLayout::Row& row = m_wrapLayout->rowAt(visualRowOf(pos));
+        if (row.logicalLine == pos.line) {  // not a line hidden in a fold
+            rowStart = row.startCol;
+            rowEnd = row.endCol;
+        }
+    }
+    return LineRenderer::caretCell(line, rowStart, rowEnd, pos.column, tabWidth());
+}
+
 TextCursor CodeEditArea::moveVisualRows(TextCursor c, int delta) const {
     if (!hasRows()) {
         return delta < 0 ? m_cursorCtrl->moveUp(c, -delta) : m_cursorCtrl->moveDown(c, delta);
@@ -1601,25 +1595,16 @@ TextCursor CodeEditArea::moveVisualRows(TextCursor c, int delta) const {
     if (target == row) return c;  // first or last row: as moveUp() on line 0
     const int tw = tabWidth();
     // The same character cell in the target row, or its end.
-    const WrapLayout::Row& from = m_wrapLayout->rowAt(row);
-    const int x = LineRenderer::visualColumn(m_doc->lineAt(from.logicalLine).mid(from.startCol),
-                                             c.column - from.startCol, tw);
+    const int x = caretCellOf(c);
     const WrapLayout::Row& to = m_wrapLayout->rowAt(target);
-    const QString line = m_doc->lineAt(to.logicalLine);
-    const QString seg = line.mid(to.startCol, to.endCol - to.startCol);
-    int visual = 0, segCol = 0;
-    while (segCol < seg.size()) {
-        const int cw = (seg.at(segCol) == QLatin1Char('\t')) ? (tw - (visual % tw)) : codepoints::cellsAt(seg, segCol);
-        if (2 * x < 2 * visual + cw) break;
-        visual += cw;
-        segCol = codepoints::nextIndex(seg, segCol);
-    }
+    const QString& line = m_doc->lineAt(to.logicalLine);
+    int col = LineRenderer::indexAtX(line, to.startCol, to.endCol, x, 1, tw);
     // The end of a row the line continues after is the start of the next
     // row; stay on the last character of this one.
-    if (segCol >= seg.size() && to.endCol < line.size() && !seg.isEmpty()) {
-        segCol = codepoints::prevIndex(seg, int(seg.size()));
+    if (col >= to.endCol && to.endCol < line.size() && to.endCol > to.startCol) {
+        col = codepoints::prevIndex(line, to.endCol);
     }
-    return m_cursorCtrl->clamp({to.logicalLine, to.startCol + segCol});
+    return m_cursorCtrl->clamp({to.logicalLine, col});
 }
 
 // Home of a wrapped line: the start of the screen row; at the start of a row
@@ -1829,12 +1814,7 @@ void CodeEditArea::rebuildFolds() {
 void CodeEditArea::showReadOnlyHint() {
     int vRow = visualRowOf(m_cursor);
     int vCol = m_cursor.column;
-    if (m_doc && m_viewportState.isValid()) {
-        const int rowStart = hasRows() ? m_wrapLayout->rowAt(vRow).startCol : 0;
-        vCol = LineRenderer::visualColumn(
-            m_doc->lineAt(m_cursor.line).mid(rowStart),
-            m_cursor.column - rowStart, tabWidth());
-    }
+    if (m_doc && m_viewportState.isValid()) vCol = caretCellOf(m_cursor);
     const int px = m_viewportState.isValid()
         ? LineRenderer::kLeftPaddingPx + vCol * m_viewportState.charWidth
               - m_viewportState.contentOffsetX
@@ -1949,6 +1929,25 @@ QRegion CodeEditArea::selectionRegion() const {
     const int tw = tabWidth();
     const auto band = LineRenderer::backgroundBand(font(), vp.lineHeight);
     QRegion region;
+    // The selected characters of the row line[rowStart, rowEnd) (several
+    // pieces when right-to-left text reverses part of it); when the
+    // selection goes on past the line, also from the row's end to the cell
+    // `wideEnd`.
+    const auto addRow = [&](const QString& line, int lineNumber, int rowStart, int rowEnd, int topY, int wideEnd) {
+        const int from = lineNumber == s.line ? s.column : 0;
+        const int to = lineNumber == e.line ? e.column : int(line.size());
+        const auto addCells = [&](int start, int end) {
+            const int x = LineRenderer::kLeftPaddingPx + start * vp.charWidth - vp.contentOffsetX;
+            const int w = (end - start) * vp.charWidth;
+            if (w > 0) region += QRect(x, topY + band.offset, w, band.height);
+        };
+        for (const auto& [start, end] : LineRenderer::cellRanges(line, rowStart, rowEnd, from, to, tw))
+            addCells(start, end);
+        if (lineNumber != e.line) {
+            const int rowCells = LineRenderer::visualColumn(line.mid(rowStart, rowEnd - rowStart), rowEnd - rowStart, tw);
+            addCells(rowCells, qMax(rowCells, wideEnd));
+        }
+    };
 
     if (!vp.rows.isEmpty()) {
         for (int ri = 0; ri < vp.rows.size(); ++ri) {
@@ -1958,27 +1957,9 @@ QRegion CodeEditArea::selectionRegion() const {
             if (row.logicalLine == s.line && row.endCol <= s.column)   continue;
             if (row.logicalLine == e.line && row.startCol >= e.column) continue;
 
-            const QString line = m_doc->lineAt(row.logicalLine);
-            const QString seg  = line.mid(row.startCol, row.endCol - row.startCol);
-
-            const int selStartInSeg = (row.logicalLine == s.line)
-                ? qMax(s.column - row.startCol, 0) : 0;
-            const int selEndInSeg = (row.logicalLine == e.line)
-                ? qMin(e.column - row.startCol, (int)seg.size()) : (int)seg.size();
-
-            const int vcStart = LineRenderer::visualColumn(seg, selStartInSeg, tw);
-            int vcEnd;
-            if (row.logicalLine == e.line) {
-                vcEnd = LineRenderer::visualColumn(seg, selEndInSeg, tw);
-            } else {
-                vcEnd = qMax(LineRenderer::visualColumn(seg, seg.size(), tw),
-                             (vp.viewportWidth + vp.contentOffsetX) / vp.charWidth + 1);
-            }
-
             const int topY = vp.contentOffsetY + ri * vp.lineHeight;
-            const int x = LineRenderer::kLeftPaddingPx + vcStart * vp.charWidth - vp.contentOffsetX;
-            const int w = (vcEnd - vcStart) * vp.charWidth;
-            if (w > 0) region += QRect(x, topY + band.offset, w, band.height);
+            addRow(m_doc->lineAt(row.logicalLine), row.logicalLine, row.startCol, row.endCol, topY,
+                   (vp.viewportWidth + vp.contentOffsetX) / vp.charWidth + 1);
         }
         return region;
     }
@@ -1987,19 +1968,8 @@ QRegion CodeEditArea::selectionRegion() const {
     const int last  = qMin(e.line, vp.lastVisibleLine);
     for (int i = first; i <= last; ++i) {
         const int topY = vp.contentOffsetY + (i - vp.firstVisibleLine) * vp.lineHeight;
-        const QString lineStr = m_doc->lineAt(i);
-        const int startCol = (i == s.line)
-            ? LineRenderer::visualColumn(lineStr, s.column, tw) : 0;
-        int endCol;
-        if (i == e.line) {
-            endCol = LineRenderer::visualColumn(lineStr, e.column, tw);
-        } else {
-            endCol = qMax(LineRenderer::visualColumn(lineStr, lineStr.size(), tw),
-                          vp.viewportWidth / vp.charWidth + 1);
-        }
-        const int x = LineRenderer::kLeftPaddingPx + startCol * vp.charWidth - vp.contentOffsetX;
-        const int w = (endCol - startCol) * vp.charWidth;
-        if (w > 0) region += QRect(x, topY + band.offset, w, band.height);
+        const QString& lineStr = m_doc->lineAt(i);
+        addRow(lineStr, i, 0, int(lineStr.size()), topY, vp.viewportWidth / vp.charWidth + 1);
     }
     return region;
 }

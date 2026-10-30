@@ -104,6 +104,38 @@ public:
     /// point, two for a wide one.
     static int cellCount(const QString& text);
 
+    // Positions in a row line[rowStart, rowEnd) (the whole line without word
+    // wrap), cells counted from the row's start. In a line with
+    // right-to-left text (bidi::hasRightToLeft()) they follow the order on
+    // the screen; otherwise the cell is visualColumn() of the row.
+
+    /// The cell the caret before line[index] stands at: after the character
+    /// before it (on its left when that one reads right to left), at the
+    /// start of the row before the first character (on its right when it
+    /// reads right to left). In "abc שלום" the caret at the end of the line is
+    /// left of ם, where the next Hebrew letter goes.
+    static int caretCell(const QString& line, int rowStart, int rowEnd, int index, int tabWidth);
+
+    /// The index the caret goes to for a point `x` pixels from the row's
+    /// start: the edge of the character under it nearer to the point (the
+    /// right edge of a right-to-left character is before it); left or right
+    /// of the text, the edge of its leftmost or rightmost character.
+    static int indexAtX(const QString& line, int rowStart, int rowEnd, int x, int charWidth, int tabWidth);
+
+    /// The cells of the characters of line[from, to) in the row, as [start,
+    /// end) ranges left to right: one range, or several in a line with
+    /// right-to-left text (a selection across a change of direction).
+    static QVector<std::pair<int, int>> cellRanges(const QString& line, int rowStart, int rowEnd,
+                                                   int from, int to, int tabWidth);
+
+    /// A code point of a row with right-to-left text, in the order on the
+    /// screen: its index in the line, its first cell (from the row's start)
+    /// and how many cells it takes, and its bidi level.
+    struct BidiCell { int index; int cell; int width; int level; };
+    /// The code points of line[segStart, segEnd) in the order on the screen
+    /// (bidi::visualOrder()); a tab is as wide as it is in logical order.
+    static QVector<BidiCell> bidiRow(const QString& line, int segStart, int segEnd, int tabWidth);
+
     /// Draws `text` (tabs already expanded) with every code point at its
     /// cell: x + cell * charWidth; a wide character (Chinese, ...) takes two
     /// cells and is drawn alone, as its glyph from a fallback font is about
@@ -148,14 +180,6 @@ private:
                               const QVector<StyleSpan>* spans,
                               int topY = 0, int lineHeight = 0,
                               const QVector<ExtraSelection>* decorations = nullptr) const;
-
-    /// A code point of a row with right-to-left text, in the order on the
-    /// screen: its index in the line, its first cell (from the row's start)
-    /// and how many cells it takes, and its bidi level.
-    struct BidiCell { int index; int cell; int width; int level; };
-    /// The code points of line[segStart, segEnd) in the order on the screen
-    /// (bidi::visualOrder()); a tab is as wide as it is in logical order.
-    QVector<BidiCell> bidiRow(const QString& line, int segStart, int segEnd) const;
 
     /// drawSegmentWithSpans() for a line with right-to-left text: the code
     /// points in the order on the screen, a run of one level and one style

@@ -184,4 +184,15 @@ if(TARGET qcodeedit::encoding)
     add_executable(test_encoding test_encoding.cpp)
     target_link_libraries(test_encoding PRIVATE qcodeedit::encoding Qt6::Test)
     add_test(NAME test_encoding COMMAND test_encoding)
+
+    # Reading and saving files; with qcodeedit-diff also reloading as an
+    # undo step and trimming whitespace.
+    add_executable(test_text_file test_text_file.cpp)
+    target_link_libraries(test_text_file PRIVATE qcodeedit::encoding Qt6::Test)
+    if(TARGET qcodeedit::diff)
+        target_link_libraries(test_text_file PRIVATE qcodeedit::diff)
+        target_compile_definitions(test_text_file PRIVATE QCE_TEST_WITH_DIFF)
+    endif()
+    add_test(NAME test_text_file COMMAND test_text_file)
+    set_tests_properties(test_text_file PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()

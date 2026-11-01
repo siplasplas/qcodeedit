@@ -88,7 +88,10 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
   is not, gives the plausible encodings with percentages, `previewEncodings()`
   shows the lines where they differ, and legacy files can be limited to
   several languages; the choice itself is the application's UI (see
-  [docs/ENCODING.md](docs/ENCODING.md))
+  [docs/ENCODING.md](docs/ENCODING.md)). Since 1.68.0 `TextFile` is the file
+  behind an editor: opening, saving, reloading (an undo step with
+  qcodeedit-diff), external changes, the modified state, trimming trailing
+  whitespace and filters of the bytes (e.g. encryption)
 
 ## Design
 

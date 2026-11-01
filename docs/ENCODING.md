@@ -39,6 +39,58 @@ takes `toPlainText()` and adds it back. `FileFormat` keeps `encoding`, `bom`,
 for byte. Without the guard, `encode()` fails and lists the characters the
 encoding cannot store (or writes `?` for them when asked).
 
+## The file behind an editor
+
+`TextFile` does all of the above for an editor, so that editors built on
+qcodeedit read and write files alike: it opens a file (detecting its encoding
+or taking one), saves it back in its format atomically, tells whether the
+document differs from the file and whether the file changed on disk, and
+reloads it. It installs the `EncodingGuard` itself and has no other user
+interface: the application shows what it reports.
+
+```cpp
+#include <qce/encoding/TextFile.h>
+
+auto* file = new qce::encoding::TextFile(edit->area(), doc, this);
+file->setLegacyLanguages({"pl"});
+connect(file, &TextFile::modificationChanged, this, &Tab::showModified);
+connect(file, &TextFile::loaded, this, [this](const QByteArray& content) {
+    qce::encoding::detectLanguageAsync(content, this, ...);
+});
+
+if (file->open(path) == TextFile::Result::Failed)
+    showError(file->errorString());
+if (!file->uncertainDetection().options.isEmpty())
+    showEncodingNotice();  // shown in options.front(); let the user choose
+...
+file->save();               // or saveAs(path)
+if (file->hasExternalChanges())
+    file->reload();         // with qcodeedit-diff: one undo step
+```
+
+- `open()` starts a new undo history with the cursor at the top; a path that
+  does not exist yet gives an empty UTF-8 document to be saved there.
+  `reopen(encoding)` reads the file again in another encoding, also with a new
+  history.
+- `reload()` keeps the encoding (detecting it again when it no longer fits).
+  With qcodeedit-diff only the changed lines change, as one undo step, so
+  Ctrl+Z brings back the text before the reload.
+- `isModified()` is true after edits (undoing back to the saved text is not a
+  change) and after `setSaveEncoding()` or the guard's switch to UTF-8.
+  `modificationChanged()` reports it once per change, not the passing states of
+  reading and saving.
+- `setTrimWhitespace(ChangedLines | AllLines)` removes spaces and tabs at the
+  ends of lines when saving, as one undo step, never in the cursor's line;
+  `ChangedLines` only in lines changed since the file was read or saved. It
+  needs qcodeedit-diff.
+- `setReadFilter()` and `setWriteFilter()` change the bytes read and written,
+  e.g. to decrypt and encrypt; a filter can fail or cancel (e.g. a password
+  question the user cancelled).
+- Every operation returns `Ok`, `Failed` (with `errorString()`) or `Cancelled`
+  (by the user: in the guard's question or a filter; nothing to report).
+- A saved file with mixed line breaks has the most frequent kind in every line
+  afterwards (`format().mixedLineBreaks` is cleared).
+
 ## Line breaks
 
 `decode()` turns LF, CRLF and CR (classic Mac) line breaks into `\n`.

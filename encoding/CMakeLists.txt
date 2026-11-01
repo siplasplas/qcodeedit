@@ -24,8 +24,10 @@ endif()
 add_library(qcodeedit-encoding STATIC
     src/Encoding.cpp
     src/EncodingGuard.cpp
+    src/TextFile.cpp
     include/qce/encoding/Encoding.h
     include/qce/encoding/EncodingGuard.h
+    include/qce/encoding/TextFile.h
 )
 
 target_include_directories(qcodeedit-encoding
@@ -59,6 +61,7 @@ install(TARGETS qcodeedit-encoding
 install(FILES
     include/qce/encoding/Encoding.h
     include/qce/encoding/EncodingGuard.h
+    include/qce/encoding/TextFile.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/qce/encoding
 )
 install(EXPORT qcodeedit-encodingTargets

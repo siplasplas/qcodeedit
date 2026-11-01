@@ -116,6 +116,35 @@ if (!matches.isEmpty()) {
 - `invalidate(file)` wymusza ponowne odczytanie pliku nadpisanego w miejscu
   (znaczniki czasu plików mają rozdzielczość kilku ms).
 
+Jeden wspólny indeks dla całego programu daje `qce::kate::syntaxIndex()`
+(wczytany przy pierwszym użyciu); `reloadSyntaxIndex()` wczytuje go ponownie,
+np. po pobraniu danych.
+
+## Edytor: `EditorSyntax`
+
+Kolory składni, zwijanie i motyw jednego `CodeEdit` — to samo w każdym
+edytorze na qcodeedit (zakładki qceditor, plugin edytora siplasplas):
+
+```cpp
+#include <qce/kate/EditorSyntax.h>
+
+qce::kate::EditorSyntax syntax(edit);   // edit przeżywa syntax
+syntax.setFileName(path);               // tryb Automatic: definicja według nazwy
+syntax.apply();
+...
+syntax.setManual("cpp.xml");            // albo setPlainText(), setAutomatic()
+syntax.setThemeFile(themePath);         // puste = Breeze Light/Dark jak pulpit
+syntax.apply();
+```
+
+- `apply()` wczytuje motyw i definicję od nowa: po zmianie trybu, nazwy pliku
+  lub motywu, a po pobraniu danych po `reloadSyntaxIndex()`.
+- Motyw trafia też do palety edytora (tło, tekst, bieżąca linia) i do
+  marginesu (`GutterColors`); bez motywu zostają domyślne kolory edytora.
+- Bez definicji Kate pliki C i C++ dostają mały wbudowany highlighter, inne
+  żaden.
+- Zniszczenie `EditorSyntax` odłącza highlighter i zwijanie od edytora.
+
 ## Pobieranie: `KateDataDownloader`
 
 ```cpp

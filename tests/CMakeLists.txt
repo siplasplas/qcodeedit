@@ -69,6 +69,15 @@ target_link_libraries(test_kate_theme PRIVATE
 )
 add_test(NAME test_kate_theme COMMAND test_kate_theme)
 
+# An editor's syntax colours, folding and theme from the Kate data.
+add_executable(test_editor_syntax test_editor_syntax.cpp)
+target_link_libraries(test_editor_syntax PRIVATE
+    qcodeedit::kate
+    Qt6::Test
+)
+add_test(NAME test_editor_syntax COMMAND test_editor_syntax)
+set_tests_properties(test_editor_syntax PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # Persistent Kate syntax index (index.json) + wildcard matcher.
 add_executable(test_kate_syntax_index test_kate_syntax_index.cpp)
 target_link_libraries(test_kate_syntax_index PRIVATE

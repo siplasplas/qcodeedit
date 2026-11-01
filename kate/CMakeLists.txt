@@ -11,11 +11,13 @@ add_library(qcodeedit-kate STATIC
     src/KateDataMigration.cpp
     src/KateDataMigration.h
     src/KateSyntaxIndex.cpp
+    src/EditorSyntax.cpp
     include/qce/kate/KateXmlReader.h
     include/qce/kate/KateTheme.h
     include/qce/kate/KateSyntaxVersion.h
     include/qce/kate/KatePaths.h
     include/qce/kate/KateSyntaxIndex.h
+    include/qce/kate/EditorSyntax.h
 )
 
 target_include_directories(qcodeedit-kate
@@ -51,6 +53,7 @@ install(FILES
     include/qce/kate/KateSyntaxVersion.h
     include/qce/kate/KatePaths.h
     include/qce/kate/KateSyntaxIndex.h
+    include/qce/kate/EditorSyntax.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/qce/kate
 )
 install(EXPORT qcodeedit-kateTargets

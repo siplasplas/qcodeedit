@@ -46,7 +46,10 @@ projects (DiffMerge, Gemini Commander, etc.) where `QPlainTextEdit`'s
   `KateTheme::loadDefault()` picks Breeze Light or Breeze Dark to match the
   desktop colour scheme (the demo starts with it), Breeze Light when Breeze
   Dark is missing; when neither is downloaded it returns an invalid theme
-  and the black-on-white default stays
+  and the black-on-white default stays. Since 1.69.0 `qce::kate::EditorSyntax`
+  gives an editor its syntax colours, folding and theme (palette and gutter)
+  from the Kate data, by the file name or chosen, as qceditor does
+  (see [docs/KATE_DATA.md](docs/KATE_DATA.md))
 - Gutter in Kate style: a strip slightly darker than the text background,
   muted line numbers, a separator line, and a short arrow on the
   continuation rows of wrapped lines. Colours come from

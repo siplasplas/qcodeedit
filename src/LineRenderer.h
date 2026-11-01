@@ -151,6 +151,8 @@ public:
 private:
     /// Wavy line from x1 to x2 just below the baseline (spelling underlines).
     void drawWavyUnderline(QPainter& painter, int x1, int x2, int baselineY, const QColor& color) const;
+    /// The decoration's underline, wavy or straight.
+    void drawUnderline(QPainter& painter, int x1, int x2, int baselineY, const ExtraSelection& decoration) const;
 
     QFont m_font;
     int  m_tabWidth        = 4;

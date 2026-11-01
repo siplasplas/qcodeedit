@@ -216,6 +216,22 @@ int LineRenderer::cellCount(const QString& text) {
     return cells;
 }
 
+void LineRenderer::drawUnderline(QPainter& painter, int x1, int x2, int baselineY,
+                                 const ExtraSelection& decoration) const {
+    if (!decoration.straightUnderline) {
+        drawWavyUnderline(painter, x1, x2, baselineY, decoration.underline);
+        return;
+    }
+    // A link's line: where the wave would be, straight and sharp (a pixel
+    // row, not two half-covered ones).
+    const int y = baselineY + qMax(1, QFontMetrics(m_font).descent() / 2);
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, false);
+    painter.setPen(QPen(decoration.underline, 1));
+    painter.drawLine(x1, y, x2 - 1, y);
+    painter.restore();
+}
+
 void LineRenderer::drawWavyUnderline(QPainter& painter, int x1, int x2, int baselineY,
                                      const QColor& color) const {
     // Half the descent below the baseline, so the wave stays under the text
@@ -387,7 +403,7 @@ void LineRenderer::drawSegmentWithSpans(QPainter& painter,
 
         drawCells(painter, drawX + visual * charWidth, baselineY, charWidth, expanded);
         if (decoration && decoration->underline.isValid() && cell.width() > 0)
-            drawWavyUnderline(painter, cell.left(), cell.right() + 1, baselineY, decoration->underline);
+            drawUnderline(painter, cell.left(), cell.right() + 1, baselineY, *decoration);
 
         // Advance visual column past this chunk.
         for (int i = 0; i < chunk.size(); ++i) {
@@ -572,7 +588,7 @@ void LineRenderer::drawBidiSegment(QPainter& painter, const QString& line, int s
             drawCells(painter, rect.left(), baselineY, charWidth, text);
         }
         if (decoration && decoration->underline.isValid() && rect.width() > 0)
-            drawWavyUnderline(painter, rect.left(), rect.right() + 1, baselineY, decoration->underline);
+            drawUnderline(painter, rect.left(), rect.right() + 1, baselineY, *decoration);
         k = end;
     }
     painter.setPen(defaultPen);

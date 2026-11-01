@@ -279,6 +279,16 @@ newline padding. Hidden fold contents and fold placeholders receive no
 decorations, and painting never expands a fold. Colors belong to the caller;
 use an invalid foreground to retain the current light/dark theme's text color.
 
+A valid `underline` color draws a wavy line under the range, as under a
+misspelled word or a language server's diagnostic; with `straightUnderline`
+(since 1.70.0) it is a sharp straight line instead, as under a link:
+
+```cpp
+qce::ExtraSelection link{{3, 8}, {3, 14}, {}, QColor(30, 90, 220), QColor(30, 90, 220)};
+link.straightUnderline = true;
+area->setExtraSelections(LinkLayer, {link});
+```
+
 The area clears all extra ranges on any text edit, reset or document replacement.
 Clients recompute and supply a fresh snapshot after changes. Setting decorations
 only repaints: it preserves cursor, selection, syntax/fold caches, document and

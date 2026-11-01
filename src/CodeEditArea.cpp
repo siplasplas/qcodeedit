@@ -237,7 +237,10 @@ void CodeEditArea::rebuildDecorations() {
             const ExtraSelection& top = m_selectionLayers[it->first][it->second];
             if (top.background.isValid()) style.background = top.background;
             if (top.foreground.isValid()) style.foreground = top.foreground;
-            if (top.underline.isValid()) style.underline = top.underline;
+            if (top.underline.isValid()) {
+                style.underline = top.underline;
+                style.straightUnderline = top.straightUnderline;
+            }
         }
         return style;
     };

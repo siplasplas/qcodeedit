@@ -72,6 +72,36 @@ class TestExtraSelections : public QObject {
         QVERIFY(QTest::qWaitForWindowExposed(&area));
     }
 private slots:
+    // A straight underline (a link) is one row of its colour under the whole
+    // range; a wavy one (spelling) never fills a whole row.
+    void straightAndWavyUnderlines() {
+        SimpleTextDocument doc;
+        doc.setText(QStringLiteral("abcdef"));
+        CodeEditArea area;
+        area.setDocument(&doc);
+        show(area);
+        const auto vp = area.viewportState();
+        const QColor blue(0, 0, 255);
+        auto longestBlueRow = [&](bool straight) {
+            ExtraSelection link{{0, 0}, {0, 4}, {}, {}, blue};
+            link.straightUnderline = straight;
+            area.setExtraSelections({link});
+            const QImage image = render(area);
+            int longest = 0;
+            for (int y = 0; y < vp.lineHeight; ++y) {
+                int run = 0;
+                for (int x = 0; x < image.width(); ++x) {
+                    const QColor color = image.pixelColor(x, y);
+                    run = color.blue() > 200 && color.red() < 60 && color.green() < 60 ? run + 1 : 0;
+                    longest = std::max(longest, run);
+                }
+            }
+            return longest;
+        };
+        QVERIFY(longestBlueRow(true) >= 4 * vp.charWidth - 1);
+        QVERIFY(longestBlueRow(false) < 2 * vp.charWidth);
+    }
+
     void selectionDirectionSignalsAndEditing() {
         SimpleTextDocument doc;
         doc.setText("abcdef\nsecond");

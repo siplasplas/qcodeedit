@@ -15,6 +15,8 @@ struct ExtraSelection {
     /// Wavy line under the text in this color, e.g. a misspelled word; invalid
     /// = none.
     QColor underline;
+    /// The underline is a straight line instead, e.g. under a link.
+    bool straightUnderline = false;
 };
 
 } // namespace qce

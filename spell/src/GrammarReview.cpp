@@ -43,9 +43,25 @@ QString correctionLabel(const QPair<CodeEditSpelling::Misspelling, QString>& cor
 
 } // namespace
 
+struct GrammarReviewDialog::Private {
+    QPointer<CodeEditSpelling> m_spelling;
+    int m_firstLine = 0;
+    int m_lastLine = 0;
+    QList<CodeEditSpelling::GrammarMistake> m_mistakes;
+    QTreeWidget* m_list = nullptr;
+    QComboBox* m_filter = nullptr;
+    QLabel* m_summary = nullptr;
+    int m_corrected = 0;
+};
+
 GrammarReviewDialog::GrammarReviewDialog(CodeEditSpelling& spelling, int firstLine, int lastLine, bool inSelection,
                                          QWidget* parent)
-    : QDialog(parent), m_spelling(&spelling), m_firstLine(firstLine), m_lastLine(lastLine) {
+    :
+    QDialog(parent),
+      d(std::make_unique<Private>()) {
+    d->m_spelling = &spelling;
+    d->m_firstLine = firstLine;
+    d->m_lastLine = lastLine;
     setWindowTitle(tr("Review Grammar"));
     resize(820, 460);
     auto* layout = new QVBoxLayout(this);
@@ -60,9 +76,9 @@ GrammarReviewDialog::GrammarReviewDialog(CodeEditSpelling& spelling, int firstLi
     auto* options = new QHBoxLayout;
     auto* showLabel = new QLabel(tr("Sh&ow:"), this);
     options->addWidget(showLabel);
-    m_filter = new QComboBox(this);
-    showLabel->setBuddy(m_filter);
-    options->addWidget(m_filter);
+    d->m_filter = new QComboBox(this);
+    showLabel->setBuddy(d->m_filter);
+    options->addWidget(d->m_filter);
     options->addStretch();
     auto* checkAll = new QPushButton(tr("Check &All"), this);
     auto* uncheckAll = new QPushButton(tr("&Uncheck All"), this);
@@ -72,27 +88,27 @@ GrammarReviewDialog::GrammarReviewDialog(CodeEditSpelling& spelling, int firstLi
     }
     layout->addLayout(options);
 
-    m_list = new QTreeWidget(this);
-    m_list->setRootIsDecorated(false);
-    m_list->setHeaderLabels({tr("Words"), tr("Correction"), tr("Problem"), tr("Line"), tr("Context")});
-    m_list->header()->setStretchLastSection(true);
-    m_list->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    layout->addWidget(m_list, 1);
+    d->m_list = new QTreeWidget(this);
+    d->m_list->setRootIsDecorated(false);
+    d->m_list->setHeaderLabels({tr("Words"), tr("Correction"), tr("Problem"), tr("Line"), tr("Context")});
+    d->m_list->header()->setStretchLastSection(true);
+    d->m_list->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    layout->addWidget(d->m_list, 1);
     // The selected rows to the clipboard: Ctrl+C or the context menu.
-    auto* copy = new QShortcut(QKeySequence::Copy, m_list, nullptr, nullptr, Qt::WidgetShortcut);
+    auto* copy = new QShortcut(QKeySequence::Copy, d->m_list, nullptr, nullptr, Qt::WidgetShortcut);
     connect(copy, &QShortcut::activated, this, &GrammarReviewDialog::copyRows);
-    m_list->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_list, &QWidget::customContextMenuRequested, this, [this](const QPoint& position) {
-        if (m_list->selectedItems().isEmpty()) return;
+    d->m_list->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(d->m_list, &QWidget::customContextMenuRequested, this, [this](const QPoint& position) {
+        if (d->m_list->selectedItems().isEmpty()) return;
         QMenu menu(this);
         QAction* rows = menu.addAction(tr("&Copy Rows"), this, &GrammarReviewDialog::copyRows);
         rows->setShortcut(QKeySequence::Copy);
         rows->setToolTip(tr("Words, correction, problem, line and the whole line of text, separated by tabs"));
-        menu.exec(m_list->viewport()->mapToGlobal(position));
+        menu.exec(d->m_list->viewport()->mapToGlobal(position));
     });
 
-    m_summary = new QLabel(this);
-    layout->addWidget(m_summary);
+    d->m_summary = new QLabel(this);
+    layout->addWidget(d->m_summary);
     auto* buttons = new QDialogButtonBox(this);
     auto* correctButton = buttons->addButton(tr("&Correct"), QDialogButtonBox::ApplyRole);
     correctButton->setToolTip(tr("Corrects the checked mistakes shown; the window stays open"));
@@ -101,16 +117,16 @@ GrammarReviewDialog::GrammarReviewDialog(CodeEditSpelling& spelling, int firstLi
     layout->addWidget(buttons);
 
     const auto checkShown = [this](bool checked) {
-        for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
-            QTreeWidgetItem* row = m_list->topLevelItem(i);
+        for (int i = 0; i < d->m_list->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* row = d->m_list->topLevelItem(i);
             if (!row->isHidden() && (row->flags() & Qt::ItemIsUserCheckable))
                 row->setCheckState(WordsColumn, checked ? Qt::Checked : Qt::Unchecked);
         }
     };
     connect(checkAll, &QPushButton::clicked, this, [checkShown]() { checkShown(true); });
     connect(uncheckAll, &QPushButton::clicked, this, [checkShown]() { checkShown(false); });
-    connect(m_filter, &QComboBox::activated, this, &GrammarReviewDialog::filter);
-    connect(m_list, &QTreeWidget::itemChanged, this, &GrammarReviewDialog::updateSummary);
+    connect(d->m_filter, &QComboBox::activated, this, &GrammarReviewDialog::filter);
+    connect(d->m_list, &QTreeWidget::itemChanged, this, &GrammarReviewDialog::updateSummary);
     connect(correctButton, &QPushButton::clicked, this, &GrammarReviewDialog::correct);
     connect(correctAndClose, &QPushButton::clicked, this, [this]() {
         correct();
@@ -118,29 +134,29 @@ GrammarReviewDialog::GrammarReviewDialog(CodeEditSpelling& spelling, int firstLi
     });
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     // A double click shows the words in the text (selected, scrolled into sight).
-    connect(m_list, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* row) {
-        if (!row || !m_spelling || !m_spelling->area()) return;
-        const auto& mistake = m_mistakes[row->data(WordsColumn, kIndexRole).toInt()];
-        m_spelling->area()->setSelection(mistake.start, mistake.end);
+    connect(d->m_list, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* row) {
+        if (!row || !d->m_spelling || !d->m_spelling->area()) return;
+        const auto& mistake = d->m_mistakes[row->data(WordsColumn, kIndexRole).toInt()];
+        d->m_spelling->area()->setSelection(mistake.start, mistake.end);
     });
     collect();
 }
 
 void GrammarReviewDialog::collect() {
-    m_mistakes.clear();
-    m_list->clear();
-    CodeEditArea* area = m_spelling ? m_spelling->area() : nullptr;
+    d->m_mistakes.clear();
+    d->m_list->clear();
+    CodeEditArea* area = d->m_spelling ? d->m_spelling->area() : nullptr;
     if (!area || !area->document()) return;
     ITextDocument* doc = area->document();
-    m_lastLine = qMin(m_lastLine, doc->lineCount() - 1);
-    m_mistakes = m_spelling->grammarMistakes({m_firstLine, 0}, {m_lastLine, int(doc->lineAt(m_lastLine).size())});
-    QSignalBlocker blocker(m_list);
+    d->m_lastLine = qMin(d->m_lastLine, doc->lineCount() - 1);
+    d->m_mistakes = d->m_spelling->grammarMistakes({d->m_firstLine, 0}, {d->m_lastLine, int(doc->lineAt(d->m_lastLine).size())});
+    QSignalBlocker blocker(d->m_list);
     QSet<QString> rules;
-    for (int i = 0; i < m_mistakes.size(); ++i) {
-        const auto& mistake = m_mistakes[i];
+    for (int i = 0; i < d->m_mistakes.size(); ++i) {
+        const auto& mistake = d->m_mistakes[i];
         rules.insert(mistake.issue.rule);
         const QString line = doc->lineAt(mistake.start.line);
-        auto* row = new QTreeWidgetItem(m_list);
+        auto* row = new QTreeWidgetItem(d->m_list);
         row->setData(WordsColumn, kIndexRole, i);
         row->setText(WordsColumn, line.mid(mistake.start.column, mistake.end.column - mistake.start.column));
         row->setText(ProblemColumn, mistake.issue.message.isEmpty() ? ruleName(mistake.issue.rule) : mistake.issue.message);
@@ -158,32 +174,32 @@ void GrammarReviewDialog::collect() {
             row->setText(CorrectionColumn, correctionLabel(mistake.corrections.front()));
             continue;
         }
-        auto* box = new QComboBox(m_list);
+        auto* box = new QComboBox(d->m_list);
         for (const auto& correction : mistake.corrections) box->addItem(correctionLabel(correction));
-        m_list->setItemWidget(row, CorrectionColumn, box);
+        d->m_list->setItemWidget(row, CorrectionColumn, box);
     }
     // "Show": all, or the rules found.
-    const QString shown = m_filter->currentData().toString();
-    m_filter->clear();
-    m_filter->addItem(tr("All mistakes"), QString());
+    const QString shown = d->m_filter->currentData().toString();
+    d->m_filter->clear();
+    d->m_filter->addItem(tr("All mistakes"), QString());
     QStringList sorted(rules.begin(), rules.end());
     sorted.sort();
-    for (const QString& rule : sorted) m_filter->addItem(ruleName(rule), rule);
-    m_filter->setCurrentIndex(qMax(0, m_filter->findData(shown)));
-    for (int column : {WordsColumn, CorrectionColumn, ProblemColumn, LineColumn}) m_list->resizeColumnToContents(column);
-    m_list->setColumnWidth(CorrectionColumn, qMax(m_list->columnWidth(CorrectionColumn), 140));
+    for (const QString& rule : sorted) d->m_filter->addItem(ruleName(rule), rule);
+    d->m_filter->setCurrentIndex(qMax(0, d->m_filter->findData(shown)));
+    for (int column : {WordsColumn, CorrectionColumn, ProblemColumn, LineColumn}) d->m_list->resizeColumnToContents(column);
+    d->m_list->setColumnWidth(CorrectionColumn, qMax(d->m_list->columnWidth(CorrectionColumn), 140));
     filter();
 }
 
 void GrammarReviewDialog::copyRows() {
-    CodeEditArea* area = m_spelling ? m_spelling->area() : nullptr;
+    CodeEditArea* area = d->m_spelling ? d->m_spelling->area() : nullptr;
     QStringList lines;
-    for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* row = m_list->topLevelItem(i);
+    for (int i = 0; i < d->m_list->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* row = d->m_list->topLevelItem(i);
         if (row->isHidden() || !row->isSelected()) continue;
-        const auto& mistake = m_mistakes[row->data(WordsColumn, kIndexRole).toInt()];
+        const auto& mistake = d->m_mistakes[row->data(WordsColumn, kIndexRole).toInt()];
         QString correction = row->text(CorrectionColumn);
-        if (auto* box = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn))) correction = box->currentText();
+        if (auto* box = qobject_cast<QComboBox*>(d->m_list->itemWidget(row, CorrectionColumn))) correction = box->currentText();
         const QString text = area && area->document() ? area->document()->lineAt(mistake.start.line) : QString();
         lines << QStringList{row->text(WordsColumn), correction, row->text(ProblemColumn), row->text(LineColumn), text}
                      .join(QLatin1Char('\t'));
@@ -192,10 +208,10 @@ void GrammarReviewDialog::copyRows() {
 }
 
 void GrammarReviewDialog::filter() {
-    const QString rule = m_filter->currentData().toString();
-    for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* row = m_list->topLevelItem(i);
-        const auto& mistake = m_mistakes[row->data(WordsColumn, kIndexRole).toInt()];
+    const QString rule = d->m_filter->currentData().toString();
+    for (int i = 0; i < d->m_list->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* row = d->m_list->topLevelItem(i);
+        const auto& mistake = d->m_mistakes[row->data(WordsColumn, kIndexRole).toInt()];
         row->setHidden(!rule.isEmpty() && mistake.issue.rule != rule);
     }
     updateSummary();
@@ -203,34 +219,34 @@ void GrammarReviewDialog::filter() {
 
 void GrammarReviewDialog::updateSummary() {
     int shown = 0, checked = 0;
-    for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
-        const QTreeWidgetItem* row = m_list->topLevelItem(i);
+    for (int i = 0; i < d->m_list->topLevelItemCount(); ++i) {
+        const QTreeWidgetItem* row = d->m_list->topLevelItem(i);
         if (row->isHidden()) continue;
         ++shown;
         checked += row->checkState(WordsColumn) == Qt::Checked;
     }
-    m_summary->setText(tr("%1 of %2 mistakes shown, %3 checked").arg(shown).arg(m_mistakes.size()).arg(checked));
+    d->m_summary->setText(tr("%1 of %2 mistakes shown, %3 checked").arg(shown).arg(d->m_mistakes.size()).arg(checked));
 }
 
 void GrammarReviewDialog::correct() {
-    if (!m_spelling || !m_spelling->area()) return;
+    if (!d->m_spelling || !d->m_spelling->area()) return;
     QList<QPair<CodeEditSpelling::Misspelling, QString>> chosen;
-    for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* row = m_list->topLevelItem(i);
+    for (int i = 0; i < d->m_list->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* row = d->m_list->topLevelItem(i);
         if (row->isHidden() || row->checkState(WordsColumn) != Qt::Checked) continue;
-        const auto& mistake = m_mistakes[row->data(WordsColumn, kIndexRole).toInt()];
+        const auto& mistake = d->m_mistakes[row->data(WordsColumn, kIndexRole).toInt()];
         int choice = 0;
-        if (auto* box = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn))) choice = box->currentIndex();
+        if (auto* box = qobject_cast<QComboBox*>(d->m_list->itemWidget(row, CorrectionColumn))) choice = box->currentIndex();
         if (choice >= 0 && choice < mistake.corrections.size()) chosen.append(mistake.corrections[choice]);
     }
     if (chosen.isEmpty()) return;
     // The editor is read-only while the window is open; corrections go in.
-    CodeEditArea* area = m_spelling->area();
+    CodeEditArea* area = d->m_spelling->area();
     const bool wasReadOnly = area->readOnly();
     area->setReadOnly(false);
-    m_spelling->replaceWords(chosen);
+    d->m_spelling->replaceWords(chosen);
     area->setReadOnly(wasReadOnly);
-    m_corrected += int(chosen.size());
+    d->m_corrected += int(chosen.size());
     collect();
 }
 
@@ -267,5 +283,10 @@ GrammarReviewDialog* openGrammarReview(CodeEditSpelling& spelling, QWidget* pare
     dialog->show();
     return dialog;
 }
+
+
+GrammarReviewDialog::~GrammarReviewDialog() = default;
+int GrammarReviewDialog::correctedSoFar() const { return d->m_corrected; }
+int GrammarReviewDialog::mistakeCount() const { return int(d->m_mistakes.size()); }
 
 } // namespace qce::spell

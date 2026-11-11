@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <qce/GutterColors.h>
 #include <qce/ViewportState.h>
 
@@ -24,6 +26,7 @@ class CodeEditArea;
 class Rail : public QWidget {
     Q_OBJECT
 public:
+    ~Rail();
     /// `textEdge` is the edge next to CodeEditArea, where the separator
     /// line is drawn (right for LeftRail, left for RightRail).
     explicit Rail(QWidget* parent = nullptr, Qt::Edge textEdge = Qt::RightEdge);
@@ -40,7 +43,7 @@ public:
     /// Sets the rail colours; invalid entries are derived from the area's
     /// palette (see GutterColors).
     void setColors(const GutterColors& colors);
-    const GutterColors& colors() const { return m_colors; }
+    const GutterColors& colors() const;
 
     /// The colours actually used for painting, with invalid entries derived
     /// from the connected area's palette.
@@ -61,12 +64,10 @@ private slots:
     void onViewportChanged(const ViewportState& vp);
 
 private:
-    QList<IMargin*> m_margins;
-    CodeEditArea* m_area = nullptr;
-    GutterColors m_colors;
-    Qt::Edge m_textEdge;
-    ViewportState m_vp;
-    IMargin* m_hoveredMargin = nullptr;
+    // The state, in Rail.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
 
     int totalWidth() const;
     void updateHoveredMargin(const QPoint& pos);

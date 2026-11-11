@@ -48,6 +48,13 @@ static void computeDepths(QVector<FoldRegion>& regions) {
     }
 }
 
+struct FoldState::Private {
+    QVector<FoldRegion> m_regions;   ///< sorted, depth-annotated
+    QSet<int>           m_collapsed; ///< region indices that are currently collapsed
+};
+
+FoldState::FoldState() : d(std::make_unique<Private>()) {}
+
 void FoldState::setRegions(QVector<FoldRegion> regions) {
     // Drop single-line regions and sort.
     QVector<FoldRegion> out;
@@ -72,55 +79,55 @@ void FoldState::setRegions(QVector<FoldRegion> regions) {
     // group); several regions on one line are paired in column order, which
     // both lists already have.
     QHash<QPair<int, QString>, QList<bool>> previous;
-    for (int i = 0; i < m_regions.size(); ++i) {
-        const FoldRegion& r = m_regions[i];
-        previous[{r.startLine, r.group}].append(m_collapsed.contains(i));
+    for (int i = 0; i < d->m_regions.size(); ++i) {
+        const FoldRegion& r = d->m_regions[i];
+        previous[{r.startLine, r.group}].append(d->m_collapsed.contains(i));
     }
 
-    m_regions = std::move(out);
-    m_collapsed.clear();
-    for (int i = 0; i < m_regions.size(); ++i) {
-        const FoldRegion& r = m_regions[i];
+    d->m_regions = std::move(out);
+    d->m_collapsed.clear();
+    for (int i = 0; i < d->m_regions.size(); ++i) {
+        const FoldRegion& r = d->m_regions[i];
         auto it = previous.find({r.startLine, r.group});
         if (it != previous.end() && !it->isEmpty()) {
-            if (it->takeFirst()) m_collapsed.insert(i);
+            if (it->takeFirst()) d->m_collapsed.insert(i);
         } else if (r.collapsedByDefault) {
-            m_collapsed.insert(i);
+            d->m_collapsed.insert(i);
         }
     }
 }
 
 void FoldState::clear() {
-    m_regions.clear();
-    m_collapsed.clear();
+    d->m_regions.clear();
+    d->m_collapsed.clear();
 }
 
 void FoldState::shiftLines(int line, int delta) {
-    if (delta == 0 || m_regions.isEmpty()) return;
+    if (delta == 0 || d->m_regions.isEmpty()) return;
     const int removedEnd = delta < 0 ? line - delta : line;  // [line, removedEnd) removed
     QVector<FoldRegion> kept;
-    kept.reserve(m_regions.size());
+    kept.reserve(d->m_regions.size());
     QSet<int> collapsed;
-    for (int i = 0; i < m_regions.size(); ++i) {
-        FoldRegion r = m_regions[i];
+    for (int i = 0; i < d->m_regions.size(); ++i) {
+        FoldRegion r = d->m_regions[i];
         if (delta < 0 && r.startLine >= line && r.startLine < removedEnd) continue;
         if (r.startLine >= line) r.startLine += delta;
         if (r.endLine >= removedEnd)  r.endLine += delta;
         else if (r.endLine >= line)   r.endLine = line - 1;  // end was removed
         r.endLine = qMax(r.endLine, r.startLine);
-        if (m_collapsed.contains(i)) collapsed.insert(kept.size());
+        if (d->m_collapsed.contains(i)) collapsed.insert(kept.size());
         kept.push_back(std::move(r));
     }
-    m_regions = std::move(kept);
-    m_collapsed = std::move(collapsed);
+    d->m_regions = std::move(kept);
+    d->m_collapsed = std::move(collapsed);
 }
 
 bool FoldState::expandContaining(int line) {
     bool changed = false;
-    for (auto it = m_collapsed.begin(); it != m_collapsed.end();) {
-        const FoldRegion& r = m_regions[*it];
+    for (auto it = d->m_collapsed.begin(); it != d->m_collapsed.end();) {
+        const FoldRegion& r = d->m_regions[*it];
         if (line > r.startLine && line <= r.endLine) {
-            it = m_collapsed.erase(it);
+            it = d->m_collapsed.erase(it);
             changed = true;
         } else {
             ++it;
@@ -130,9 +137,9 @@ bool FoldState::expandContaining(int line) {
 }
 
 void FoldState::setCollapsed(int regionIndex, bool collapsed) {
-    if (regionIndex < 0 || regionIndex >= m_regions.size()) return;
-    if (collapsed) m_collapsed.insert(regionIndex);
-    else           m_collapsed.remove(regionIndex);
+    if (regionIndex < 0 || regionIndex >= d->m_regions.size()) return;
+    if (collapsed) d->m_collapsed.insert(regionIndex);
+    else           d->m_collapsed.remove(regionIndex);
 }
 
 void FoldState::toggle(int regionIndex) {
@@ -142,17 +149,17 @@ void FoldState::toggle(int regionIndex) {
 int FoldState::regionStartingAt(int line) const {
     // Regions are sorted by (startLine, startColumn): the first region on the
     // line is the lower bound. Called per visible row while painting.
-    const auto it = std::lower_bound(m_regions.cbegin(), m_regions.cend(), line,
+    const auto it = std::lower_bound(d->m_regions.cbegin(), d->m_regions.cend(), line,
         [](const FoldRegion& r, int l) { return r.startLine < l; });
-    return (it != m_regions.cend() && it->startLine == line)
-        ? int(it - m_regions.cbegin()) : -1;
+    return (it != d->m_regions.cend() && it->startLine == line)
+        ? int(it - d->m_regions.cbegin()) : -1;
 }
 
 QVector<QPair<int, int>> FoldState::hiddenLineRanges() const {
     QVector<QPair<int, int>> ranges;
-    ranges.reserve(m_collapsed.size());
-    for (int i : m_collapsed) {
-        const FoldRegion& r = m_regions[i];
+    ranges.reserve(d->m_collapsed.size());
+    for (int i : d->m_collapsed) {
+        const FoldRegion& r = d->m_regions[i];
         if (r.endLine > r.startLine) ranges.append({r.startLine + 1, r.endLine});
     }
     std::sort(ranges.begin(), ranges.end());
@@ -170,27 +177,40 @@ bool FoldState::isLineVisible(int line) const {
     // A line is hidden iff some collapsed region covers it with line in
     // (startLine, endLine]. The start line itself always remains visible
     // — the placeholder is drawn on it.
-    for (int i : m_collapsed) {
-        const FoldRegion& r = m_regions[i];
+    for (int i : d->m_collapsed) {
+        const FoldRegion& r = d->m_regions[i];
         if (line > r.startLine && line <= r.endLine) return false;
     }
     return true;
 }
 
 void FoldState::foldAll() {
-    m_collapsed.clear();
-    for (int i = 0; i < m_regions.size(); ++i) m_collapsed.insert(i);
+    d->m_collapsed.clear();
+    for (int i = 0; i < d->m_regions.size(); ++i) d->m_collapsed.insert(i);
 }
 
 void FoldState::unfoldAll() {
-    m_collapsed.clear();
+    d->m_collapsed.clear();
 }
 
 void FoldState::foldToLevel(int level) {
-    m_collapsed.clear();
-    for (int i = 0; i < m_regions.size(); ++i) {
-        if (m_regions[i].depth <= level) m_collapsed.insert(i);
+    d->m_collapsed.clear();
+    for (int i = 0; i < d->m_regions.size(); ++i) {
+        if (d->m_regions[i].depth <= level) d->m_collapsed.insert(i);
     }
+}
+
+
+FoldState::~FoldState() = default;
+FoldState::FoldState(const FoldState& other) : d(std::make_unique<Private>(*other.d)) {}
+FoldState& FoldState::operator=(const FoldState& other) { if (this != &other) *d = *other.d; return *this; }
+// The source stays usable, with an empty state.
+FoldState::FoldState(FoldState&& other) noexcept : d(std::make_unique<Private>()) { d.swap(other.d); }
+FoldState& FoldState::operator=(FoldState&& other) noexcept { d.swap(other.d); return *this; }
+const QVector<FoldRegion>& FoldState::regions() const { return d->m_regions; }
+
+bool FoldState::isCollapsed(int regionIndex) const {
+    return d->m_collapsed.contains(regionIndex);
 }
 
 } // namespace qce

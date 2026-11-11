@@ -62,20 +62,84 @@ struct CodeEditArea::Replacement {
     int topLine = 0;
 };
 
+struct CodeEditArea::Private {
+    std::unique_ptr<Replacement> m_replacement;
+    ITextDocument* m_doc = nullptr;
+    ViewportState  m_viewportState;
+    TextCursor     m_cursor;
+    TextCursor     m_anchor;
+    bool           m_mouseSelecting = false;
+    QColor m_selectionColor{QStringLiteral("#A6D2FF")};
+    LineBackgroundFn m_lineBgProvider;
+    QColor m_currentLineColor;
+    QString m_placeholderText;
+    InsertFilterFn m_insertFilter;
+    // Normalized decorations per layer (empty layers are removed).
+    QMap<int, QVector<ExtraSelection>> m_selectionLayers;
+    // Disjoint, sorted segments per logical line, all layers merged; overlap
+    // resolved on bulk update.
+    QHash<int, QVector<ExtraSelection>> m_extraSelectionsByLine;
+    bool   m_tabCaptured     = true;
+    bool   m_readOnly        = false;
+    bool   m_overwrite       = false;
+    bool   m_wordWrap        = false;
+
+    std::unique_ptr<LineRenderer>      m_renderer;
+    std::unique_ptr<WrapLayout>        m_wrapLayout;
+
+    IHighlighter*                      m_highlighter = nullptr;
+    QVector<HighlightState>            m_lineEndStates;
+    QVector<QVector<StyleSpan>>        m_lineSpans;
+    /// Fold markers per line, collected while highlighting; lets the folding
+    /// provider build regions without tokenising the document again.
+    QVector<QVector<FoldMarker>>       m_lineFolds;
+    /// Line count the caches above and the fold state match. Differs from the
+    /// document while it has reported a changed line but not yet the lines
+    /// it inserted or removed.
+    int                                m_knownLineCount = 0;
+    /// Earliest changed line whose re-highlight waits for that signal.
+    int                                m_pendingRehighlightFrom = -1;
+    /// Document changes made as one (a text replaced by its differing lines,
+    /// its undo and redo, replaceRanges()): while the depth is above 0 each
+    /// change only moves the per-line caches; the highlighting, the folds,
+    /// the wrap layout and the view follow once, at the end, from the
+    /// earliest line changed (-1: none).
+    int                                m_batchDepth = 0;
+    int                                m_batchRehighlightFrom = -1;
+    /// Lines [0, m_validLines) have up-to-date spans, end states and markers.
+    int                                m_validLines = 0;
+    /// Folds wait for the highlighting to reach the end of the document.
+    bool                               m_foldsPending = false;
+    QTimer*                            m_highlightTimer = nullptr;
+
+    IFoldingProvider*                  m_foldingProvider = nullptr;
+    FoldState                          m_foldState;
+    std::unique_ptr<CursorController>  m_cursorCtrl;
+    std::unique_ptr<CaretPainter>      m_caretPainter;
+    QUndoStack*                        m_undoStack = nullptr;
+
+    // Input-method pre-edit (display only, never in the document or undo).
+    QString                                 m_preedit;
+    QList<QInputMethodEvent::Attribute>     m_preeditAttributes;
+    int                                     m_preeditCursor = 0;  ///< QChar index in m_preedit
+    bool                                    m_preeditCursorVisible = true;
+};
+
 CodeEditArea::CodeEditArea(QWidget* parent)
     : QAbstractScrollArea(parent),
-      m_renderer(std::make_unique<LineRenderer>()),
-      m_wrapLayout(std::make_unique<WrapLayout>()),
-      m_cursorCtrl(std::make_unique<CursorController>(nullptr)),
-      m_caretPainter(std::make_unique<CaretPainter>(this)),
-      m_undoStack(new QUndoStack(this)) {
+      d(std::make_unique<Private>()) {
+    d->m_renderer = std::make_unique<LineRenderer>();
+    d->m_wrapLayout = std::make_unique<WrapLayout>();
+    d->m_cursorCtrl = std::make_unique<CursorController>(nullptr);
+    d->m_caretPainter = std::make_unique<CaretPainter>(this);
+    d->m_undoStack = new QUndoStack(this);
     QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     const QStringList families = QFontDatabase::families();
     f.setStyleHint(QFont::TypeWriter);
     f = f.resolve(font());
     f.setPointSizeF(10);
     setFont(fitToCharGrid(f));
-    m_renderer->setFont(font());
+    d->m_renderer->setFont(font());
 
     viewport()->setAutoFillBackground(false);
     setFocusPolicy(Qt::StrongFocus);
@@ -83,16 +147,16 @@ CodeEditArea::CodeEditArea(QWidget* parent)
     // QInputMethodEvent and answers inputMethodQuery().
     setAttribute(Qt::WA_InputMethodEnabled, true);
 
-    connect(m_caretPainter.get(), &CaretPainter::blinkToggled,
+    connect(d->m_caretPainter.get(), &CaretPainter::blinkToggled,
             viewport(), QOverload<>::of(&QWidget::update));
 
-    m_highlightTimer = new QTimer(this);
-    m_highlightTimer->setInterval(0);
-    connect(m_highlightTimer, &QTimer::timeout, this, &CodeEditArea::highlightChunk);
+    d->m_highlightTimer = new QTimer(this);
+    d->m_highlightTimer->setInterval(0);
+    connect(d->m_highlightTimer, &QTimer::timeout, this, &CodeEditArea::highlightChunk);
 
-    m_renderer->setDecorationsProvider([this](int line) -> const QVector<ExtraSelection>* {
-        auto it = m_extraSelectionsByLine.constFind(line);
-        return it == m_extraSelectionsByLine.cend() ? nullptr : &it.value();
+    d->m_renderer->setDecorationsProvider([this](int line) -> const QVector<ExtraSelection>* {
+        auto it = d->m_extraSelectionsByLine.constFind(line);
+        return it == d->m_extraSelectionsByLine.cend() ? nullptr : &it.value();
     });
     refreshViewportState();
 }
@@ -101,27 +165,50 @@ CodeEditArea::~CodeEditArea() {
     emit aboutToBeDestroyed();
 }
 
+// --- Accessors (out of line: they read the fields of Private) ------------
+
+ITextDocument* CodeEditArea::document() const { return d->m_doc; }
+ViewportState CodeEditArea::viewportState() const { return d->m_viewportState; }
+TextCursor CodeEditArea::cursorPosition() const { return d->m_cursor; }
+bool CodeEditArea::hasSelection() const { return d->m_anchor != d->m_cursor; }
+QVector<ExtraSelection> CodeEditArea::extraSelections() const { return d->m_selectionLayers.value(0); }
+QVector<ExtraSelection> CodeEditArea::extraSelections(int layer) const { return d->m_selectionLayers.value(layer); }
+QColor CodeEditArea::selectionColor() const { return d->m_selectionColor; }
+QColor CodeEditArea::currentLineColor() const { return d->m_currentLineColor; }
+void CodeEditArea::setInsertFilter(InsertFilterFn fn) { d->m_insertFilter = std::move(fn); }
+QUndoStack* CodeEditArea::undoStack() const { return d->m_undoStack; }
+bool CodeEditArea::tabCaptured() const { return d->m_tabCaptured; }
+QString CodeEditArea::placeholderText() const { return d->m_placeholderText; }
+bool CodeEditArea::readOnly() const { return d->m_readOnly; }
+bool CodeEditArea::overwriteMode() const { return d->m_overwrite; }
+bool CodeEditArea::wordWrap() const { return d->m_wordWrap; }
+IHighlighter* CodeEditArea::highlighter() const { return d->m_highlighter; }
+IFoldingProvider* CodeEditArea::foldingProvider() const { return d->m_foldingProvider; }
+FoldState& CodeEditArea::foldState() { finishShortHighlight(); return d->m_foldState; }
+const FoldState& CodeEditArea::foldState() const { finishShortHighlight(); return d->m_foldState; }
+QString CodeEditArea::preeditString() const { return d->m_preedit; }
+
 // ------------------------------------------------------------------------
 // Public API
 // ------------------------------------------------------------------------
 
 void CodeEditArea::setDocument(ITextDocument* doc) {
-    if (m_doc == doc) {
+    if (d->m_doc == doc) {
         return;
     }
     cancelPreedit(true);
     clearAllExtraSelections();
     rebindDocumentSignals(doc);
-    m_doc = doc;
-    m_cursorCtrl->setDocument(doc);
-    m_cursor = m_cursorCtrl->clamp(m_cursor);
-    m_anchor = m_cursor;
-    m_undoStack->clear();
+    d->m_doc = doc;
+    d->m_cursorCtrl->setDocument(doc);
+    d->m_cursor = d->m_cursorCtrl->clamp(d->m_cursor);
+    d->m_anchor = d->m_cursor;
+    d->m_undoStack->clear();
 
-    m_knownLineCount = doc ? doc->lineCount() : 0;
-    m_pendingRehighlightFrom = -1;
+    d->m_knownLineCount = doc ? doc->lineCount() : 0;
+    d->m_pendingRehighlightFrom = -1;
     rebuildHighlightCache();
-    m_foldState.clear();
+    d->m_foldState.clear();
     rebuildFolds();
     rebuildWrapLayout();
     updateScrollBarRanges();
@@ -138,40 +225,40 @@ void CodeEditArea::setCursorPosition(TextCursor pos) {
 // --- Selection ----------------------------------------------------------
 
 TextCursor CodeEditArea::selectionStart() const {
-    return (m_anchor <= m_cursor) ? m_anchor : m_cursor;
+    return (d->m_anchor <= d->m_cursor) ? d->m_anchor : d->m_cursor;
 }
 
 TextCursor CodeEditArea::selectionEnd() const {
-    return (m_anchor <= m_cursor) ? m_cursor : m_anchor;
+    return (d->m_anchor <= d->m_cursor) ? d->m_cursor : d->m_anchor;
 }
 
 QString CodeEditArea::selectedText() const {
-    if (!hasSelection() || !m_doc) {
+    if (!hasSelection() || !d->m_doc) {
         return {};
     }
     const TextCursor s = selectionStart();
     const TextCursor e = selectionEnd();
 
     if (s.line == e.line) {
-        return m_doc->lineAt(s.line).mid(s.column, e.column - s.column);
+        return d->m_doc->lineAt(s.line).mid(s.column, e.column - s.column);
     }
 
-    QString result = m_doc->lineAt(s.line).mid(s.column);
+    QString result = d->m_doc->lineAt(s.line).mid(s.column);
     for (int i = s.line + 1; i < e.line; ++i) {
-        result += QLatin1Char('\n') + m_doc->lineAt(i);
+        result += QLatin1Char('\n') + d->m_doc->lineAt(i);
     }
-    result += QLatin1Char('\n') + m_doc->lineAt(e.line).left(e.column);
+    result += QLatin1Char('\n') + d->m_doc->lineAt(e.line).left(e.column);
     return result;
 }
 
 void CodeEditArea::setSelection(TextCursor anchor, TextCursor cursor) {
-    anchor = m_cursorCtrl->clamp(anchor);
-    cursor = m_cursorCtrl->clamp(cursor);
-    const bool cursorChanged = cursor != m_cursor;
-    const bool selectionChangedValue = anchor != m_anchor || cursorChanged;
-    m_anchor = anchor;
-    m_cursor = cursor;
-    m_caretPainter->resetBlink();
+    anchor = d->m_cursorCtrl->clamp(anchor);
+    cursor = d->m_cursorCtrl->clamp(cursor);
+    const bool cursorChanged = cursor != d->m_cursor;
+    const bool selectionChangedValue = anchor != d->m_anchor || cursorChanged;
+    d->m_anchor = anchor;
+    d->m_cursor = cursor;
+    d->m_caretPainter->resetBlink();
     ensureCursorVisible(cursor);
     viewport()->update();
     updateInputMethod();
@@ -185,29 +272,29 @@ void CodeEditArea::setExtraSelections(const QVector<ExtraSelection>& selections)
 
 void CodeEditArea::setExtraSelections(int layer, const QVector<ExtraSelection>& selections) {
     QVector<ExtraSelection> normalized;
-    if (m_doc && m_doc->lineCount() > 0) {
+    if (d->m_doc && d->m_doc->lineCount() > 0) {
         for (auto selection : selections) {
-            selection.start = m_cursorCtrl->clamp(selection.start);
-            selection.end = m_cursorCtrl->clamp(selection.end);
+            selection.start = d->m_cursorCtrl->clamp(selection.start);
+            selection.end = d->m_cursorCtrl->clamp(selection.end);
             if (selection.end < selection.start) std::swap(selection.start, selection.end);
             if (selection.start == selection.end) continue;
             normalized.append(selection);
         }
     }
-    if (normalized.isEmpty()) m_selectionLayers.remove(layer);
-    else m_selectionLayers.insert(layer, normalized);
+    if (normalized.isEmpty()) d->m_selectionLayers.remove(layer);
+    else d->m_selectionLayers.insert(layer, normalized);
     rebuildDecorations();
 }
 
 void CodeEditArea::clearAllExtraSelections() {
-    if (m_selectionLayers.isEmpty()) return;
-    m_selectionLayers.clear();
+    if (d->m_selectionLayers.isEmpty()) return;
+    d->m_selectionLayers.clear();
     rebuildDecorations();
 }
 
 void CodeEditArea::rebuildDecorations() {
-    m_extraSelectionsByLine.clear();
-    if (!m_doc || m_doc->lineCount() == 0 || m_selectionLayers.isEmpty()) {
+    d->m_extraSelectionsByLine.clear();
+    if (!d->m_doc || d->m_doc->lineCount() == 0 || d->m_selectionLayers.isEmpty()) {
         viewport()->update();
         return;
     }
@@ -215,12 +302,12 @@ void CodeEditArea::rebuildDecorations() {
     // the last of a layer is that layer's top entry.
     struct Event { int column; int layer; int index; bool opening; };
     QHash<int, QVector<Event>> eventsByLine;
-    for (auto layer = m_selectionLayers.cbegin(); layer != m_selectionLayers.cend(); ++layer) {
+    for (auto layer = d->m_selectionLayers.cbegin(); layer != d->m_selectionLayers.cend(); ++layer) {
         for (int index = 0; index < layer->size(); ++index) {
             const ExtraSelection& selection = layer->at(index);
             for (int line = selection.start.line; line <= selection.end.line; ++line) {
                 const int start = line == selection.start.line ? selection.start.column : 0;
-                const int end = line == selection.end.line ? selection.end.column : m_doc->lineAt(line).size();
+                const int end = line == selection.end.line ? selection.end.column : d->m_doc->lineAt(line).size();
                 if (start >= end) continue;
                 eventsByLine[line].append({start, layer.key(), index, true});
                 eventsByLine[line].append({end, layer.key(), index, false});
@@ -234,7 +321,7 @@ void CodeEditArea::rebuildDecorations() {
         for (auto it = active.cbegin(); it != active.cend(); ++it) {
             const auto next = std::next(it);
             if (next != active.cend() && next->first == it->first) continue;  // not the layer's top
-            const ExtraSelection& top = m_selectionLayers[it->first][it->second];
+            const ExtraSelection& top = d->m_selectionLayers[it->first][it->second];
             if (top.background.isValid()) style.background = top.background;
             if (top.foreground.isValid()) style.foreground = top.foreground;
             if (top.underline.isValid()) {
@@ -251,7 +338,7 @@ void CodeEditArea::rebuildDecorations() {
         });
         std::set<std::pair<int, int>> active;
         int previous = 0;
-        auto& segments = m_extraSelectionsByLine[it.key()];
+        auto& segments = d->m_extraSelectionsByLine[it.key()];
         for (qsizetype i = 0; i < events.size();) {
             const int column = events[i].column;
             if (previous < column && !active.empty()) {
@@ -272,16 +359,16 @@ void CodeEditArea::rebuildDecorations() {
 }
 
 void CodeEditArea::selectAll() {
-    if (!m_doc || m_doc->lineCount() == 0) {
+    if (!d->m_doc || d->m_doc->lineCount() == 0) {
         return;
     }
-    m_anchor = {0, 0};
-    const int last = m_doc->lineCount() - 1;
-    m_cursor = m_cursorCtrl->clamp({last, INT_MAX});
-    m_caretPainter->resetBlink();
+    d->m_anchor = {0, 0};
+    const int last = d->m_doc->lineCount() - 1;
+    d->m_cursor = d->m_cursorCtrl->clamp({last, INT_MAX});
+    d->m_caretPainter->resetBlink();
     viewport()->update();
     updateInputMethod();
-    emit cursorPositionChanged(m_cursor);
+    emit cursorPositionChanged(d->m_cursor);
     emit selectionChanged();
 }
 
@@ -289,59 +376,59 @@ void CodeEditArea::clearSelection() {
     if (!hasSelection()) {
         return;
     }
-    m_anchor = m_cursor;
+    d->m_anchor = d->m_cursor;
     viewport()->update();
     updateInputMethod();
     emit selectionChanged();
 }
 
 void CodeEditArea::setSelectionColor(const QColor& color) {
-    m_selectionColor = color;
+    d->m_selectionColor = color;
     if (hasSelection()) {
         viewport()->update();
     }
 }
 
 void CodeEditArea::setLineBackgroundProvider(LineBackgroundFn fn) {
-    m_lineBgProvider = std::move(fn);
+    d->m_lineBgProvider = std::move(fn);
     viewport()->update();
 }
 
 void CodeEditArea::setCurrentLineColor(const QColor& color) {
-    m_currentLineColor = color;
+    d->m_currentLineColor = color;
     viewport()->update();
 }
 
 QColor CodeEditArea::lineBackground(int line) const {
-    if (m_lineBgProvider) {
-        const QColor bg = m_lineBgProvider(line);
+    if (d->m_lineBgProvider) {
+        const QColor bg = d->m_lineBgProvider(line);
         if (bg.isValid()) return bg;
     }
-    return line == m_cursor.line ? m_currentLineColor : QColor();
+    return line == d->m_cursor.line ? d->m_currentLineColor : QColor();
 }
 
 // --- Undo / redo --------------------------------------------------------
 
 void CodeEditArea::undo() {
-    if (m_readOnly) { showReadOnlyHint(); return; }
-    if (!m_undoStack->canUndo()) {
+    if (d->m_readOnly) { showReadOnlyHint(); return; }
+    if (!d->m_undoStack->canUndo()) {
         return;
     }
-    m_undoStack->undo();
+    d->m_undoStack->undo();
     updateAfterEdit();
 }
 
 void CodeEditArea::redo() {
-    if (m_readOnly) { showReadOnlyHint(); return; }
-    if (!m_undoStack->canRedo()) {
+    if (d->m_readOnly) { showReadOnlyHint(); return; }
+    if (!d->m_undoStack->canRedo()) {
         return;
     }
-    m_undoStack->redo();
+    d->m_undoStack->redo();
     updateAfterEdit();
 }
 
-bool CodeEditArea::canUndo() const { return m_undoStack->canUndo(); }
-bool CodeEditArea::canRedo() const { return m_undoStack->canRedo(); }
+bool CodeEditArea::canUndo() const { return d->m_undoStack->canUndo(); }
+bool CodeEditArea::canRedo() const { return d->m_undoStack->canRedo(); }
 
 // --- Editing ------------------------------------------------------------
 
@@ -351,8 +438,8 @@ void CodeEditArea::insertText(const QString& text) {
 }
 
 bool CodeEditArea::replaceRanges(const QList<TextReplacement>& replacements, const QString& undoText) {
-    if (!m_doc || replacements.isEmpty()) return false;
-    if (m_readOnly) {
+    if (!d->m_doc || replacements.isEmpty()) return false;
+    if (d->m_readOnly) {
         showReadOnlyHint();
         return false;
     }
@@ -363,7 +450,7 @@ bool CodeEditArea::replaceRanges(const QList<TextReplacement>& replacements, con
     // replacement's growth), so allocated once, the text between
     // replacements copied once, shifted by the growth so far.
     QVector<ReplaceLinesCommand::Run> runs;
-    TextCursor cursorAfter = m_cursor;
+    TextCursor cursorAfter = d->m_cursor;
     for (qsizetype first = 0; first < replacements.size();) {
         const int firstLine = replacements[first].start.line;
         int lastLine = replacements[first].end.line;
@@ -377,7 +464,7 @@ bool CodeEditArea::replaceRanges(const QList<TextReplacement>& replacements, con
         QVector<qsizetype> lineOffsets;  // of each line in the joined text
         qsizetype oldLength = 0;
         for (int line = firstLine; line <= lastLine; ++line) {
-            run.removed << m_doc->lineAt(line);
+            run.removed << d->m_doc->lineAt(line);
             lineOffsets << oldLength;
             oldLength += run.removed.back().size() + 1;
         }
@@ -412,24 +499,24 @@ bool CodeEditArea::replaceRanges(const QList<TextReplacement>& replacements, con
     }
     // From the last run up: the line numbers of the runs above hold.
     std::reverse(runs.begin(), runs.end());
-    const TextCursor cursorBefore = m_cursor, anchorBefore = m_anchor;
+    const TextCursor cursorBefore = d->m_cursor, anchorBefore = d->m_anchor;
     beginBatch();
     for (const ReplaceLinesCommand::Run& run : std::as_const(runs))
-        m_doc->replaceLines(run.first, int(run.removed.size()), run.inserted);
+        d->m_doc->replaceLines(run.first, int(run.removed.size()), run.inserted);
     endBatch();
-    m_cursor = m_anchor = m_cursorCtrl->clamp(cursorAfter);
-    auto* command = new ReplaceLinesCommand(m_doc, runs, cursorBefore, anchorBefore, m_cursor, m_anchor,
-                                            &m_cursor, &m_anchor, [this]() { beginBatch(); },
+    d->m_cursor = d->m_anchor = d->m_cursorCtrl->clamp(cursorAfter);
+    auto* command = new ReplaceLinesCommand(d->m_doc, runs, cursorBefore, anchorBefore, d->m_cursor, d->m_anchor,
+                                            &d->m_cursor, &d->m_anchor, [this]() { beginBatch(); },
                                             [this]() { endBatch(); });
     command->setText(undoText);
-    m_undoStack->push(command);
+    d->m_undoStack->push(command);
     updateAfterEdit();
     return true;
 }
 
 void CodeEditArea::cut() {
     if (!hasSelection()) return;
-    if (m_readOnly) { showReadOnlyHint(); return; }
+    if (d->m_readOnly) { showReadOnlyHint(); return; }
     QGuiApplication::clipboard()->setText(selectedText());
     executeRemoveSelection();
 }
@@ -442,7 +529,7 @@ void CodeEditArea::paste() {
     QString text = QGuiApplication::clipboard()->text();
     // The filter (e.g. an encoding check) may change or cancel it; a
     // read-only view only shows its hint.
-    const bool accepted = m_readOnly || !m_insertFilter || m_insertFilter(text);
+    const bool accepted = d->m_readOnly || !d->m_insertFilter || d->m_insertFilter(text);
     if (accepted && !text.isEmpty()) {
         executeInsert(text);
     }
@@ -450,7 +537,7 @@ void CodeEditArea::paste() {
 
 QMenu* CodeEditArea::createStandardContextMenu(QWidget* parent) {
     auto* menu = new QMenu(parent ? parent : this);
-    const bool editable = m_doc && !m_readOnly;
+    const bool editable = d->m_doc && !d->m_readOnly;
     menu->addAction(tr("&Undo"), QKeySequence::Undo, this, &CodeEditArea::undo)
         ->setEnabled(editable && canUndo());
     menu->addAction(tr("&Redo"), QKeySequence::Redo, this, &CodeEditArea::redo)
@@ -466,14 +553,14 @@ QMenu* CodeEditArea::createStandardContextMenu(QWidget* parent) {
         ->setEnabled(editable && hasSelection());
     menu->addSeparator();
     menu->addAction(tr("Select &All"), QKeySequence::SelectAll, this, &CodeEditArea::selectAll)
-        ->setEnabled(m_doc != nullptr);
+        ->setEnabled(d->m_doc != nullptr);
     return menu;
 }
 
 // --- Configuration ------------------------------------------------------
 
 void CodeEditArea::setTabWidth(int spaces) {
-    m_renderer->setTabWidth(spaces);
+    d->m_renderer->setTabWidth(spaces);
     rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
@@ -481,38 +568,38 @@ void CodeEditArea::setTabWidth(int spaces) {
 }
 
 int CodeEditArea::tabWidth() const {
-    return m_renderer->tabWidth();
+    return d->m_renderer->tabWidth();
 }
 
 void CodeEditArea::setPlaceholderText(const QString& text) {
-    if (m_placeholderText == text) return;
-    m_placeholderText = text;
+    if (d->m_placeholderText == text) return;
+    d->m_placeholderText = text;
     viewport()->update();
 }
 
 int CodeEditArea::visualRowCount() const {
-    if (!m_doc) return 1;
+    if (!d->m_doc) return 1;
     // The wrap layout is empty until the viewport has a width.
-    if (hasRows()) return m_wrapLayout->totalRows();
+    if (hasRows()) return d->m_wrapLayout->totalRows();
     int rows = 0;
-    for (int line = 0; line < m_doc->lineCount(); ++line)
-        if (m_foldState.isLineVisible(line)) ++rows;
+    for (int line = 0; line < d->m_doc->lineCount(); ++line)
+        if (d->m_foldState.isLineVisible(line)) ++rows;
     return qMax(1, rows);
 }
 
 void CodeEditArea::setTabCaptured(bool captured) {
-    m_tabCaptured = captured;
+    d->m_tabCaptured = captured;
 }
 
 bool CodeEditArea::focusNextPrevChild(bool next) {
     // Tab and Shift+Tab (without Ctrl or Alt) then reach keyPressEvent().
-    if (m_tabCaptured && !m_readOnly && m_doc) return false;
+    if (d->m_tabCaptured && !d->m_readOnly && d->m_doc) return false;
     return QAbstractScrollArea::focusNextPrevChild(next);
 }
 
 void CodeEditArea::setReadOnly(bool ro) {
-    if (m_readOnly == ro) return;
-    m_readOnly = ro;
+    if (d->m_readOnly == ro) return;
+    d->m_readOnly = ro;
     // Like QPlainTextEdit: a read-only area takes no input-method text.
     setAttribute(Qt::WA_InputMethodEnabled, !ro);
     if (ro) cancelPreedit(true);
@@ -520,33 +607,33 @@ void CodeEditArea::setReadOnly(bool ro) {
 }
 
 void CodeEditArea::setShowWhitespace(bool show) {
-    m_renderer->setShowWhitespace(show);
+    d->m_renderer->setShowWhitespace(show);
     viewport()->update();
 }
 
 bool CodeEditArea::showWhitespace() const {
-    return m_renderer->showWhitespace();
+    return d->m_renderer->showWhitespace();
 }
 
 void CodeEditArea::setHighlighter(IHighlighter* hl) {
-    m_highlighter = hl;
+    d->m_highlighter = hl;
     if (hl) {
-        m_renderer->setAttributePalette(&hl->attributes());
-        m_renderer->setSpansProvider([this](int line) -> const QVector<StyleSpan>* {
-            if (line < 0 || line >= m_validLines || line >= m_lineSpans.size()) return nullptr;
-            return &m_lineSpans[line];
+        d->m_renderer->setAttributePalette(&hl->attributes());
+        d->m_renderer->setSpansProvider([this](int line) -> const QVector<StyleSpan>* {
+            if (line < 0 || line >= d->m_validLines || line >= d->m_lineSpans.size()) return nullptr;
+            return &d->m_lineSpans[line];
         });
     } else {
-        m_renderer->setAttributePalette(nullptr);
-        m_renderer->setSpansProvider({});
+        d->m_renderer->setAttributePalette(nullptr);
+        d->m_renderer->setSpansProvider({});
     }
     rebuildHighlightCache();
     viewport()->update();
 }
 
 void CodeEditArea::setFoldingProvider(IFoldingProvider* p) {
-    m_foldingProvider = p;
-    m_foldState.clear();
+    d->m_foldingProvider = p;
+    d->m_foldState.clear();
     rebuildFolds();
     rebuildWrapLayout();
     updateScrollBarRanges();
@@ -555,9 +642,9 @@ void CodeEditArea::setFoldingProvider(IFoldingProvider* p) {
 }
 
 void CodeEditArea::toggleFoldAt(int line) {
-    const int idx = m_foldState.regionStartingAt(line);
+    const int idx = d->m_foldState.regionStartingAt(line);
     if (idx < 0) return;
-    m_foldState.toggle(idx);
+    d->m_foldState.toggle(idx);
     rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
@@ -566,7 +653,7 @@ void CodeEditArea::toggleFoldAt(int line) {
 }
 
 void CodeEditArea::foldAll() {
-    m_foldState.foldAll();
+    d->m_foldState.foldAll();
     rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
@@ -575,7 +662,7 @@ void CodeEditArea::foldAll() {
 }
 
 void CodeEditArea::unfoldAll() {
-    m_foldState.unfoldAll();
+    d->m_foldState.unfoldAll();
     rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
@@ -584,8 +671,8 @@ void CodeEditArea::unfoldAll() {
 }
 
 void CodeEditArea::setWordWrap(bool wrap) {
-    if (m_wordWrap == wrap) return;
-    m_wordWrap = wrap;
+    if (d->m_wordWrap == wrap) return;
+    d->m_wordWrap = wrap;
     horizontalScrollBar()->setVisible(!wrap);
     rebuildWrapLayout();
     updateScrollBarRanges();
@@ -595,11 +682,11 @@ void CodeEditArea::setWordWrap(bool wrap) {
 }
 
 void CodeEditArea::setCaretBlinkInterval(int ms) {
-    m_caretPainter->setBlinkInterval(ms);
+    d->m_caretPainter->setBlinkInterval(ms);
 }
 
 int CodeEditArea::caretBlinkInterval() const {
-    return m_caretPainter->blinkInterval();
+    return d->m_caretPainter->blinkInterval();
 }
 
 // ------------------------------------------------------------------------
@@ -612,39 +699,39 @@ void CodeEditArea::paintEvent(QPaintEvent* e) {
     paintLineBackgrounds(p);
     paintSelection(p);
     // Grey hint in an empty document, where the first line would be.
-    if (!m_placeholderText.isEmpty() && m_doc && m_doc->lineCount() <= 1
-            && m_doc->lineAt(0).isEmpty() && m_preedit.isEmpty()) {
+    if (!d->m_placeholderText.isEmpty() && d->m_doc && d->m_doc->lineCount() <= 1
+            && d->m_doc->lineAt(0).isEmpty() && d->m_preedit.isEmpty()) {
         p.setPen(palette().color(QPalette::PlaceholderText));
         const int lineHeight = LineRenderer::lineHeightFor(font());
         p.drawText(QRect(LineRenderer::kLeftPaddingPx, 0,
                          viewport()->width() - LineRenderer::kLeftPaddingPx, lineHeight),
-                   Qt::AlignLeft | Qt::AlignVCenter, m_placeholderText);
+                   Qt::AlignLeft | Qt::AlignVCenter, d->m_placeholderText);
     }
     p.setPen(palette().text().color());
-    m_renderer->setSelectionRegion(selectionRegion());
+    d->m_renderer->setSelectionRegion(selectionRegion());
     // Lazy highlighting: make sure every visible line is highlighted; a short
     // document all of it, so that it is never shown partly highlighted.
-    if (m_highlighter && m_doc && !highlightComplete()
-            && m_lineEndStates.size() == m_doc->lineCount()) {
-        const int n = m_doc->lineCount();
+    if (d->m_highlighter && d->m_doc && !highlightComplete()
+            && d->m_lineEndStates.size() == d->m_doc->lineCount()) {
+        const int n = d->m_doc->lineCount();
         highlightUpTo(n <= kSyncHighlightLines
-                      ? n : qMax(m_viewportState.lastVisibleLine, m_cursor.line) + 1);
+                      ? n : qMax(d->m_viewportState.lastVisibleLine, d->m_cursor.line) + 1);
     }
-    m_renderer->paint(p, m_doc, m_viewportState);
+    d->m_renderer->paint(p, d->m_doc, d->m_viewportState);
     paintPreedit(p);
-    if (!m_preedit.isEmpty() && !m_preeditCursorVisible) {
+    if (!d->m_preedit.isEmpty() && !d->m_preeditCursorVisible) {
         return;  // the input method asked to hide the caret
     }
     int caretVisualCol, caretVisualRow;
-    if (m_doc) {
-        caretVisualRow = visualRowOf(m_cursor);
-        caretVisualCol = caretCellOf(m_cursor);
+    if (d->m_doc) {
+        caretVisualRow = visualRowOf(d->m_cursor);
+        caretVisualCol = caretCellOf(d->m_cursor);
     } else {
-        caretVisualRow = m_cursor.line;
-        caretVisualCol = m_cursor.column;
+        caretVisualRow = d->m_cursor.line;
+        caretVisualCol = d->m_cursor.column;
     }
-    m_caretPainter->paint(p, m_cursor, caretVisualCol, caretVisualRow, m_viewportState, font(),
-                          m_preedit.isEmpty() ? 0 : preeditCursorOffsetPx());
+    d->m_caretPainter->paint(p, d->m_cursor, caretVisualCol, caretVisualRow, d->m_viewportState, font(),
+                          d->m_preedit.isEmpty() ? 0 : preeditCursorOffsetPx());
 }
 
 void CodeEditArea::resizeEvent(QResizeEvent* e) {
@@ -666,7 +753,7 @@ void CodeEditArea::changeEvent(QEvent* e) {
         setFont(fitted);
         return;
     }
-    m_renderer->setFont(font());
+    d->m_renderer->setFont(font());
     rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
@@ -687,7 +774,7 @@ void CodeEditArea::scrollContentsBy(int dx, int dy) {
 // ------------------------------------------------------------------------
 
 void CodeEditArea::keyPressEvent(QKeyEvent* e) {
-    if (!m_doc) {
+    if (!d->m_doc) {
         QAbstractScrollArea::keyPressEvent(e);
         return;
     }
@@ -698,8 +785,8 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
     // Windows reports AltGr as Ctrl+Alt: Ctrl shortcuts must not swallow
     // AltGr characters (Polish ą = AltGr+A, ć = AltGr+C, ż = AltGr+Z, …).
     const bool cmd   = ctrl && !alt;
-    const CursorController& cc = *m_cursorCtrl;
-    const TextCursor c = m_cursor;
+    const CursorController& cc = *d->m_cursorCtrl;
+    const TextCursor c = d->m_cursor;
 
     auto move = [&](TextCursor next) {
         if (shift) applySelectionMove(next);
@@ -752,15 +839,15 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
             executeRemoveSelection();
         } else if (ctrl) {
             // Delete to the previous word stop (joins lines at column 0).
-            const TextCursor from = cc.moveWordLeft(m_cursor);
-            if (from != m_cursor) executeRemove(from, m_cursor);
-        } else if (m_cursor.column > 0) {
+            const TextCursor from = cc.moveWordLeft(d->m_cursor);
+            if (from != d->m_cursor) executeRemove(from, d->m_cursor);
+        } else if (d->m_cursor.column > 0) {
             // One code point (a surrogate pair as a whole).
-            const int from = codepoints::prevIndex(m_doc->lineAt(m_cursor.line), m_cursor.column);
-            executeRemove({m_cursor.line, from}, m_cursor);
-        } else if (m_cursor.line > 0) {
-            const int prevLen = m_doc->lineAt(m_cursor.line - 1).size();
-            executeRemove({m_cursor.line - 1, prevLen}, m_cursor);
+            const int from = codepoints::prevIndex(d->m_doc->lineAt(d->m_cursor.line), d->m_cursor.column);
+            executeRemove({d->m_cursor.line, from}, d->m_cursor);
+        } else if (d->m_cursor.line > 0) {
+            const int prevLen = d->m_doc->lineAt(d->m_cursor.line - 1).size();
+            executeRemove({d->m_cursor.line - 1, prevLen}, d->m_cursor);
         }
         break;
 
@@ -769,15 +856,15 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
             executeRemoveSelection();
         } else if (ctrl) {
             // Delete to the next word stop (joins lines at the line end).
-            const TextCursor to = cc.moveWordRight(m_cursor);
-            if (to != m_cursor) executeRemove(m_cursor, to);
+            const TextCursor to = cc.moveWordRight(d->m_cursor);
+            if (to != d->m_cursor) executeRemove(d->m_cursor, to);
         } else {
-            const QString lineText = m_doc->lineAt(m_cursor.line);
-            if (m_cursor.column < lineText.size()) {
+            const QString lineText = d->m_doc->lineAt(d->m_cursor.line);
+            if (d->m_cursor.column < lineText.size()) {
                 // One code point (a surrogate pair as a whole).
-                executeRemove(m_cursor, {m_cursor.line, codepoints::nextIndex(lineText, m_cursor.column)});
-            } else if (m_cursor.line < m_doc->lineCount() - 1) {
-                executeRemove(m_cursor, {m_cursor.line + 1, 0});
+                executeRemove(d->m_cursor, {d->m_cursor.line, codepoints::nextIndex(lineText, d->m_cursor.column)});
+            } else if (d->m_cursor.line < d->m_doc->lineCount() - 1) {
+                executeRemove(d->m_cursor, {d->m_cursor.line + 1, 0});
             }
         }
         break;
@@ -788,7 +875,7 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
             QAbstractScrollArea::keyPressEvent(e);
             return;
         }
-        if (m_tabCaptured) {
+        if (d->m_tabCaptured) {
             executeInsert(QStringLiteral("\t"));
         } else {
             QAbstractScrollArea::keyPressEvent(e);
@@ -802,11 +889,11 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
             QAbstractScrollArea::keyPressEvent(e);
             return;
         }
-        if (m_tabCaptured) {
+        if (d->m_tabCaptured) {
             // Dedent: remove one leading tab, or up to tabWidth leading spaces.
-            const QString line = m_doc->lineAt(m_cursor.line);
+            const QString line = d->m_doc->lineAt(d->m_cursor.line);
             if (!line.isEmpty() && line.at(0) == QLatin1Char('\t')) {
-                executeRemove({m_cursor.line, 0}, {m_cursor.line, 1});
+                executeRemove({d->m_cursor.line, 0}, {d->m_cursor.line, 1});
             } else {
                 int spaces = 0;
                 while (spaces < tabWidth() && spaces < line.size()
@@ -814,7 +901,7 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
                     ++spaces;
                 }
                 if (spaces > 0) {
-                    executeRemove({m_cursor.line, 0}, {m_cursor.line, spaces});
+                    executeRemove({d->m_cursor.line, 0}, {d->m_cursor.line, spaces});
                 }
             }
         } else {
@@ -850,17 +937,17 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
         goto handle_printable;
 
     case Qt::Key_Insert:
-        m_overwrite = !m_overwrite;
-        m_caretPainter->setOverwrite(m_overwrite);
+        d->m_overwrite = !d->m_overwrite;
+        d->m_caretPainter->setOverwrite(d->m_overwrite);
         break;
 
     case Qt::Key_Minus:
-        if (cmd && !shift) { toggleFoldAt(m_cursor.line); break; }
+        if (cmd && !shift) { toggleFoldAt(d->m_cursor.line); break; }
         goto handle_printable;
 
     case Qt::Key_Plus:
     case Qt::Key_Equal:
-        if (cmd && !shift) { toggleFoldAt(m_cursor.line); break; }
+        if (cmd && !shift) { toggleFoldAt(d->m_cursor.line); break; }
         goto handle_printable;
 
     case Qt::Key_Z:
@@ -894,21 +981,21 @@ void CodeEditArea::keyPressEvent(QKeyEvent* e) {
 
 void CodeEditArea::mousePressEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton) {
-        if (!m_preedit.isEmpty()) {
+        if (!d->m_preedit.isEmpty()) {
             // Like QPlainTextEdit: a click finishes the composition where it is.
             QGuiApplication::inputMethod()->commit();
             cancelPreedit(false);
         }
-        m_mouseSelecting = false;
+        d->m_mouseSelecting = false;
         // Placeholder hit-test: if the click falls on a collapsed region's
         // "{…}" box, unfold it instead of moving the cursor.
-        if (m_viewportState.isValid() && !m_viewportState.rows.isEmpty()
-                && m_viewportState.lineHeight > 0 && m_doc) {
-            const int rowIdx = e->pos().y() / m_viewportState.lineHeight;
-            if (rowIdx >= 0 && rowIdx < m_viewportState.rows.size()) {
-                const auto& row = m_viewportState.rows[rowIdx];
+        if (d->m_viewportState.isValid() && !d->m_viewportState.rows.isEmpty()
+                && d->m_viewportState.lineHeight > 0 && d->m_doc) {
+            const int rowIdx = e->pos().y() / d->m_viewportState.lineHeight;
+            if (rowIdx >= 0 && rowIdx < d->m_viewportState.rows.size()) {
+                const auto& row = d->m_viewportState.rows[rowIdx];
                 if (!row.foldPlaceholder.isEmpty()) {
-                    const QString& line = m_doc->lineAt(row.logicalLine);
+                    const QString& line = d->m_doc->lineAt(row.logicalLine);
                     const int drawEnd = (row.foldStartColumn >= 0)
                         ? qMin((int)row.endCol, row.foldStartColumn)
                         : row.endCol;
@@ -916,7 +1003,7 @@ void CodeEditArea::mousePressEvent(QMouseEvent* e) {
                         line, drawEnd, tabWidth())
                         - LineRenderer::visualColumn(line, row.startCol, tabWidth());
                     const int phX = LineRenderer::kLeftPaddingPx
-                                    + visLen * m_viewportState.charWidth;
+                                    + visLen * d->m_viewportState.charWidth;
                     const QFontMetrics fm(font());
                     const int phW = fm.horizontalAdvance(row.foldPlaceholder) + 6;
                     if (e->pos().x() >= phX && e->pos().x() <= phX + phW) {
@@ -927,7 +1014,7 @@ void CodeEditArea::mousePressEvent(QMouseEvent* e) {
                 }
             }
         }
-        m_mouseSelecting = true;
+        d->m_mouseSelecting = true;
         const TextCursor pos = cursorFromPoint(e->pos());
         if (e->modifiers() & Qt::ShiftModifier) {
             applySelectionMove(pos);
@@ -943,18 +1030,18 @@ void CodeEditArea::mousePressEvent(QMouseEvent* e) {
 // A double click selects the word under the mouse (letters, digits, '_'; see
 // words::isWordCharAt), or the run of other characters there.
 void CodeEditArea::mouseDoubleClickEvent(QMouseEvent* e) {
-    if (e->button() != Qt::LeftButton || !m_doc) {
+    if (e->button() != Qt::LeftButton || !d->m_doc) {
         QAbstractScrollArea::mouseDoubleClickEvent(e);
         return;
     }
-    m_mouseSelecting = false;
+    d->m_mouseSelecting = false;
     const TextCursor pos = cursorFromPoint(e->pos());
-    const QString& line = m_doc->lineAt(pos.line);
+    const QString& line = d->m_doc->lineAt(pos.line);
     int start = pos.column, end = pos.column;
     // The character clicked on (the cursor goes to the nearest boundary, so
     // a click on a character's right half gives the column after it); at the
     // end of the line the one before it.
-    const int half = qMax(1, m_viewportState.charWidth / 2);
+    const int half = qMax(1, d->m_viewportState.charWidth / 2);
     const TextCursor left = cursorFromPoint(e->pos() - QPoint(half, 0));
     int at = left.line == pos.line && left.column < pos.column ? pos.column - 1 : pos.column;
     at = qMin(at, int(line.size()) - 1);
@@ -974,7 +1061,7 @@ void CodeEditArea::mouseDoubleClickEvent(QMouseEvent* e) {
 
 void CodeEditArea::mouseMoveEvent(QMouseEvent* e) {
     if (e->buttons() & Qt::LeftButton) {
-        if (m_mouseSelecting) {
+        if (d->m_mouseSelecting) {
             applySelectionMove(cursorFromPoint(e->pos()));
         }
         e->accept();
@@ -985,7 +1072,7 @@ void CodeEditArea::mouseMoveEvent(QMouseEvent* e) {
 
 void CodeEditArea::mouseReleaseEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton) {
-        m_mouseSelecting = false;
+        d->m_mouseSelecting = false;
         e->accept();
         return;
     }
@@ -994,12 +1081,12 @@ void CodeEditArea::mouseReleaseEvent(QMouseEvent* e) {
 
 void CodeEditArea::focusInEvent(QFocusEvent* e) {
     QAbstractScrollArea::focusInEvent(e);
-    m_caretPainter->setFocused(true);
+    d->m_caretPainter->setFocused(true);
 }
 
 void CodeEditArea::focusOutEvent(QFocusEvent* e) {
     QAbstractScrollArea::focusOutEvent(e);
-    m_caretPainter->setFocused(false);
+    d->m_caretPainter->setFocused(false);
     // Qt commits the composition before the focus moves; whatever is left
     // is stale.
     cancelPreedit(false);
@@ -1010,78 +1097,78 @@ void CodeEditArea::focusOutEvent(QFocusEvent* e) {
 // ------------------------------------------------------------------------
 
 void CodeEditArea::inputMethodEvent(QInputMethodEvent* e) {
-    if (!m_doc || m_readOnly) {
+    if (!d->m_doc || d->m_readOnly) {
         cancelPreedit(false);
         e->ignore();
         return;
     }
 
     // Replacement range: relative to the cursor, limited to the current line.
-    const int line = m_cursor.line;
-    const int lineLen = m_doc->lineAt(line).size();
+    const int line = d->m_cursor.line;
+    const int lineLen = d->m_doc->lineAt(line).size();
     int repFrom = 0, repTo = 0;
     if (e->replacementLength() > 0) {
-        repFrom = qBound(0, m_cursor.column + e->replacementStart(), lineLen);
+        repFrom = qBound(0, d->m_cursor.column + e->replacementStart(), lineLen);
         repTo   = qBound(repFrom,
-                         m_cursor.column + e->replacementStart() + e->replacementLength(),
+                         d->m_cursor.column + e->replacementStart() + e->replacementLength(),
                          lineLen);
     }
 
     const QString commit = e->commitString();
     if (!commit.isEmpty() || repFrom < repTo) {
         // Replacement and commit form a single undo step.
-        m_undoStack->beginMacro(QString());
+        d->m_undoStack->beginMacro(QString());
         if (repFrom < repTo) executeRemove({line, repFrom}, {line, repTo});
         if (!commit.isEmpty()) insertTypedText(commit);
-        m_undoStack->endMacro();
+        d->m_undoStack->endMacro();
     }
 
-    m_preedit = e->preeditString();
-    m_preeditAttributes = e->attributes();
-    m_preeditCursor = m_preedit.size();
-    m_preeditCursorVisible = true;
-    for (const QInputMethodEvent::Attribute& a : std::as_const(m_preeditAttributes)) {
+    d->m_preedit = e->preeditString();
+    d->m_preeditAttributes = e->attributes();
+    d->m_preeditCursor = d->m_preedit.size();
+    d->m_preeditCursorVisible = true;
+    for (const QInputMethodEvent::Attribute& a : std::as_const(d->m_preeditAttributes)) {
         if (a.type == QInputMethodEvent::Cursor) {
-            m_preeditCursor = qBound(0, a.start, int(m_preedit.size()));
-            m_preeditCursorVisible = a.length != 0;
+            d->m_preeditCursor = qBound(0, a.start, int(d->m_preedit.size()));
+            d->m_preeditCursorVisible = a.length != 0;
         }
     }
-    if (m_preedit.isEmpty()) {
-        m_preeditAttributes.clear();
+    if (d->m_preedit.isEmpty()) {
+        d->m_preeditAttributes.clear();
     } else {
-        ensureCursorVisible(m_cursor, preeditColumns());
+        ensureCursorVisible(d->m_cursor, preeditColumns());
     }
 
-    m_caretPainter->resetBlink();
+    d->m_caretPainter->resetBlink();
     viewport()->update();
     updateInputMethod(Qt::ImCursorRectangle);
     e->accept();
 }
 
 QVariant CodeEditArea::inputMethodQuery(Qt::InputMethodQuery query) const {
-    const QString line = m_doc ? m_doc->lineAt(m_cursor.line) : QString();
+    const QString line = d->m_doc ? d->m_doc->lineAt(d->m_cursor.line) : QString();
     switch (query) {
     case Qt::ImEnabled:
-        return !m_readOnly;
+        return !d->m_readOnly;
     case Qt::ImCursorRectangle:
         return caretRect(true).translated(viewport()->pos());
     case Qt::ImFont:
         return font();
     case Qt::ImCursorPosition:
-        return m_cursor.column;
+        return d->m_cursor.column;
     case Qt::ImAnchorPosition:
         // Columns refer to the current line; an anchor on another line is
         // reported at the matching end of it.
-        if (m_anchor.line == m_cursor.line) return m_anchor.column;
-        return m_anchor.line < m_cursor.line ? 0 : int(line.size());
+        if (d->m_anchor.line == d->m_cursor.line) return d->m_anchor.column;
+        return d->m_anchor.line < d->m_cursor.line ? 0 : int(line.size());
     case Qt::ImSurroundingText:
         return line;
     case Qt::ImCurrentSelection:
-        return (hasSelection() && m_anchor.line == m_cursor.line) ? selectedText() : QString();
+        return (hasSelection() && d->m_anchor.line == d->m_cursor.line) ? selectedText() : QString();
     case Qt::ImTextBeforeCursor:
-        return line.left(m_cursor.column);
+        return line.left(d->m_cursor.column);
     case Qt::ImTextAfterCursor:
-        return line.mid(m_cursor.column);
+        return line.mid(d->m_cursor.column);
     case Qt::ImHints:
         return int(inputMethodHints() | Qt::ImhMultiLine);
     case Qt::ImInputItemClipRectangle:
@@ -1098,11 +1185,11 @@ void CodeEditArea::updateInputMethod(Qt::InputMethodQueries queries) {
 }
 
 void CodeEditArea::cancelPreedit(bool resetInputMethod) {
-    if (m_preedit.isEmpty()) return;
-    m_preedit.clear();
-    m_preeditAttributes.clear();
-    m_preeditCursor = 0;
-    m_preeditCursorVisible = true;
+    if (d->m_preedit.isEmpty()) return;
+    d->m_preedit.clear();
+    d->m_preeditAttributes.clear();
+    d->m_preeditCursor = 0;
+    d->m_preeditCursorVisible = true;
     if (resetInputMethod && hasFocus()) {
         QGuiApplication::inputMethod()->reset();
     }
@@ -1110,16 +1197,16 @@ void CodeEditArea::cancelPreedit(bool resetInputMethod) {
 }
 
 QRect CodeEditArea::caretRect(bool withPreedit) const {
-    const ViewportState& vp = m_viewportState;
+    const ViewportState& vp = d->m_viewportState;
     const QFontMetrics fm(font());
     const int height = fm.ascent() + fm.descent();
-    if (!m_doc || !vp.isValid()) {
+    if (!d->m_doc || !vp.isValid()) {
         return QRect(LineRenderer::kLeftPaddingPx, 0, 1, height);
     }
-    const int row = visualRowOf(m_cursor);
-    const int visualCol = caretCellOf(m_cursor);
+    const int row = visualRowOf(d->m_cursor);
+    const int visualCol = caretCellOf(d->m_cursor);
     int x =LineRenderer::kLeftPaddingPx + visualCol * vp.charWidth - vp.contentOffsetX;
-    if (withPreedit && !m_preedit.isEmpty()) {
+    if (withPreedit && !d->m_preedit.isEmpty()) {
         x += preeditCursorOffsetPx();
     }
     const int y = vp.contentOffsetY + (row - vp.firstVisibleRow) * vp.lineHeight;
@@ -1127,13 +1214,13 @@ QRect CodeEditArea::caretRect(bool withPreedit) const {
 }
 
 int CodeEditArea::preeditCursorOffsetPx() const {
-    return QFontMetrics(font()).horizontalAdvance(m_preedit.left(m_preeditCursor));
+    return QFontMetrics(font()).horizontalAdvance(d->m_preedit.left(d->m_preeditCursor));
 }
 
 int CodeEditArea::preeditColumns() const {
-    const int cw = m_viewportState.charWidth;
-    if (cw <= 0 || m_preedit.isEmpty()) return 0;
-    return (QFontMetrics(font()).horizontalAdvance(m_preedit) + cw - 1) / cw;
+    const int cw = d->m_viewportState.charWidth;
+    if (cw <= 0 || d->m_preedit.isEmpty()) return 0;
+    return (QFontMetrics(font()).horizontalAdvance(d->m_preedit) + cw - 1) / cw;
 }
 
 // ------------------------------------------------------------------------
@@ -1142,41 +1229,41 @@ int CodeEditArea::preeditColumns() const {
 
 void CodeEditArea::onDocumentReset() {
     clearAllExtraSelections();
-    m_cursor = m_cursorCtrl->clamp(TextCursor{});
-    m_anchor = m_cursor;
-    m_undoStack->clear();
-    m_knownLineCount = m_doc ? m_doc->lineCount() : 0;
-    m_pendingRehighlightFrom = -1;
+    d->m_cursor = d->m_cursorCtrl->clamp(TextCursor{});
+    d->m_anchor = d->m_cursor;
+    d->m_undoStack->clear();
+    d->m_knownLineCount = d->m_doc ? d->m_doc->lineCount() : 0;
+    d->m_pendingRehighlightFrom = -1;
     rebuildHighlightCache();
-    m_foldState.clear();
+    d->m_foldState.clear();
     rebuildFolds();
     rebuildWrapLayout();
     updateScrollBarRanges();
     refreshViewportState();
     viewport()->update();
-    emit cursorPositionChanged(m_cursor);
+    emit cursorPositionChanged(d->m_cursor);
     emit selectionChanged();
     emit textChanged();
 }
 
 void CodeEditArea::onLinesInserted(int startLine, int count) {
     clearAllExtraSelections();
-    m_cursor = m_cursorCtrl->clamp(m_cursor);
-    m_anchor = m_cursorCtrl->clamp(m_anchor);
-    m_knownLineCount += count;
+    d->m_cursor = d->m_cursorCtrl->clamp(d->m_cursor);
+    d->m_anchor = d->m_cursorCtrl->clamp(d->m_anchor);
+    d->m_knownLineCount += count;
     const int rehighlightStart = takePendingRehighlight(startLine);
-    if (m_highlighter) {
+    if (d->m_highlighter) {
         // Lines inserted inside the highlighted prefix belong to it (they
         // are highlighted by rehighlightFrom below).
         // "<=": lines appended right after the prefix (e.g. at the end of a
         // fully highlighted document) can be highlighted now as well.
-        if (startLine <= m_validLines) m_validLines += count;
-        m_lineEndStates.insert(startLine, count, HighlightState{});
-        m_lineSpans.insert(startLine, count, {});
-        m_lineFolds.insert(startLine, count, {});
-        if (m_batchDepth == 0) rehighlightFrom(rehighlightStart);
+        if (startLine <= d->m_validLines) d->m_validLines += count;
+        d->m_lineEndStates.insert(startLine, count, HighlightState{});
+        d->m_lineSpans.insert(startLine, count, {});
+        d->m_lineFolds.insert(startLine, count, {});
+        if (d->m_batchDepth == 0) rehighlightFrom(rehighlightStart);
     }
-    m_foldState.shiftLines(startLine, count);  // keep collapsed regions in place
+    d->m_foldState.shiftLines(startLine, count);  // keep collapsed regions in place
     if (batched(rehighlightStart)) return;
     rebuildFolds();
     rebuildWrapLayout();
@@ -1188,19 +1275,19 @@ void CodeEditArea::onLinesInserted(int startLine, int count) {
 
 void CodeEditArea::onLinesRemoved(int startLine, int count) {
     clearAllExtraSelections();
-    m_cursor = m_cursorCtrl->clamp(m_cursor);
-    m_anchor = m_cursorCtrl->clamp(m_anchor);
-    m_knownLineCount -= count;
+    d->m_cursor = d->m_cursorCtrl->clamp(d->m_cursor);
+    d->m_anchor = d->m_cursorCtrl->clamp(d->m_anchor);
+    d->m_knownLineCount -= count;
     const int rehighlightStart = takePendingRehighlight(startLine);
-    if (m_highlighter) {
-        if (startLine < m_validLines) m_validLines -= qMin(count, m_validLines - startLine);
-        const int removable = qBound(0, int(m_lineEndStates.size()) - startLine, count);
-        m_lineEndStates.remove(startLine, removable);
-        m_lineSpans.remove(startLine, qBound(0, int(m_lineSpans.size()) - startLine, count));
-        m_lineFolds.remove(startLine, qBound(0, int(m_lineFolds.size()) - startLine, count));
-        if (m_batchDepth == 0) rehighlightFrom(rehighlightStart);
+    if (d->m_highlighter) {
+        if (startLine < d->m_validLines) d->m_validLines -= qMin(count, d->m_validLines - startLine);
+        const int removable = qBound(0, int(d->m_lineEndStates.size()) - startLine, count);
+        d->m_lineEndStates.remove(startLine, removable);
+        d->m_lineSpans.remove(startLine, qBound(0, int(d->m_lineSpans.size()) - startLine, count));
+        d->m_lineFolds.remove(startLine, qBound(0, int(d->m_lineFolds.size()) - startLine, count));
+        if (d->m_batchDepth == 0) rehighlightFrom(rehighlightStart);
     }
-    m_foldState.shiftLines(startLine, -count);
+    d->m_foldState.shiftLines(startLine, -count);
     if (batched(rehighlightStart)) return;
     rebuildFolds();
     rebuildWrapLayout();
@@ -1217,13 +1304,13 @@ void CodeEditArea::onLinesChanged(int startLine, int) {
     // signal arrives the per-line caches and fold regions cannot be lined up
     // with the text: remember the line and let onLinesInserted() /
     // onLinesRemoved() re-highlight from it and rebuild the folds.
-    if (m_doc && m_doc->lineCount() != m_knownLineCount) {
-        m_pendingRehighlightFrom = m_pendingRehighlightFrom < 0
-            ? startLine : qMin(m_pendingRehighlightFrom, startLine);
+    if (d->m_doc && d->m_doc->lineCount() != d->m_knownLineCount) {
+        d->m_pendingRehighlightFrom = d->m_pendingRehighlightFrom < 0
+            ? startLine : qMin(d->m_pendingRehighlightFrom, startLine);
         return;
     }
     if (batched(startLine)) return;
-    if (m_highlighter) {
+    if (d->m_highlighter) {
         rehighlightFrom(startLine);
     }
     rebuildFolds();
@@ -1246,23 +1333,23 @@ TextCursor mapThroughRun(TextCursor pos, int first, int removed, int inserted) {
 }
 
 void CodeEditArea::beginBatch() {
-    ++m_batchDepth;
+    ++d->m_batchDepth;
 }
 
 bool CodeEditArea::batched(int startLine) {
-    if (m_batchDepth == 0) return false;
-    m_batchRehighlightFrom = m_batchRehighlightFrom < 0 ? startLine : qMin(m_batchRehighlightFrom, startLine);
+    if (d->m_batchDepth == 0) return false;
+    d->m_batchRehighlightFrom = d->m_batchRehighlightFrom < 0 ? startLine : qMin(d->m_batchRehighlightFrom, startLine);
     return true;
 }
 
 // The end of a batch: what each change would have brought up to date, once.
 void CodeEditArea::endBatch() {
-    if (m_batchDepth == 0 || --m_batchDepth > 0 || m_batchRehighlightFrom < 0) return;
-    const int from = takePendingRehighlight(m_batchRehighlightFrom);
-    m_batchRehighlightFrom = -1;
-    m_cursor = m_cursorCtrl->clamp(m_cursor);
-    m_anchor = m_cursorCtrl->clamp(m_anchor);
-    if (m_highlighter) rehighlightFrom(from);
+    if (d->m_batchDepth == 0 || --d->m_batchDepth > 0 || d->m_batchRehighlightFrom < 0) return;
+    const int from = takePendingRehighlight(d->m_batchRehighlightFrom);
+    d->m_batchRehighlightFrom = -1;
+    d->m_cursor = d->m_cursorCtrl->clamp(d->m_cursor);
+    d->m_anchor = d->m_cursorCtrl->clamp(d->m_anchor);
+    if (d->m_highlighter) rehighlightFrom(from);
     rebuildFolds();
     rebuildWrapLayout();
     updateScrollBarRanges();
@@ -1273,17 +1360,17 @@ void CodeEditArea::endBatch() {
 
 void CodeEditArea::onTextReplacementStarted() {
     beginBatch();
-    m_replacement = std::make_unique<Replacement>();
-    m_replacement->cursorBefore = m_cursor;
-    m_replacement->anchorBefore = m_anchor;
-    m_replacement->cursor = m_cursor;
-    m_replacement->anchor = m_anchor;
-    m_replacement->topLine = m_viewportState.firstVisibleLine;
+    d->m_replacement = std::make_unique<Replacement>();
+    d->m_replacement->cursorBefore = d->m_cursor;
+    d->m_replacement->anchorBefore = d->m_anchor;
+    d->m_replacement->cursor = d->m_cursor;
+    d->m_replacement->anchor = d->m_anchor;
+    d->m_replacement->topLine = d->m_viewportState.firstVisibleLine;
 }
 
 void CodeEditArea::onLinesReplaced(int first, const QStringList& removed, const QStringList& inserted) {
-    if (!m_replacement) return;
-    Replacement& r = *m_replacement;
+    if (!d->m_replacement) return;
+    Replacement& r = *d->m_replacement;
     r.cursor = mapThroughRun(r.cursor, first, removed.size(), inserted.size());
     r.anchor = mapThroughRun(r.anchor, first, removed.size(), inserted.size());
     r.topLine = mapThroughRun({r.topLine, 0}, first, removed.size(), inserted.size()).line;
@@ -1293,29 +1380,29 @@ void CodeEditArea::onLinesReplaced(int first, const QStringList& removed, const 
 // The document has changed already; the command only records it for undo.
 void CodeEditArea::onTextReplacementFinished() {
     endBatch();
-    if (!m_replacement) return;
-    const std::unique_ptr<Replacement> r = std::move(m_replacement);
+    if (!d->m_replacement) return;
+    const std::unique_ptr<Replacement> r = std::move(d->m_replacement);
     cancelPreedit(true);
-    m_cursor = m_cursorCtrl->clamp(r->cursor);
-    m_anchor = m_cursorCtrl->clamp(r->anchor);
-    m_undoStack->push(new ReplaceLinesCommand(m_doc, r->runs, r->cursorBefore, r->anchorBefore,
-                                              m_cursor, m_anchor, &m_cursor, &m_anchor,
+    d->m_cursor = d->m_cursorCtrl->clamp(r->cursor);
+    d->m_anchor = d->m_cursorCtrl->clamp(r->anchor);
+    d->m_undoStack->push(new ReplaceLinesCommand(d->m_doc, r->runs, r->cursorBefore, r->anchorBefore,
+                                              d->m_cursor, d->m_anchor, &d->m_cursor, &d->m_anchor,
                                               [this]() { beginBatch(); }, [this]() { endBatch(); }));
     // The same text stays at the top of the view.
-    const int topLine = qBound(0, r->topLine, qMax(0, m_doc->lineCount() - 1));
-    verticalScrollBar()->setValue(hasRows() ? m_wrapLayout->firstRowOf(topLine) : topLine);
-    m_caretPainter->resetBlink();
-    ensureCursorVisible(m_cursor);
+    const int topLine = qBound(0, r->topLine, qMax(0, d->m_doc->lineCount() - 1));
+    verticalScrollBar()->setValue(hasRows() ? d->m_wrapLayout->firstRowOf(topLine) : topLine);
+    d->m_caretPainter->resetBlink();
+    ensureCursorVisible(d->m_cursor);
     viewport()->update();
     updateInputMethod();
-    emit cursorPositionChanged(m_cursor);
+    emit cursorPositionChanged(d->m_cursor);
     emit selectionChanged();
 }
 
 int CodeEditArea::takePendingRehighlight(int startLine) {
-    const int from = m_pendingRehighlightFrom < 0
-        ? startLine : qMin(m_pendingRehighlightFrom, startLine);
-    m_pendingRehighlightFrom = -1;
+    const int from = d->m_pendingRehighlightFrom < 0
+        ? startLine : qMin(d->m_pendingRehighlightFrom, startLine);
+    d->m_pendingRehighlightFrom = -1;
     return from;
 }
 
@@ -1336,14 +1423,14 @@ void CodeEditArea::refreshViewportState() {
     s.viewportWidth  = vpW;
     s.viewportHeight = vpH;
     s.contentOffsetY = 0;
-    s.wordWrap       = m_wordWrap;
+    s.wordWrap       = d->m_wordWrap;
 
     // Rows with and without word wrap (without it a row per visible line);
     // lines only before the layout is built
     if (hasRows()) {
-        s.contentOffsetX = (!m_wordWrap && charWidth > 0)
+        s.contentOffsetX = (!d->m_wordWrap && charWidth > 0)
             ? horizontalScrollBar()->value() * charWidth : 0;
-        const int totalRows = m_wrapLayout->totalRows();
+        const int totalRows = d->m_wrapLayout->totalRows();
         if (lineHeight > 0 && totalRows > 0) {
             const int firstRow = verticalScrollBar()->value();
             s.firstVisibleRow = qMin(firstRow, totalRows - 1);
@@ -1352,16 +1439,16 @@ void CodeEditArea::refreshViewportState() {
 
             int prevLogical = -1;
             for (int r = s.firstVisibleRow; r <= s.lastVisibleRow; ++r) {
-                const WrapLayout::Row& wr = m_wrapLayout->rowAt(r);
+                const WrapLayout::Row& wr = d->m_wrapLayout->rowAt(r);
                 ViewportState::RowInfo ri;
                 ri.logicalLine = wr.logicalLine;
                 ri.startCol    = wr.startCol;
                 ri.endCol      = wr.endCol;
                 ri.isFirstRow  = (wr.logicalLine != prevLogical);
                 if (ri.isFirstRow) {
-                    const int regIdx = m_foldState.regionStartingAt(wr.logicalLine);
-                    if (regIdx >= 0 && m_foldState.isCollapsed(regIdx)) {
-                        const FoldRegion& fr = m_foldState.regions()[regIdx];
+                    const int regIdx = d->m_foldState.regionStartingAt(wr.logicalLine);
+                    if (regIdx >= 0 && d->m_foldState.isCollapsed(regIdx)) {
+                        const FoldRegion& fr = d->m_foldState.regions()[regIdx];
                         ri.foldPlaceholder  = fr.placeholder;
                         ri.foldStartColumn  = fr.startColumn;
                     }
@@ -1380,7 +1467,7 @@ void CodeEditArea::refreshViewportState() {
     } else {
         s.contentOffsetX = (charWidth > 0)
             ? horizontalScrollBar()->value() * charWidth : 0;
-        const int lineCount = m_doc ? m_doc->lineCount() : 0;
+        const int lineCount = d->m_doc ? d->m_doc->lineCount() : 0;
         if (lineHeight > 0 && lineCount > 0) {
             const int scrollY = verticalScrollBar()->value();
             s.firstVisibleLine = qMin(scrollY, lineCount - 1);
@@ -1394,8 +1481,8 @@ void CodeEditArea::refreshViewportState() {
         s.lastVisibleRow  = s.lastVisibleLine;
     }
 
-    m_viewportState = s;
-    emit viewportChanged(m_viewportState);
+    d->m_viewportState = s;
+    emit viewportChanged(d->m_viewportState);
 }
 
 void CodeEditArea::updateScrollBarRanges() {
@@ -1407,18 +1494,18 @@ void CodeEditArea::updateScrollBarRanges() {
     const int visibleLines = (lineHeight > 0) ? (vpH / lineHeight) : 0;
 
     // Vertically rows (folded lines left out), lines before the layout is built
-    const int rowCount = hasRows() ? m_wrapLayout->totalRows() : (m_doc ? m_doc->lineCount() : 0);
+    const int rowCount = hasRows() ? d->m_wrapLayout->totalRows() : (d->m_doc ? d->m_doc->lineCount() : 0);
     verticalScrollBar()->setRange(0, qMax(0, rowCount - visibleLines));
     verticalScrollBar()->setPageStep(qMax(1, visibleLines));
     verticalScrollBar()->setSingleStep(1);
-    if (m_wordWrap) {
+    if (d->m_wordWrap) {
         horizontalScrollBar()->setRange(0, 0);
     } else {
 
         const int visibleCols = (charWidth > 0) ? (vpW / charWidth) : 0;
         // Characters of the longest line; a line of tabs or wide characters
         // takes more cells, so at least up to the caret.
-        const int maxCols = m_doc ? qMax(m_doc->maxLineLength(), caretCellOf(m_cursor) + 1) : 0;
+        const int maxCols = d->m_doc ? qMax(d->m_doc->maxLineLength(), caretCellOf(d->m_cursor) + 1) : 0;
         const int hMax = qMax(0, maxCols - visibleCols);
         horizontalScrollBar()->setRange(0, hMax);
         horizontalScrollBar()->setPageStep(qMax(1, visibleCols));
@@ -1427,8 +1514,8 @@ void CodeEditArea::updateScrollBarRanges() {
 }
 
 void CodeEditArea::rebindDocumentSignals(ITextDocument* newDoc) {
-    if (m_doc) {
-        disconnect(m_doc, nullptr, this, nullptr);
+    if (d->m_doc) {
+        disconnect(d->m_doc, nullptr, this, nullptr);
     }
     if (newDoc) {
         connect(newDoc, &ITextDocument::documentReset,
@@ -1449,41 +1536,41 @@ void CodeEditArea::rebindDocumentSignals(ITextDocument* newDoc) {
 }
 
 void CodeEditArea::applyCursorMove(TextCursor newPos) {
-    const TextCursor clamped = m_cursorCtrl->clamp(newPos);
-    const bool posChanged = (clamped != m_cursor);
+    const TextCursor clamped = d->m_cursorCtrl->clamp(newPos);
+    const bool posChanged = (clamped != d->m_cursor);
     const bool selWas = hasSelection();
 
-    m_cursor = clamped;
-    m_anchor = clamped;
+    d->m_cursor = clamped;
+    d->m_anchor = clamped;
 
     if (!posChanged && !selWas) {
         return;
     }
-    m_caretPainter->resetBlink();
-    ensureCursorVisible(m_cursor);
+    d->m_caretPainter->resetBlink();
+    ensureCursorVisible(d->m_cursor);
     viewport()->update();
     updateInputMethod();
-    if (posChanged) emit cursorPositionChanged(m_cursor);
+    if (posChanged) emit cursorPositionChanged(d->m_cursor);
     if (selWas)     emit selectionChanged();
 }
 
 void CodeEditArea::applySelectionMove(TextCursor newPos) {
-    const TextCursor clamped = m_cursorCtrl->clamp(newPos);
-    if (clamped == m_cursor) {
+    const TextCursor clamped = d->m_cursorCtrl->clamp(newPos);
+    if (clamped == d->m_cursor) {
         return;
     }
-    m_cursor = clamped;
-    m_caretPainter->resetBlink();
-    ensureCursorVisible(m_cursor);
+    d->m_cursor = clamped;
+    d->m_caretPainter->resetBlink();
+    ensureCursorVisible(d->m_cursor);
     viewport()->update();
     updateInputMethod();
-    emit cursorPositionChanged(m_cursor);
+    emit cursorPositionChanged(d->m_cursor);
     emit selectionChanged();
 }
 
 TextCursor CodeEditArea::cursorFromPoint(const QPoint& pt) const {
-    const ViewportState& vp = m_viewportState;
-    if (!m_doc || !vp.isValid()) return {};
+    const ViewportState& vp = d->m_viewportState;
+    if (!d->m_doc || !vp.isValid()) return {};
 
     const int tw = tabWidth();
 
@@ -1491,22 +1578,22 @@ TextCursor CodeEditArea::cursorFromPoint(const QPoint& pt) const {
         const int ri = qBound(0, pt.y() / vp.lineHeight, vp.rows.size() - 1);
         const ViewportState::RowInfo& row = vp.rows[ri];
         const int targetX = pt.x() - LineRenderer::kLeftPaddingPx + vp.contentOffsetX;
-        const int col = LineRenderer::indexAtX(m_doc->lineAt(row.logicalLine), row.startCol, row.endCol,
+        const int col = LineRenderer::indexAtX(d->m_doc->lineAt(row.logicalLine), row.startCol, row.endCol,
                                                targetX, vp.charWidth, tw);
-        return m_cursorCtrl->clamp({row.logicalLine, col});
+        return d->m_cursorCtrl->clamp({row.logicalLine, col});
     }
 
     const int lineNum = qBound(0,
         vp.firstVisibleLine + pt.y() / vp.lineHeight,
-        m_doc->lineCount() - 1);
+        d->m_doc->lineCount() - 1);
     const int targetX = pt.x() - LineRenderer::kLeftPaddingPx + vp.contentOffsetX;
-    const QString& lineStr = m_doc->lineAt(lineNum);
+    const QString& lineStr = d->m_doc->lineAt(lineNum);
     const int col = LineRenderer::indexAtX(lineStr, 0, int(lineStr.size()), targetX, vp.charWidth, tw);
-    return m_cursorCtrl->clamp({lineNum, col});
+    return d->m_cursorCtrl->clamp({lineNum, col});
 }
 
 void CodeEditArea::ensureVisible(TextCursor pos, int marginRows) {
-    ensureCursorVisible(m_cursorCtrl->clamp(pos), 0, marginRows);
+    ensureCursorVisible(d->m_cursorCtrl->clamp(pos), 0, marginRows);
 }
 
 void CodeEditArea::ensureCursorVisible(TextCursor pos, int extraColumns, int marginRows) {
@@ -1527,17 +1614,17 @@ void CodeEditArea::ensureCursorVisible(TextCursor pos, int extraColumns, int mar
         }
     };
     if (hasRows())
-        scrollTo(visualRowOf(pos), m_viewportState.firstVisibleRow);
+        scrollTo(visualRowOf(pos), d->m_viewportState.firstVisibleRow);
     else
-        scrollTo(pos.line, m_viewportState.firstVisibleLine);
-    if (m_wordWrap)
+        scrollTo(pos.line, d->m_viewportState.firstVisibleLine);
+    if (d->m_wordWrap)
         return; // no horizontal scroll in wrap mode
 
-    const int charWidth = m_viewportState.charWidth;
+    const int charWidth = d->m_viewportState.charWidth;
     if (charWidth <= 0) return;
     QScrollBar* hBar = horizontalScrollBar();
     const int firstCol    = hBar->value();
-    const int visibleCols = m_viewportState.viewportWidth / charWidth;
+    const int visibleCols = d->m_viewportState.viewportWidth / charWidth;
     const int lastCol     = firstCol + visibleCols - 1;
     // The caret's cell on the screen: with tabs, wide characters or
     // right-to-left text not its column.
@@ -1553,40 +1640,40 @@ void CodeEditArea::ensureCursorVisible(TextCursor pos, int extraColumns, int mar
 }
 
 int CodeEditArea::pageLineCount() const {
-    const int lh = m_viewportState.lineHeight;
-    return (lh <= 0) ? 1 : qMax(1, m_viewportState.viewportHeight / lh);
+    const int lh = d->m_viewportState.lineHeight;
+    return (lh <= 0) ? 1 : qMax(1, d->m_viewportState.viewportHeight / lh);
 }
 
 // --- Word-wrap helpers ---------------------------------------------------
 
 void CodeEditArea::rebuildWrapLayout() {
-    if (!m_doc) return;
+    if (!d->m_doc) return;
     const QFontMetrics fm(font());
     const int cw = fm.horizontalAdvance(QLatin1Char('M'));
     if (cw <= 0) return;
     // Without word wrap a row per line: folded lines are skipped as with it
-    const int availCols = m_wordWrap
+    const int availCols = d->m_wordWrap
         ? qMax(1, (viewport()->width() - LineRenderer::kLeftPaddingPx) / cw)
         : WrapLayout::kNoWrap;
-    const FoldState* fs = (m_foldState.regions().isEmpty()) ? nullptr : &m_foldState;
-    m_wrapLayout->rebuild(m_doc, availCols, tabWidth(), fs);
+    const FoldState* fs = (d->m_foldState.regions().isEmpty()) ? nullptr : &d->m_foldState;
+    d->m_wrapLayout->rebuild(d->m_doc, availCols, tabWidth(), fs);
 }
 
 bool CodeEditArea::hasRows() const {
-    return m_doc && m_wrapLayout->totalRows() > 0;
+    return d->m_doc && d->m_wrapLayout->totalRows() > 0;
 }
 
 int CodeEditArea::visualRowOf(TextCursor pos) const {
     if (!hasRows()) return pos.line;
-    return m_wrapLayout->rowForCursor(pos.line, pos.column);
+    return d->m_wrapLayout->rowForCursor(pos.line, pos.column);
 }
 
 int CodeEditArea::caretCellOf(TextCursor pos) const {
-    if (!m_doc) return pos.column;
-    const QString& line = m_doc->lineAt(pos.line);
+    if (!d->m_doc) return pos.column;
+    const QString& line = d->m_doc->lineAt(pos.line);
     int rowStart = 0, rowEnd = int(line.size());
     if (hasRows()) {
-        const WrapLayout::Row& row = m_wrapLayout->rowAt(visualRowOf(pos));
+        const WrapLayout::Row& row = d->m_wrapLayout->rowAt(visualRowOf(pos));
         if (row.logicalLine == pos.line) {  // not a line hidden in a fold
             rowStart = row.startCol;
             rowEnd = row.endCol;
@@ -1597,33 +1684,33 @@ int CodeEditArea::caretCellOf(TextCursor pos) const {
 
 TextCursor CodeEditArea::moveVisualRows(TextCursor c, int delta) const {
     if (!hasRows()) {
-        return delta < 0 ? m_cursorCtrl->moveUp(c, -delta) : m_cursorCtrl->moveDown(c, delta);
+        return delta < 0 ? d->m_cursorCtrl->moveUp(c, -delta) : d->m_cursorCtrl->moveDown(c, delta);
     }
     const int row = visualRowOf(c);
-    const int target = qBound(0, row + delta, m_wrapLayout->totalRows() - 1);
+    const int target = qBound(0, row + delta, d->m_wrapLayout->totalRows() - 1);
     if (target == row) return c;  // first or last row: as moveUp() on line 0
     const int tw = tabWidth();
     // The same character cell in the target row, or its end.
     const int x = caretCellOf(c);
-    const WrapLayout::Row& to = m_wrapLayout->rowAt(target);
-    const QString& line = m_doc->lineAt(to.logicalLine);
+    const WrapLayout::Row& to = d->m_wrapLayout->rowAt(target);
+    const QString& line = d->m_doc->lineAt(to.logicalLine);
     int col = LineRenderer::indexAtX(line, to.startCol, to.endCol, x, 1, tw);
     // The end of a row the line continues after is the start of the next
     // row; stay on the last character of this one.
     if (col >= to.endCol && to.endCol < line.size() && to.endCol > to.startCol) {
         col = codepoints::prevIndex(line, to.endCol);
     }
-    return m_cursorCtrl->clamp({to.logicalLine, col});
+    return d->m_cursorCtrl->clamp({to.logicalLine, col});
 }
 
 // Home of a wrapped line: the start of the screen row; at the start of a row
 // that is not the line's first, the start of the line
 TextCursor CodeEditArea::moveToRowStart(TextCursor c) const {
-    if (!m_wordWrap || !m_doc || m_wrapLayout->totalRows() == 0)
-        return m_cursorCtrl->moveToLineStart(c);
-    const WrapLayout::Row& row = m_wrapLayout->rowAt(visualRowOf(c));
+    if (!d->m_wordWrap || !d->m_doc || d->m_wrapLayout->totalRows() == 0)
+        return d->m_cursorCtrl->moveToLineStart(c);
+    const WrapLayout::Row& row = d->m_wrapLayout->rowAt(visualRowOf(c));
     if (row.logicalLine != c.line || c.column == row.startCol)
-        return m_cursorCtrl->moveToLineStart(c);
+        return d->m_cursorCtrl->moveToLineStart(c);
     return {c.line, row.startCol};
 }
 
@@ -1631,58 +1718,58 @@ TextCursor CodeEditArea::moveToRowStart(TextCursor c) const {
 // position after it is the start of the next row); there already, or on the
 // line's last row, the end of the line
 TextCursor CodeEditArea::moveToRowEnd(TextCursor c) const {
-    if (!m_wordWrap || !m_doc || m_wrapLayout->totalRows() == 0)
-        return m_cursorCtrl->moveToLineEnd(c);
-    const WrapLayout::Row& row = m_wrapLayout->rowAt(visualRowOf(c));
-    const QString line = m_doc->lineAt(c.line);
+    if (!d->m_wordWrap || !d->m_doc || d->m_wrapLayout->totalRows() == 0)
+        return d->m_cursorCtrl->moveToLineEnd(c);
+    const WrapLayout::Row& row = d->m_wrapLayout->rowAt(visualRowOf(c));
+    const QString line = d->m_doc->lineAt(c.line);
     if (row.logicalLine != c.line || row.endCol >= line.size() || row.endCol <= row.startCol)
-        return m_cursorCtrl->moveToLineEnd(c);
+        return d->m_cursorCtrl->moveToLineEnd(c);
     const TextCursor rowEnd{c.line, codepoints::prevIndex(line, row.endCol)};
-    return c == rowEnd ? m_cursorCtrl->moveToLineEnd(c) : rowEnd;
+    return c == rowEnd ? d->m_cursorCtrl->moveToLineEnd(c) : rowEnd;
 }
 
 // --- Highlighting helpers ------------------------------------------------
 
 void CodeEditArea::rebuildHighlightCache() {
-    m_highlightTimer->stop();
-    m_validLines = 0;
-    m_lineEndStates.clear();
-    m_lineSpans.clear();
-    m_lineFolds.clear();
-    if (!m_highlighter || !m_doc) return;
-    const int n = m_doc->lineCount();
-    m_lineEndStates.resize(n);
-    m_lineSpans.resize(n);
-    m_lineFolds.resize(n);
+    d->m_highlightTimer->stop();
+    d->m_validLines = 0;
+    d->m_lineEndStates.clear();
+    d->m_lineSpans.clear();
+    d->m_lineFolds.clear();
+    if (!d->m_highlighter || !d->m_doc) return;
+    const int n = d->m_doc->lineCount();
+    d->m_lineEndStates.resize(n);
+    d->m_lineSpans.resize(n);
+    d->m_lineFolds.resize(n);
     // Highlight nothing yet: a new document, highlighter and palette often
     // arrive together, and each used to re-highlight the whole document.
     // paintEvent() highlights before anything is shown, the timer the rest,
     // a slice at a time, without blocking the event loop.
-    m_highlightTimer->start();
+    d->m_highlightTimer->start();
 }
 
 int CodeEditArea::highlightedLineCount() const {
     finishShortHighlight();
-    return m_highlighter ? m_validLines : (m_doc ? m_doc->lineCount() : 0);
+    return d->m_highlighter ? d->m_validLines : (d->m_doc ? d->m_doc->lineCount() : 0);
 }
 
 bool CodeEditArea::highlightComplete() const {
-    return !m_highlighter || !m_doc || m_validLines >= m_doc->lineCount();
+    return !d->m_highlighter || !d->m_doc || d->m_validLines >= d->m_doc->lineCount();
 }
 
 QList<QPair<int, int>> CodeEditArea::spellCheckRanges(int line) {
     QList<QPair<int, int>> ranges;
-    if (!m_doc || line < 0 || line >= m_doc->lineCount()) return ranges;
-    const int length = int(m_doc->lineAt(line).size());
-    if (!m_highlighter) {
+    if (!d->m_doc || line < 0 || line >= d->m_doc->lineCount()) return ranges;
+    const int length = int(d->m_doc->lineAt(line).size());
+    if (!d->m_highlighter) {
         if (length > 0) ranges.append({0, length});
         return ranges;
     }
-    if (line >= m_validLines) highlightUpTo(line + 1);
-    if (line >= m_validLines || line >= m_lineSpans.size()) return ranges;
+    if (line >= d->m_validLines) highlightUpTo(line + 1);
+    if (line >= d->m_validLines || line >= d->m_lineSpans.size()) return ranges;
     // Text outside any span, or in a span without an attribute, is code.
-    const QVector<TextAttribute>& attributes = m_highlighter->attributes();
-    for (const StyleSpan& span : m_lineSpans[line]) {
+    const QVector<TextAttribute>& attributes = d->m_highlighter->attributes();
+    for (const StyleSpan& span : d->m_lineSpans[line]) {
         if (span.length <= 0 || span.attributeId < 0 || span.attributeId >= attributes.size()
                 || !attributes[span.attributeId].spellCheck)
             continue;
@@ -1696,54 +1783,54 @@ QList<QPair<int, int>> CodeEditArea::spellCheckRanges(int line) {
 }
 
 void CodeEditArea::highlightUpTo(int lineCount) {
-    if (!m_highlighter || !m_doc) return;
-    const int end = qMin(lineCount, int(m_lineEndStates.size()));
-    HighlightState stateIn = (m_validLines == 0)
-        ? m_highlighter->initialState()
-        : m_lineEndStates[m_validLines - 1];
-    for (int i = m_validLines; i < end; ++i) {
+    if (!d->m_highlighter || !d->m_doc) return;
+    const int end = qMin(lineCount, int(d->m_lineEndStates.size()));
+    HighlightState stateIn = (d->m_validLines == 0)
+        ? d->m_highlighter->initialState()
+        : d->m_lineEndStates[d->m_validLines - 1];
+    for (int i = d->m_validLines; i < end; ++i) {
         HighlightState stateOut;
-        m_highlighter->highlightLineWithFolds(m_doc->lineAt(i), stateIn,
-                                              m_lineSpans[i], stateOut, m_lineFolds[i]);
-        m_lineEndStates[i] = stateOut;
+        d->m_highlighter->highlightLineWithFolds(d->m_doc->lineAt(i), stateIn,
+                                              d->m_lineSpans[i], stateOut, d->m_lineFolds[i]);
+        d->m_lineEndStates[i] = stateOut;
         stateIn = stateOut;
     }
-    m_validLines = qMax(m_validLines, end);
+    d->m_validLines = qMax(d->m_validLines, end);
 }
 
 void CodeEditArea::highlightChunk() {
-    if (!m_highlighter || !m_doc) {
-        m_highlightTimer->stop();
+    if (!d->m_highlighter || !d->m_doc) {
+        d->m_highlightTimer->stop();
         return;
     }
     // While the document reports a change in two signals the caches do not
     // match it yet; continue on the next tick.
-    if (m_lineEndStates.size() != m_doc->lineCount()) return;
+    if (d->m_lineEndStates.size() != d->m_doc->lineCount()) return;
 
     QElapsedTimer budget;
     budget.start();
     while (!highlightComplete() && budget.elapsed() < 8) {
-        highlightUpTo(m_validLines + 512);
+        highlightUpTo(d->m_validLines + 512);
     }
     if (!highlightComplete()) return;
     finishHighlighting();
 }
 
 void CodeEditArea::finishShortHighlight() const {
-    if (!m_highlighter || !m_doc || m_doc->lineCount() > kSyncHighlightLines
-            || m_lineEndStates.size() != m_doc->lineCount()) return;
+    if (!d->m_highlighter || !d->m_doc || d->m_doc->lineCount() > kSyncHighlightLines
+            || d->m_lineEndStates.size() != d->m_doc->lineCount()) return;
     // Painting may have highlighted it all while folds still wait for the timer.
-    if (highlightComplete() && !m_foldsPending) return;
+    if (highlightComplete() && !d->m_foldsPending) return;
     // Queries see a short document highlighted at once, as they always did;
     // only the work between them is deferred.
     auto* self = const_cast<CodeEditArea*>(this);
-    self->highlightUpTo(m_doc->lineCount());
+    self->highlightUpTo(d->m_doc->lineCount());
     self->finishHighlighting();
 }
 
 void CodeEditArea::finishHighlighting() {
-    m_highlightTimer->stop();
-    if (m_foldsPending) {
+    d->m_highlightTimer->stop();
+    if (d->m_foldsPending) {
         rebuildFolds();
         rebuildWrapLayout();
         updateScrollBarRanges();
@@ -1754,31 +1841,31 @@ void CodeEditArea::finishHighlighting() {
 }
 
 void CodeEditArea::rehighlightFrom(int startLine) {
-    if (!m_highlighter || !m_doc) return;
-    const int n = m_doc->lineCount();
+    if (!d->m_highlighter || !d->m_doc) return;
+    const int n = d->m_doc->lineCount();
     if (startLine >= n) return;
     // Keep cache vectors in sync with line count.
-    if (m_lineEndStates.size() != n) {
-        m_lineEndStates.resize(n);
-        m_lineSpans.resize(n);
+    if (d->m_lineEndStates.size() != n) {
+        d->m_lineEndStates.resize(n);
+        d->m_lineSpans.resize(n);
     }
-    if (m_lineFolds.size() != n) {
-        m_lineFolds.resize(n);
+    if (d->m_lineFolds.size() != n) {
+        d->m_lineFolds.resize(n);
     }
     // Lines past the highlighted prefix are done by highlightUpTo() later.
-    m_validLines = qMin(m_validLines, n);
-    if (startLine >= m_validLines) return;
+    d->m_validLines = qMin(d->m_validLines, n);
+    if (startLine >= d->m_validLines) return;
 
     HighlightState stateIn = (startLine == 0)
-        ? m_highlighter->initialState()
-        : m_lineEndStates[startLine - 1];
+        ? d->m_highlighter->initialState()
+        : d->m_lineEndStates[startLine - 1];
 
-    for (int i = startLine; i < m_validLines; ++i) {
-        const HighlightState oldEndState = m_lineEndStates[i];
+    for (int i = startLine; i < d->m_validLines; ++i) {
+        const HighlightState oldEndState = d->m_lineEndStates[i];
         HighlightState stateOut;
-        m_highlighter->highlightLineWithFolds(m_doc->lineAt(i), stateIn,
-                                              m_lineSpans[i], stateOut, m_lineFolds[i]);
-        m_lineEndStates[i] = stateOut;
+        d->m_highlighter->highlightLineWithFolds(d->m_doc->lineAt(i), stateIn,
+                                              d->m_lineSpans[i], stateOut, d->m_lineFolds[i]);
+        d->m_lineEndStates[i] = stateOut;
         // After the first mandatory re-highlight (startLine), stop as soon as
         // the end-of-line state matches what was cached — downstream lines
         // are still correct.
@@ -1792,28 +1879,28 @@ void CodeEditArea::rehighlightFrom(int startLine) {
 // --- Folding helpers -----------------------------------------------------
 
 void CodeEditArea::rebuildFolds() {
-    if (!m_foldingProvider || !m_doc) {
-        m_foldsPending = false;
-        m_foldState.setRegions({});
+    if (!d->m_foldingProvider || !d->m_doc) {
+        d->m_foldsPending = false;
+        d->m_foldState.setRegions({});
         return;
     }
     // Until the whole document is highlighted the markers are incomplete;
     // regions built from them would drop (and un-collapse) regions that end
     // further down. Keep the current regions and rebuild when it completes.
     if (!highlightComplete()) {
-        m_foldsPending = true;
-        if (!m_highlightTimer->isActive()) m_highlightTimer->start();
+        d->m_foldsPending = true;
+        if (!d->m_highlightTimer->isActive()) d->m_highlightTimer->start();
         return;
     }
-    m_foldsPending = false;
+    d->m_foldsPending = false;
     // Fast path: regions from the markers collected while highlighting.
     QVector<FoldRegion> regions;
-    if (m_highlighter && m_lineFolds.size() == m_doc->lineCount()
-            && m_foldingProvider->regionsFromLineMarkers(m_highlighter, m_lineFolds, regions)) {
-        m_foldState.setRegions(std::move(regions));
+    if (d->m_highlighter && d->m_lineFolds.size() == d->m_doc->lineCount()
+            && d->m_foldingProvider->regionsFromLineMarkers(d->m_highlighter, d->m_lineFolds, regions)) {
+        d->m_foldState.setRegions(std::move(regions));
         return;
     }
-    m_foldState.setRegions(m_foldingProvider->computeRegions(m_doc));
+    d->m_foldState.setRegions(d->m_foldingProvider->computeRegions(d->m_doc));
 }
 
 // ------------------------------------------------------------------------
@@ -1821,89 +1908,89 @@ void CodeEditArea::rebuildFolds() {
 // ------------------------------------------------------------------------
 
 void CodeEditArea::showReadOnlyHint() {
-    int vRow = visualRowOf(m_cursor);
-    int vCol = m_cursor.column;
-    if (m_doc && m_viewportState.isValid()) vCol = caretCellOf(m_cursor);
-    const int px = m_viewportState.isValid()
-        ? LineRenderer::kLeftPaddingPx + vCol * m_viewportState.charWidth
-              - m_viewportState.contentOffsetX
+    int vRow = visualRowOf(d->m_cursor);
+    int vCol = d->m_cursor.column;
+    if (d->m_doc && d->m_viewportState.isValid()) vCol = caretCellOf(d->m_cursor);
+    const int px = d->m_viewportState.isValid()
+        ? LineRenderer::kLeftPaddingPx + vCol * d->m_viewportState.charWidth
+              - d->m_viewportState.contentOffsetX
         : width() / 2;
-    const int py = m_viewportState.isValid()
-        ? m_viewportState.contentOffsetY
-              + (vRow - m_viewportState.firstVisibleRow) * m_viewportState.lineHeight
+    const int py = d->m_viewportState.isValid()
+        ? d->m_viewportState.contentOffsetY
+              + (vRow - d->m_viewportState.firstVisibleRow) * d->m_viewportState.lineHeight
         : height() / 3;
     QToolTip::showText(viewport()->mapToGlobal(QPoint(px, py)),
                        tr("This view is read-only"), viewport());
 }
 
 void CodeEditArea::executeInsert(const QString& text) {
-    if (!m_doc || m_readOnly) {
-        if (m_readOnly) showReadOnlyHint();
+    if (!d->m_doc || d->m_readOnly) {
+        if (d->m_readOnly) showReadOnlyHint();
         return;
     }
     if (hasSelection()) {
-        m_undoStack->beginMacro(QString());
+        d->m_undoStack->beginMacro(QString());
         executeRemoveSelection();
-        m_undoStack->push(new InsertCommand(
-            m_doc, m_cursor, text, m_cursor, &m_cursor, &m_anchor));
-        m_undoStack->endMacro();
+        d->m_undoStack->push(new InsertCommand(
+            d->m_doc, d->m_cursor, text, d->m_cursor, &d->m_cursor, &d->m_anchor));
+        d->m_undoStack->endMacro();
     } else {
-        m_undoStack->push(new InsertCommand(
-            m_doc, m_cursor, text, m_cursor, &m_cursor, &m_anchor));
+        d->m_undoStack->push(new InsertCommand(
+            d->m_doc, d->m_cursor, text, d->m_cursor, &d->m_cursor, &d->m_anchor));
     }
     updateAfterEdit();
 }
 
 void CodeEditArea::executeRemove(TextCursor start, TextCursor end) {
-    if (!m_doc || m_readOnly || start == end) {
-        if (m_readOnly) showReadOnlyHint();
+    if (!d->m_doc || d->m_readOnly || start == end) {
+        if (d->m_readOnly) showReadOnlyHint();
         return;
     }
-    m_undoStack->push(new RemoveCommand(
-        m_doc, start, end, m_cursor, &m_cursor, &m_anchor));
+    d->m_undoStack->push(new RemoveCommand(
+        d->m_doc, start, end, d->m_cursor, &d->m_cursor, &d->m_anchor));
     updateAfterEdit();
 }
 
 void CodeEditArea::executeRemoveSelection() {
-    if (!m_doc || m_readOnly || !hasSelection()) {
-        if (m_readOnly) showReadOnlyHint();
+    if (!d->m_doc || d->m_readOnly || !hasSelection()) {
+        if (d->m_readOnly) showReadOnlyHint();
         return;
     }
-    m_undoStack->push(new RemoveCommand(
-        m_doc, selectionStart(), selectionEnd(),
-        m_cursor, &m_cursor, &m_anchor));
+    d->m_undoStack->push(new RemoveCommand(
+        d->m_doc, selectionStart(), selectionEnd(),
+        d->m_cursor, &d->m_cursor, &d->m_anchor));
     updateAfterEdit();
 }
 
 void CodeEditArea::updateAfterEdit() {
-    m_cursor = m_cursorCtrl->clamp(m_cursor);
-    m_anchor = m_cursor;
+    d->m_cursor = d->m_cursorCtrl->clamp(d->m_cursor);
+    d->m_anchor = d->m_cursor;
     // Collapsed regions survive edits; never leave the cursor on a hidden line
     // (e.g. Enter at the end of a collapsed header).
-    if (m_foldState.expandContaining(m_cursor.line)) {
+    if (d->m_foldState.expandContaining(d->m_cursor.line)) {
         rebuildWrapLayout();
         refreshViewportState();
     }
-    m_caretPainter->resetBlink();
-    ensureCursorVisible(m_cursor);
+    d->m_caretPainter->resetBlink();
+    ensureCursorVisible(d->m_cursor);
     updateScrollBarRanges();
     viewport()->update();
     updateInputMethod();
-    emit cursorPositionChanged(m_cursor);
+    emit cursorPositionChanged(d->m_cursor);
     emit selectionChanged();
 }
 
 void CodeEditArea::insertTypedText(const QString& typed) {
     QString text = typed;
-    if (m_insertFilter && !m_readOnly && (!m_insertFilter(text) || text.isEmpty())) return;
-    if (m_overwrite && !hasSelection()
-            && m_doc
-            && m_cursor.column < m_doc->lineAt(m_cursor.line).size()) {
+    if (d->m_insertFilter && !d->m_readOnly && (!d->m_insertFilter(text) || text.isEmpty())) return;
+    if (d->m_overwrite && !hasSelection()
+            && d->m_doc
+            && d->m_cursor.column < d->m_doc->lineAt(d->m_cursor.line).size()) {
         // Replace character under cursor in one undo step.
-        m_undoStack->beginMacro(QString());
-        executeRemove(m_cursor, {m_cursor.line, m_cursor.column + 1});
+        d->m_undoStack->beginMacro(QString());
+        executeRemove(d->m_cursor, {d->m_cursor.line, d->m_cursor.column + 1});
         executeInsert(text);
-        m_undoStack->endMacro();
+        d->m_undoStack->endMacro();
     } else {
         executeInsert(text);
     }
@@ -1931,10 +2018,10 @@ bool CodeEditArea::isInsertableText(const QString& text) {
 // ------------------------------------------------------------------------
 
 QRegion CodeEditArea::selectionRegion() const {
-    if (!hasSelection() || !m_doc || !m_viewportState.isValid()) return {};
+    if (!hasSelection() || !d->m_doc || !d->m_viewportState.isValid()) return {};
     const TextCursor s = selectionStart();
     const TextCursor e = selectionEnd();
-    const ViewportState& vp = m_viewportState;
+    const ViewportState& vp = d->m_viewportState;
     const int tw = tabWidth();
     const auto band = LineRenderer::backgroundBand(font(), vp.lineHeight);
     QRegion region;
@@ -1967,7 +2054,7 @@ QRegion CodeEditArea::selectionRegion() const {
             if (row.logicalLine == e.line && row.startCol >= e.column) continue;
 
             const int topY = vp.contentOffsetY + ri * vp.lineHeight;
-            addRow(m_doc->lineAt(row.logicalLine), row.logicalLine, row.startCol, row.endCol, topY,
+            addRow(d->m_doc->lineAt(row.logicalLine), row.logicalLine, row.startCol, row.endCol, topY,
                    (vp.viewportWidth + vp.contentOffsetX) / vp.charWidth + 1);
         }
         return region;
@@ -1977,16 +2064,16 @@ QRegion CodeEditArea::selectionRegion() const {
     const int last  = qMin(e.line, vp.lastVisibleLine);
     for (int i = first; i <= last; ++i) {
         const int topY = vp.contentOffsetY + (i - vp.firstVisibleLine) * vp.lineHeight;
-        const QString& lineStr = m_doc->lineAt(i);
+        const QString& lineStr = d->m_doc->lineAt(i);
         addRow(lineStr, i, 0, int(lineStr.size()), topY, vp.viewportWidth / vp.charWidth + 1);
     }
     return region;
 }
 
 void CodeEditArea::paintLineBackgrounds(QPainter& painter) {
-    if ((!m_lineBgProvider && !m_currentLineColor.isValid())
-            || !m_doc || !m_viewportState.isValid()) return;
-    const ViewportState& vp = m_viewportState;
+    if ((!d->m_lineBgProvider && !d->m_currentLineColor.isValid())
+            || !d->m_doc || !d->m_viewportState.isValid()) return;
+    const ViewportState& vp = d->m_viewportState;
     const int vpW = vp.viewportWidth;
     const auto band = LineRenderer::backgroundBand(font(), vp.lineHeight);
     auto fill = [&](int line, int topY) {
@@ -2008,47 +2095,47 @@ void CodeEditArea::paintLineBackgrounds(QPainter& painter) {
 }
 
 void CodeEditArea::paintPreedit(QPainter& painter) {
-    if (m_preedit.isEmpty() || !m_doc || !m_viewportState.isValid()) return;
-    const ViewportState& vp = m_viewportState;
-    const int row = visualRowOf(m_cursor);
+    if (d->m_preedit.isEmpty() || !d->m_doc || !d->m_viewportState.isValid()) return;
+    const ViewportState& vp = d->m_viewportState;
+    const int row = visualRowOf(d->m_cursor);
     if (row < vp.firstVisibleRow || row > vp.lastVisibleRow) return;
 
     const int x = caretRect(false).x();
     const int topY = vp.contentOffsetY + (row - vp.firstVisibleRow) * vp.lineHeight;
     const QFontMetrics fm(font());
-    const int width = fm.horizontalAdvance(m_preedit);
+    const int width = fm.horizontalAdvance(d->m_preedit);
 
     // Cover the rest of the row and repaint it shifted right of the pre-edit
     // (display only; the document is unchanged).
     painter.fillRect(QRect(x, topY, vp.viewportWidth - x, vp.lineHeight), palette().base());
-    const QColor bg = lineBackground(m_cursor.line);
+    const QColor bg = lineBackground(d->m_cursor.line);
     if (bg.isValid()) {
         const auto band = LineRenderer::backgroundBand(font(), vp.lineHeight);
         painter.fillRect(x, topY + band.offset, vp.viewportWidth - x, band.height, bg);
     }
-    const QString& line = m_doc->lineAt(m_cursor.line);
-    const int rowEnd = hasRows() ? m_wrapLayout->rowAt(row).endCol : int(line.size());
+    const QString& line = d->m_doc->lineAt(d->m_cursor.line);
+    const int rowEnd = hasRows() ? d->m_wrapLayout->rowAt(row).endCol : int(line.size());
     const QVector<StyleSpan>* spans =
-        (m_highlighter && m_cursor.line < m_validLines && m_cursor.line < m_lineSpans.size())
-            ? &m_lineSpans[m_cursor.line]
+        (d->m_highlighter && d->m_cursor.line < d->m_validLines && d->m_cursor.line < d->m_lineSpans.size())
+            ? &d->m_lineSpans[d->m_cursor.line]
                                                               : nullptr;
     painter.setPen(palette().text().color());
-    m_renderer->paintSegment(painter, line, m_cursor.column, rowEnd, x + width,
+    d->m_renderer->paintSegment(painter, line, d->m_cursor.column, rowEnd, x + width,
                              topY, vp.lineHeight, vp.charWidth, spans);
 
     // Backgrounds requested by the input method (e.g. the active clause).
-    for (const QInputMethodEvent::Attribute& a : std::as_const(m_preeditAttributes)) {
+    for (const QInputMethodEvent::Attribute& a : std::as_const(d->m_preeditAttributes)) {
         if (a.type != QInputMethodEvent::TextFormat) continue;
         const QTextCharFormat f = qvariant_cast<QTextFormat>(a.value).toCharFormat();
         if (f.background().style() == Qt::NoBrush) continue;
-        const int ax = x + fm.horizontalAdvance(m_preedit.left(a.start));
-        const int aw = fm.horizontalAdvance(m_preedit.mid(a.start, a.length));
+        const int ax = x + fm.horizontalAdvance(d->m_preedit.left(a.start));
+        const int aw = fm.horizontalAdvance(d->m_preedit.mid(a.start, a.length));
         painter.fillRect(ax, topY, aw, vp.lineHeight, f.background());
     }
 
     painter.setFont(font());
     const int baselineY = topY + LineRenderer::backgroundBand(font(), vp.lineHeight).baseline;
-    painter.drawText(x, baselineY, m_preedit);
+    painter.drawText(x, baselineY, d->m_preedit);
     // Underline just below the baseline, but inside the (possibly tight) row.
     const int underlineY = qMin(baselineY + 2, topY + vp.lineHeight - 1);
     painter.drawLine(x, underlineY, x + width - 1, underlineY);
@@ -2060,7 +2147,7 @@ void CodeEditArea::paintSelection(QPainter& painter) {
         return;
     }
     for (const QRect& r : region) {
-        painter.fillRect(r, m_selectionColor);
+        painter.fillRect(r, d->m_selectionColor);
     }
 }
 

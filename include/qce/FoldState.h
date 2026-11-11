@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include "FoldRegion.h"
 
 #include <QPair>
@@ -22,8 +24,14 @@ namespace qce {
 ///   state (new document, new provider).
 class FoldState {
 public:
+    FoldState();
+    ~FoldState();
+    FoldState(const FoldState& other);
+    FoldState& operator=(const FoldState& other);
+    FoldState(FoldState&& other) noexcept;
+    FoldState& operator=(FoldState&& other) noexcept;
     void setRegions(QVector<FoldRegion> regions);
-    const QVector<FoldRegion>& regions() const { return m_regions; }
+    const QVector<FoldRegion>& regions() const;
 
     /// Drop all regions and collapsed state.
     void clear();
@@ -37,9 +45,7 @@ public:
     /// region changed.
     bool expandContaining(int line);
 
-    bool isCollapsed(int regionIndex) const {
-        return m_collapsed.contains(regionIndex);
-    }
+    bool isCollapsed(int regionIndex) const;
     void setCollapsed(int regionIndex, bool collapsed);
     void toggle(int regionIndex);
 
@@ -65,8 +71,10 @@ public:
     void foldToLevel(int level);
 
 private:
-    QVector<FoldRegion> m_regions;   ///< sorted, depth-annotated
-    QSet<int>           m_collapsed; ///< region indices that are currently collapsed
+    // The state, in FoldState.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
 };
 
 } // namespace qce

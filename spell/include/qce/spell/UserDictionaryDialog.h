@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <QDialog>
 
 class QListWidget;
@@ -16,14 +18,16 @@ class SpellChecker;
 class UserDictionaryDialog : public QDialog {
     Q_OBJECT
 public:
+    ~UserDictionaryDialog();
     explicit UserDictionaryDialog(SpellChecker& checker, QWidget* parent = nullptr);
 
 private:
     void fill();
 
-    SpellChecker& m_checker;
-    QListWidget* m_words = nullptr;
-    QTreeWidget* m_corrections = nullptr;
+    // The state, in UserDictionaryDialog.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
 };
 
 } // namespace qce::spell

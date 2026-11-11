@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <QHash>
 #include <QList>
 #include <QString>
@@ -46,10 +48,15 @@ struct LanguageEntry {
 /// The index never touches the network.
 class KateSyntaxIndex {
 public:
+    ~KateSyntaxIndex();
+    KateSyntaxIndex(const KateSyntaxIndex& other);
+    KateSyntaxIndex& operator=(const KateSyntaxIndex& other);
+    KateSyntaxIndex(KateSyntaxIndex&& other) noexcept;
+    KateSyntaxIndex& operator=(KateSyntaxIndex&& other) noexcept;
     /// Format version written to index.json ("format").
     static constexpr int kFormat = 1;
 
-    KateSyntaxIndex() = default;
+    KateSyntaxIndex();
 
     /// Read <dataDir>/index.json (if present and matching kFormat and
     /// supportedSyntaxVersion()), then refresh() against <dataDir>/syntax.
@@ -67,15 +74,15 @@ public:
 
     /// Write index.json atomically (creates dataDir if needed).
     bool save();
-    bool saveIfDirty() { return m_dirty ? save() : true; }
-    bool isDirty() const { return m_dirty; }
+    bool saveIfDirty();
+    bool isDirty() const;
 
-    QString dataDir()   const { return m_dataDir; }
+    QString dataDir()   const;
     QString syntaxDir() const;
     QString indexPath() const;
 
     /// All entries, sorted by file name.
-    const QList<LanguageEntry>& languages() const { return m_entries; }
+    const QList<LanguageEntry>& languages() const;
 
     /// Lookup by language name (case-sensitive, like Kate). If several files
     /// declare the same name, the one with the highest version wins.
@@ -99,11 +106,10 @@ public:
 private:
     void rebuildLookup();
 
-    QString                m_dataDir;
-    QList<LanguageEntry>   m_entries;
-    QHash<QString, int>    m_byName;
-    QHash<QString, int>    m_byFile;
-    bool                   m_dirty = false;
+    // The state, in KateSyntaxIndex.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
 };
 
 /// Kate-style wildcard match of a whole file name: '*' matches any run of

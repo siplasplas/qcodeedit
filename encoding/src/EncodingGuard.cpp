@@ -25,27 +25,36 @@ QString describe(const QList<char32_t>& characters) {
 
 } // namespace
 
+struct EncodingGuard::Private {
+    QPointer<CodeEditArea> m_area;
+    FileFormat m_format;
+    ChoiceFn m_choice;
+};
+
 EncodingGuard::EncodingGuard(CodeEditArea* area, QObject* parent)
-    : QObject(parent), m_area(area) {
-    if (m_area)
-        m_area->setInsertFilter([this](QString& text) { return filter(text); });
+    :
+    QObject(parent),
+      d(std::make_unique<Private>()) {
+    d->m_area = area;
+    if (d->m_area)
+        d->m_area->setInsertFilter([this](QString& text) { return filter(text); });
 }
 
 EncodingGuard::~EncodingGuard() {
-    if (m_area) m_area->setInsertFilter({});
+    if (d->m_area) d->m_area->setInsertFilter({});
 }
 
 void EncodingGuard::setFormat(const FileFormat& format) {
-    const bool changed = format.encoding != m_format.encoding;
-    m_format = format;
-    if (changed) emit encodingChanged(m_format.encoding);
+    const bool changed = format.encoding != d->m_format.encoding;
+    d->m_format = format;
+    if (changed) emit encodingChanged(d->m_format.encoding);
 }
 
 void EncodingGuard::setEncoding(const QString& encoding) {
-    if (encoding == m_format.encoding) return;
-    m_format.encoding = encoding;
+    if (encoding == d->m_format.encoding) return;
+    d->m_format.encoding = encoding;
     // A BOM belongs to the Unicode encodings only.
-    if (!isUnicode(encoding)) m_format.bom = false;
+    if (!isUnicode(encoding)) d->m_format.bom = false;
     emit encodingChanged(encoding);
 }
 
@@ -70,16 +79,16 @@ EncodingGuard::Choice EncodingGuard::askUser(QWidget* parent,
 }
 
 EncodingGuard::Choice EncodingGuard::choose(const QList<char32_t>& characters) {
-    if (m_choice) return m_choice(characters, m_format.encoding);
-    return askUser(m_area ? m_area->window() : nullptr, characters, m_format.encoding);
+    if (d->m_choice) return d->m_choice(characters, d->m_format.encoding);
+    return askUser(d->m_area ? d->m_area->window() : nullptr, characters, d->m_format.encoding);
 }
 
 bool EncodingGuard::filter(QString& text) {
-    const QList<char32_t> bad = unrepresentable(text, m_format.encoding);
+    const QList<char32_t> bad = unrepresentable(text, d->m_format.encoding);
     if (bad.isEmpty()) return true;
     switch (choose(bad)) {
     case Choice::Replace:
-        text = replaceUnrepresentable(text, m_format.encoding);
+        text = replaceUnrepresentable(text, d->m_format.encoding);
         return true;
     case Choice::SwitchToUtf8:
         setEncoding(QStringLiteral("utf8"));
@@ -92,8 +101,8 @@ bool EncodingGuard::filter(QString& text) {
 
 bool EncodingGuard::encodeForSave(const QString& text, QByteArray* bytes, bool exactText) {
     auto run = [&](bool replace) {
-        return exactText ? encodeExact(text, m_format.encoding, m_format.bom, replace)
-                         : encode(text, m_format, replace);
+        return exactText ? encodeExact(text, d->m_format.encoding, d->m_format.bom, replace)
+                         : encode(text, d->m_format, replace);
     };
     EncodeResult result = run(false);
     if (!result.ok && !result.unrepresentable.isEmpty()) {
@@ -113,5 +122,10 @@ bool EncodingGuard::encodeForSave(const QString& text, QByteArray* bytes, bool e
     if (bytes) *bytes = std::move(result.bytes);
     return true;
 }
+
+
+const FileFormat& EncodingGuard::format() const { return d->m_format; }
+QString EncodingGuard::encoding() const { return d->m_format.encoding; }
+void EncodingGuard::setChoiceHandler(ChoiceFn fn) { d->m_choice = std::move(fn); }
 
 } // namespace qce::encoding

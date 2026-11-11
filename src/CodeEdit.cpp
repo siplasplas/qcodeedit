@@ -10,21 +10,32 @@
 
 namespace qce {
 
-CodeEdit::CodeEdit(QWidget* parent)
-    : QWidget(parent) {
-    m_area      = new CodeEditArea(this);
-    m_leftRail  = new LeftRail(this);
-    m_rightRail = new RightRail(this);
+struct CodeEdit::Private {
+    CodeEditArea* m_area        = nullptr;
+    LeftRail*     m_leftRail    = nullptr;
+    RightRail*    m_rightRail   = nullptr;
+    QScrollBar*   m_leftVScroll = nullptr; // non-null only in Left mode
+    ScrollBarSide m_scrollBarSide = ScrollBarSide::Right;
+};
 
-    m_leftRail->connectToArea(m_area);
-    m_rightRail->connectToArea(m_area);
+CodeEdit::CodeEdit(QWidget* parent)
+    :
+    QWidget(parent),
+      d(std::make_unique<Private>()) {
+
+    d->m_area      = new CodeEditArea(this);
+    d->m_leftRail  = new LeftRail(this);
+    d->m_rightRail = new RightRail(this);
+
+    d->m_leftRail->connectToArea(d->m_area);
+    d->m_rightRail->connectToArea(d->m_area);
 
     auto* layout = new QHBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    layout->addWidget(m_leftRail);
-    layout->addWidget(m_area, /*stretch=*/1);
-    layout->addWidget(m_rightRail);
+    layout->addWidget(d->m_leftRail);
+    layout->addWidget(d->m_area, /*stretch=*/1);
+    layout->addWidget(d->m_rightRail);
     setLayout(layout);
 
     // Built-in default theme: black text on white, independent of the system
@@ -40,43 +51,43 @@ CodeEdit::CodeEdit(QWidget* parent)
 CodeEdit::~CodeEdit() = default;
 
 void CodeEdit::setDocument(ITextDocument* doc) {
-    m_area->setDocument(doc);
+    d->m_area->setDocument(doc);
 }
 
 ITextDocument* CodeEdit::document() const {
-    return m_area->document();
+    return d->m_area->document();
 }
 
 void CodeEdit::addLeftMargin(IMargin* margin) {
-    m_leftRail->addMargin(margin);
+    d->m_leftRail->addMargin(margin);
 }
 
 void CodeEdit::removeLeftMargin(IMargin* margin) {
-    m_leftRail->removeMargin(margin);
+    d->m_leftRail->removeMargin(margin);
 }
 
 void CodeEdit::addRightMargin(IMargin* margin) {
-    m_rightRail->addMargin(margin);
+    d->m_rightRail->addMargin(margin);
 }
 
 void CodeEdit::removeRightMargin(IMargin* margin) {
-    m_rightRail->removeMargin(margin);
+    d->m_rightRail->removeMargin(margin);
 }
 
 void CodeEdit::setGutterColors(const GutterColors& colors) {
-    m_leftRail->setColors(colors);
-    m_rightRail->setColors(colors);
+    d->m_leftRail->setColors(colors);
+    d->m_rightRail->setColors(colors);
 }
 
 GutterColors CodeEdit::gutterColors() const {
-    return m_leftRail->colors();
+    return d->m_leftRail->colors();
 }
 
 void CodeEdit::setScrollBarSide(ScrollBarSide side) {
-    if (m_scrollBarSide == side) {
+    if (d->m_scrollBarSide == side) {
         return;
     }
-    m_scrollBarSide = side;
+    d->m_scrollBarSide = side;
     applyScrollBarSide(side);
 }
 
@@ -85,43 +96,47 @@ void CodeEdit::setScrollBarSide(ScrollBarSide side) {
 // ------------------------------------------------------------------------
 
 void CodeEdit::applyScrollBarSide(ScrollBarSide side) {
-    QScrollBar* areaVBar = m_area->verticalScrollBar();
+    QScrollBar* areaVBar = d->m_area->verticalScrollBar();
     auto* hbox = qobject_cast<QHBoxLayout*>(layout());
 
     if (side == ScrollBarSide::Left) {
         // Hide the area's built-in vertical scroll bar.
-        m_area->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        d->m_area->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 
         // Create the standalone scroll bar and insert it at position 0.
-        m_leftVScroll = new QScrollBar(Qt::Vertical, this);
-        m_leftVScroll->setRange(areaVBar->minimum(), areaVBar->maximum());
-        m_leftVScroll->setPageStep(areaVBar->pageStep());
-        m_leftVScroll->setSingleStep(areaVBar->singleStep());
-        m_leftVScroll->setValue(areaVBar->value());
-        hbox->insertWidget(0, m_leftVScroll);
+        d->m_leftVScroll = new QScrollBar(Qt::Vertical, this);
+        d->m_leftVScroll->setRange(areaVBar->minimum(), areaVBar->maximum());
+        d->m_leftVScroll->setPageStep(areaVBar->pageStep());
+        d->m_leftVScroll->setSingleStep(areaVBar->singleStep());
+        d->m_leftVScroll->setValue(areaVBar->value());
+        hbox->insertWidget(0, d->m_leftVScroll);
 
         // Two-way sync: standalone → area.
-        connect(m_leftVScroll, &QScrollBar::valueChanged,
+        connect(d->m_leftVScroll, &QScrollBar::valueChanged,
                 areaVBar, &QScrollBar::setValue);
         // Two-way sync: area → standalone.
         connect(areaVBar, &QScrollBar::valueChanged,
-                m_leftVScroll, &QScrollBar::setValue);
+                d->m_leftVScroll, &QScrollBar::setValue);
         // Keep range in sync when document changes.
         connect(areaVBar, &QScrollBar::rangeChanged,
-                m_leftVScroll, &QScrollBar::setRange);
+                d->m_leftVScroll, &QScrollBar::setRange);
 
     } else {
         // Restore the area's built-in scroll bar.
-        m_area->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        d->m_area->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
-        if (m_leftVScroll) {
-            disconnect(m_leftVScroll, nullptr, areaVBar, nullptr);
-            disconnect(areaVBar, nullptr, m_leftVScroll, nullptr);
-            hbox->removeWidget(m_leftVScroll);
-            delete m_leftVScroll;
-            m_leftVScroll = nullptr;
+        if (d->m_leftVScroll) {
+            disconnect(d->m_leftVScroll, nullptr, areaVBar, nullptr);
+            disconnect(areaVBar, nullptr, d->m_leftVScroll, nullptr);
+            hbox->removeWidget(d->m_leftVScroll);
+            delete d->m_leftVScroll;
+            d->m_leftVScroll = nullptr;
         }
     }
 }
+
+
+CodeEditArea* CodeEdit::area() const { return d->m_area; }
+CodeEdit::ScrollBarSide CodeEdit::scrollBarSide() const { return d->m_scrollBarSide; }
 
 } // namespace qce

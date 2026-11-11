@@ -42,78 +42,93 @@ void reloadSyntaxIndex() {
     index.saveIfDirty();
 }
 
-EditorSyntax::EditorSyntax(CodeEdit* edit) : m_edit(edit), m_defaultPalette(edit->area()->palette()) {
-    m_theme = KateTheme::loadDefault();
+struct EditorSyntax::Private {
+    CodeEdit* m_edit;
+    QPalette m_defaultPalette;
+    KateTheme m_theme;
+    QString m_themeFile;
+    QString m_fileName;
+    QString m_syntaxFile;
+    Mode m_mode = Mode::Automatic;
+    std::unique_ptr<RulesHighlighter> m_highlighter;
+    std::unique_ptr<RuleBasedFoldingProvider> m_foldProvider;
+};
+
+EditorSyntax::EditorSyntax(CodeEdit* edit) :
+    d(std::make_unique<Private>()) {
+    d->m_edit = edit;
+    d->m_defaultPalette = edit->area()->palette();
+    d->m_theme = KateTheme::loadDefault();
     applyThemePalette();
 }
 
 // The area must not keep pointers to the highlighter and provider that go now.
 EditorSyntax::~EditorSyntax() {
-    if (m_highlighter) clear();
+    if (d->m_highlighter) clear();
 }
 
 void EditorSyntax::setAutomatic() {
-    m_mode = Mode::Automatic;
-    m_syntaxFile.clear();
+    d->m_mode = Mode::Automatic;
+    d->m_syntaxFile.clear();
 }
 
 void EditorSyntax::setPlainText() {
-    m_mode = Mode::PlainText;
-    m_syntaxFile.clear();
+    d->m_mode = Mode::PlainText;
+    d->m_syntaxFile.clear();
 }
 
 void EditorSyntax::setManual(const QString& syntaxFile) {
-    m_mode = Mode::Manual;
-    m_syntaxFile = syntaxFile;
+    d->m_mode = Mode::Manual;
+    d->m_syntaxFile = syntaxFile;
 }
 
 void EditorSyntax::apply() {
-    if (!m_themeFile.isEmpty()) {
-        const KateTheme theme = KateTheme::load(m_themeFile);
-        if (theme.isValid()) m_theme = theme;
+    if (!d->m_themeFile.isEmpty()) {
+        const KateTheme theme = KateTheme::load(d->m_themeFile);
+        if (theme.isValid()) d->m_theme = theme;
     } else {
         // "Default": Breeze Light/Dark to match the desktop, or the editor's
         // built-in black on white when the themes are not downloaded.
-        m_theme = KateTheme::loadDefault();
+        d->m_theme = KateTheme::loadDefault();
     }
     applyThemePalette();
-    if (m_mode == Mode::PlainText) {
+    if (d->m_mode == Mode::PlainText) {
         clear();
-    } else if (m_mode == Mode::Manual) {
+    } else if (d->m_mode == Mode::Manual) {
         const KateSyntaxIndex& index = syntaxIndex();
-        const LanguageEntry* entry = index.byFile(m_syntaxFile);
+        const LanguageEntry* entry = index.byFile(d->m_syntaxFile);
         if (!entry || entry->unsupported || !applyKate(index.filePath(*entry))) clear();
     } else {
-        applyForFile(m_fileName);
+        applyForFile(d->m_fileName);
     }
 }
 
 void EditorSyntax::applyThemePalette() {
-    QPalette palette = m_defaultPalette;
-    if (m_theme.editorBackground.isValid()) {
-        palette.setColor(QPalette::Base, m_theme.editorBackground);
-        palette.setColor(QPalette::Window, m_theme.editorBackground);
+    QPalette palette = d->m_defaultPalette;
+    if (d->m_theme.editorBackground.isValid()) {
+        palette.setColor(QPalette::Base, d->m_theme.editorBackground);
+        palette.setColor(QPalette::Window, d->m_theme.editorBackground);
     }
-    const auto normal = m_theme.styles.constFind(QStringLiteral("Normal"));
-    if (normal != m_theme.styles.constEnd() && normal->fg.isValid()) {
+    const auto normal = d->m_theme.styles.constFind(QStringLiteral("Normal"));
+    if (normal != d->m_theme.styles.constEnd() && normal->fg.isValid()) {
         palette.setColor(QPalette::Text, normal->fg);
         palette.setColor(QPalette::WindowText, normal->fg);
     }
-    m_edit->setPalette(palette);
-    m_edit->area()->setPalette(palette);
-    m_edit->area()->viewport()->setPalette(palette);
+    d->m_edit->setPalette(palette);
+    d->m_edit->area()->setPalette(palette);
+    d->m_edit->area()->viewport()->setPalette(palette);
     // The line with the caret: the background a little darker (white gives
     // #F8F8F8), or lighter on a dark theme; the theme's tint stays.
     const QColor base = palette.color(QPalette::Base);
-    m_edit->area()->setCurrentLineColor(base.lightness() > 128 ? base.darker(103) : base.lighter(140));
-    m_edit->area()->viewport()->update();
+    d->m_edit->area()->setCurrentLineColor(base.lightness() > 128 ? base.darker(103) : base.lighter(140));
+    d->m_edit->area()->viewport()->update();
     // Invalid colours (no theme, or missing in it) are derived from the palette.
-    m_edit->setGutterColors({m_theme.iconBorder, m_theme.lineNumbers, m_theme.separator});
+    d->m_edit->setGutterColors({d->m_theme.iconBorder, d->m_theme.lineNumbers, d->m_theme.separator});
 }
 
 TextAttribute EditorSyntax::themedAttribute(const QString& style, const TextAttribute& fallback) const {
-    const auto entry = m_theme.styles.constFind(style);
-    if (entry == m_theme.styles.constEnd()) return fallback;
+    const auto entry = d->m_theme.styles.constFind(style);
+    if (entry == d->m_theme.styles.constEnd()) return fallback;
     return {entry->fg.isValid() ? entry->fg : fallback.foreground, entry->bg, entry->bold, entry->italic,
             entry->underline};
 }
@@ -137,7 +152,7 @@ void EditorSyntax::applyForFile(const QString& path) {
 
 bool EditorSyntax::applyKate(const QString& xmlPath) {
     // ##Lang includes (e.g. Doxygen inside C++) are resolved through the index.
-    auto highlighter = KateXmlReader::load(xmlPath, m_theme, syntaxIndex());
+    auto highlighter = KateXmlReader::load(xmlPath, d->m_theme, syntaxIndex());
     if (!highlighter) return false;
     install(std::move(highlighter), {{"Brace1", "{…}"},
                                      {"brace", "{…}"},
@@ -152,19 +167,19 @@ bool EditorSyntax::applyKate(const QString& xmlPath) {
 void EditorSyntax::install(std::unique_ptr<RulesHighlighter> highlighter,
                            const QList<QPair<QString, QString>>& placeholders) {
     // Detach the old provider before its highlighter goes away.
-    m_edit->area()->setFoldingProvider(nullptr);
-    m_highlighter = std::move(highlighter);
-    m_edit->area()->setHighlighter(m_highlighter.get());
-    m_foldProvider = std::make_unique<RuleBasedFoldingProvider>(m_highlighter.get());
-    for (const auto& [group, text] : placeholders) m_foldProvider->setPlaceholderFor(group, text);
-    m_edit->area()->setFoldingProvider(m_foldProvider.get());
+    d->m_edit->area()->setFoldingProvider(nullptr);
+    d->m_highlighter = std::move(highlighter);
+    d->m_edit->area()->setHighlighter(d->m_highlighter.get());
+    d->m_foldProvider = std::make_unique<RuleBasedFoldingProvider>(d->m_highlighter.get());
+    for (const auto& [group, text] : placeholders) d->m_foldProvider->setPlaceholderFor(group, text);
+    d->m_edit->area()->setFoldingProvider(d->m_foldProvider.get());
 }
 
 void EditorSyntax::clear() {
-    m_edit->area()->setHighlighter(nullptr);
-    m_edit->area()->setFoldingProvider(nullptr);
-    m_highlighter.reset();
-    m_foldProvider.reset();
+    d->m_edit->area()->setHighlighter(nullptr);
+    d->m_edit->area()->setFoldingProvider(nullptr);
+    d->m_highlighter.reset();
+    d->m_foldProvider.reset();
 }
 
 void EditorSyntax::applyCpp() {
@@ -287,5 +302,14 @@ void EditorSyntax::applyCpp() {
     hl->setInitialContextId(normal);
     install(std::move(hl), {{"curly", "{…}"}, {"Comment", "/*…*/"}});
 }
+
+
+void EditorSyntax::setFileName(const QString& path) { d->m_fileName = path; }
+QString EditorSyntax::fileName() const { return d->m_fileName; }
+EditorSyntax::Mode EditorSyntax::mode() const { return d->m_mode; }
+QString EditorSyntax::syntaxFile() const { return d->m_syntaxFile; }
+void EditorSyntax::setThemeFile(const QString& path) { d->m_themeFile = path; }
+QString EditorSyntax::themeFile() const { return d->m_themeFile; }
+const KateTheme& EditorSyntax::theme() const { return d->m_theme; }
 
 } // namespace qce::kate

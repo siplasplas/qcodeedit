@@ -9,8 +9,17 @@
 
 namespace qce {
 
+struct FoldingGutter::Private {
+    const FoldState* m_state;
+    ToggleCallback   m_toggle;
+    bool m_hovered = false;
+};
+
 FoldingGutter::FoldingGutter(const FoldState* state, ToggleCallback toggle)
-    : m_state(state), m_toggle(std::move(toggle)) {}
+    :
+    d(std::make_unique<Private>()) {
+    d->m_state = state;
+    d->m_toggle = std::move(toggle);}
 
 int FoldingGutter::preferredWidth(const ViewportState& vp) const {
     if (vp.charWidth <= 0) return 14;
@@ -20,7 +29,7 @@ int FoldingGutter::preferredWidth(const ViewportState& vp) const {
 void FoldingGutter::paint(QPainter& painter,
                            const ViewportState& vp,
                            const QRect& marginRect) {
-    if (!m_state || !vp.isValid() || vp.rows.isEmpty()) return;
+    if (!d->m_state || !vp.isValid() || vp.rows.isEmpty()) return;
 
     painter.save();
     painter.setRenderHint(QPainter::Antialiasing);
@@ -34,12 +43,12 @@ void FoldingGutter::paint(QPainter& painter,
     for (int i = 0; i < vp.rows.size(); ++i) {
         const auto& row = vp.rows[i];
         if (!row.isFirstRow) continue;
-        const int regIdx = m_state->regionStartingAt(row.logicalLine);
+        const int regIdx = d->m_state->regionStartingAt(row.logicalLine);
         if (regIdx < 0) continue;
 
         const int topY = marginRect.top() + vp.contentOffsetY + i * vp.lineHeight;
-        const bool collapsed = m_state->isCollapsed(regIdx);
-        if (!collapsed && !m_hovered) continue;
+        const bool collapsed = d->m_state->isCollapsed(regIdx);
+        if (!collapsed && !d->m_hovered) continue;
         const qreal centerY = topY + vp.lineHeight / 2.0 - size /2;
         const QPolygonF chevron = collapsed
             ? QPolygonF{{centerX - size / 4, centerY - size / 2},
@@ -56,7 +65,7 @@ void FoldingGutter::paint(QPainter& painter,
 void FoldingGutter::mousePressed(const QPoint& local,
                                   const ViewportState& vp,
                                   const QRect& marginRect) {
-    if (!m_state || !vp.isValid() || vp.rows.isEmpty() || !m_toggle) return;
+    if (!d->m_state || !vp.isValid() || vp.rows.isEmpty() || !d->m_toggle) return;
     if (vp.lineHeight <= 0) return;
 
     const int yInside = local.y() - marginRect.top() - vp.contentOffsetY;
@@ -66,8 +75,17 @@ void FoldingGutter::mousePressed(const QPoint& local,
 
     const auto& row = vp.rows[rowIdx];
     if (!row.isFirstRow) return;
-    if (m_state->regionStartingAt(row.logicalLine) < 0) return;
-    m_toggle(row.logicalLine);
+    if (d->m_state->regionStartingAt(row.logicalLine) < 0) return;
+    d->m_toggle(row.logicalLine);
 }
+
+
+FoldingGutter::~FoldingGutter() = default;
+FoldingGutter::FoldingGutter(const FoldingGutter& other) : d(std::make_unique<Private>(*other.d)) {}
+FoldingGutter& FoldingGutter::operator=(const FoldingGutter& other) { if (this != &other) *d = *other.d; return *this; }
+// The source stays usable, with an empty state.
+FoldingGutter::FoldingGutter(FoldingGutter&& other) noexcept : d(std::make_unique<Private>()) { d.swap(other.d); }
+FoldingGutter& FoldingGutter::operator=(FoldingGutter&& other) noexcept { d.swap(other.d); return *this; }
+void FoldingGutter::hoverChanged(bool hovered) { d->m_hovered = hovered; }
 
 } // namespace qce

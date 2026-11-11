@@ -72,19 +72,47 @@ bool endsWord(QChar c) {
 
 } // namespace
 
+struct CodeEditSpelling::Private {
+    QPointer<CodeEditArea> m_area;
+    QPointer<ITextDocument> m_document;  // whose changes trigger a check
+    SpellChecker m_checker;
+    std::unique_ptr<SpellChecker> m_otherLanguages;
+    QStringList m_otherLanguagesFor;  ///< the dictionaries in use it was made for
+    QTimer* m_timer = nullptr;
+    QColor m_color{Qt::red};
+    std::shared_ptr<GrammarChecker> m_grammar;         // given by the program
+    std::shared_ptr<GrammarChecker> m_builtinGrammar;  // of the languages, when none is given
+    bool m_grammarEnabled = true;
+    QColor m_grammarColor{0x20, 0x60, 0xff};
+    bool m_enabled = true;
+    bool m_correctWhileTyping = false;
+    // The text changed since the last check.
+    bool m_edited = false;
+    // The word being typed (the one at the cursor after an edit), not
+    // underlined until the cursor leaves it; line -1 when none.
+    struct TypedWord {
+        int line = -1;
+        int start = 0;
+        int end = 0;
+    } m_typedWord;
+};
+
 CodeEditSpelling::CodeEditSpelling(CodeEditArea* area, QObject* parent)
-    : QObject(parent ? parent : area), m_area(area) {
-    m_timer = new QTimer(this);
-    m_timer->setSingleShot(true);
-    m_timer->setInterval(kDelayMs);
-    connect(m_timer, &QTimer::timeout, this, &CodeEditSpelling::recheck);
+    :
+    QObject(parent ? parent : area),
+      d(std::make_unique<Private>()) {
+    d->m_area = area;
+    d->m_timer = new QTimer(this);
+    d->m_timer->setSingleShot(true);
+    d->m_timer->setInterval(kDelayMs);
+    connect(d->m_timer, &QTimer::timeout, this, &CodeEditSpelling::recheck);
     connect(area, &CodeEditArea::viewportChanged, this, &CodeEditSpelling::scheduleCheck);
     connect(area, &CodeEditArea::cursorPositionChanged, this, &CodeEditSpelling::onCursorMoved);
     // As the area's child (the default) this object outlives the area's own
     // part; it must not touch the area from then on.
     connect(area, &CodeEditArea::aboutToBeDestroyed, this, [this]() {
-        m_timer->stop();
-        m_area = nullptr;
+        d->m_timer->stop();
+        d->m_area = nullptr;
     });
     // Typed keys, for correcting while typing.
     area->installEventFilter(this);
@@ -92,23 +120,23 @@ CodeEditSpelling::CodeEditSpelling(CodeEditArea* area, QObject* parent)
 }
 
 CodeEditArea* CodeEditSpelling::area() const {
-    return m_area;
+    return d->m_area;
 }
 
 void CodeEditSpelling::setCorrectWhileTyping(bool correct) {
-    m_correctWhileTyping = correct;
+    d->m_correctWhileTyping = correct;
 }
 
 // A space or punctuation typed (not pasted) right after a word: the word is
 // corrected once the key has been handled, if it has a single correction.
 bool CodeEditSpelling::eventFilter(QObject* watched, QEvent* event) {
-    if (event->type() == QEvent::KeyPress && watched == m_area && m_correctWhileTyping && m_enabled
-            && !m_area->readOnly() && !m_area->hasSelection()) {
+    if (event->type() == QEvent::KeyPress && watched == d->m_area && d->m_correctWhileTyping && d->m_enabled
+            && !d->m_area->readOnly() && !d->m_area->hasSelection()) {
         const auto* key = static_cast<QKeyEvent*>(event);
         const QString text = key->text();
         if (text.size() == 1 && endsWord(text[0])
                 && !(key->modifiers() & (Qt::ControlModifier | Qt::MetaModifier))) {
-            const TextCursor at = m_area->cursorPosition();
+            const TextCursor at = d->m_area->cursorPosition();
             QMetaObject::invokeMethod(this, [this, at, typed = text[0]]() { correctTypedWord(at, typed); },
                                       Qt::QueuedConnection);
         }
@@ -117,10 +145,10 @@ bool CodeEditSpelling::eventFilter(QObject* watched, QEvent* event) {
 }
 
 void CodeEditSpelling::correctTypedWord(TextCursor at, QChar typed) {
-    if (!m_area || !m_area->document() || !m_checker.isReady()) return;
-    ITextDocument* doc = m_area->document();
+    if (!d->m_area || !d->m_area->document() || !d->m_checker.isReady()) return;
+    ITextDocument* doc = d->m_area->document();
     // The key went in where expected, and nothing else since.
-    if (at.line >= doc->lineCount() || m_area->cursorPosition() != TextCursor{at.line, at.column + 1}) return;
+    if (at.line >= doc->lineCount() || d->m_area->cursorPosition() != TextCursor{at.line, at.column + 1}) return;
     const QString line = doc->lineAt(at.line);
     if (at.column >= line.size() || line[at.column] != typed) return;
     const auto word = misspelledWordAt(at);
@@ -129,70 +157,70 @@ void CodeEditSpelling::correctTypedWord(TextCursor at, QChar typed) {
     if (inOtherLanguage(word->word)) return;
     // Only a single suggestion, close to the word, and no moved space to
     // choose instead: anything less sure is left for the menu.
-    const auto suggestions = m_checker.scoredSuggestions(word->word, 2);
+    const auto suggestions = d->m_checker.scoredSuggestions(word->word, 2);
     if (!SpellChecker::isConfident(word->word, suggestions) || !phraseCorrections(*word, 1).isEmpty()) return;
     const PhraseCorrection correction{*word, suggestions.front().text};
-    m_area->undoStack()->push(new ReplaceWordCommand(m_area, correction.range.start, correction.range.end,
+    d->m_area->undoStack()->push(new ReplaceWordCommand(d->m_area, correction.range.start, correction.range.end,
                                                      correction.replacement, true));
     emit corrected(correction.range.word, correction.replacement);
 }
 
 CodeEditSpelling::~CodeEditSpelling() {
-    if (!m_area) return;
-    m_area->setExtraSelections(CodeEditArea::SpellingLayer, {});
-    m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
+    if (!d->m_area) return;
+    d->m_area->setExtraSelections(CodeEditArea::SpellingLayer, {});
+    d->m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
 }
 
 void CodeEditSpelling::setLanguages(const QStringList& languages) {
-    m_checker.setLanguages(languages);
+    d->m_checker.setLanguages(languages);
     // The built-in grammar of the first language that has its data files.
-    m_builtinGrammar.reset();
-    for (const QString& dictionary : m_checker.dictionaries())
-        if ((m_builtinGrammar = builtinGrammarChecker(dictionary))) break;
+    d->m_builtinGrammar.reset();
+    for (const QString& dictionary : d->m_checker.dictionaries())
+        if ((d->m_builtinGrammar = builtinGrammarChecker(dictionary))) break;
     scheduleCheck();
 }
 
 void CodeEditSpelling::setEnabled(bool enabled) {
-    if (m_enabled == enabled) return;
-    m_enabled = enabled;
-    if (!enabled && m_area) {
-        m_area->setExtraSelections(CodeEditArea::SpellingLayer, {});
-        m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
+    if (d->m_enabled == enabled) return;
+    d->m_enabled = enabled;
+    if (!enabled && d->m_area) {
+        d->m_area->setExtraSelections(CodeEditArea::SpellingLayer, {});
+        d->m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
     }
     scheduleCheck();
 }
 
 void CodeEditSpelling::setGrammarChecker(std::shared_ptr<GrammarChecker> checker) {
-    m_grammar = std::move(checker);
-    if (!currentGrammar() && m_area) m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
+    d->m_grammar = std::move(checker);
+    if (!currentGrammar() && d->m_area) d->m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
     scheduleCheck();
 }
 
 void CodeEditSpelling::setGrammarEnabled(bool enabled) {
-    m_grammarEnabled = enabled;
-    if (!enabled && m_area) m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
+    d->m_grammarEnabled = enabled;
+    if (!enabled && d->m_area) d->m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
     scheduleCheck();
 }
 
 void CodeEditSpelling::setGrammarUnderlineColor(const QColor& color) {
-    m_grammarColor = color;
+    d->m_grammarColor = color;
     scheduleCheck();
 }
 
 bool CodeEditSpelling::grammarActive() const {
     GrammarChecker* grammar = currentGrammar();
-    if (!m_grammarEnabled || !grammar || !m_checker.isReady()) return false;
+    if (!d->m_grammarEnabled || !grammar || !d->m_checker.isReady()) return false;
     const QString language = grammar->language();
-    for (const QString& dictionary : m_checker.dictionaries())
+    for (const QString& dictionary : d->m_checker.dictionaries())
         if (dictionary.section(QLatin1Char('_'), 0, 0).compare(language, Qt::CaseInsensitive) == 0) return true;
     return false;
 }
 
 QList<CodeEditSpelling::GrammarMistake> CodeEditSpelling::grammarMistakes(int line) {
     QList<GrammarMistake> result;
-    ITextDocument* doc = m_area->document();
+    ITextDocument* doc = d->m_area->document();
     const QString text = doc->lineAt(line);
-    for (const auto& range : m_area->spellCheckRanges(line)) {
+    for (const auto& range : d->m_area->spellCheckRanges(line)) {
         for (const GrammarIssue& found : currentGrammar()->check(text.mid(range.first, range.second - range.first))) {
             GrammarMistake mistake;
             mistake.issue = found;
@@ -203,8 +231,8 @@ QList<CodeEditSpelling::GrammarMistake> CodeEditSpelling::grammarMistakes(int li
                 continue;
             // Spelling first: every word of it right.
             bool spelled = true;
-            for (const auto& word : m_checker.checkableWords(text, mistake.issue.start, mistake.issue.end))
-                spelled = spelled && m_checker.check(text.mid(word.first, word.second));
+            for (const auto& word : d->m_checker.checkableWords(text, mistake.issue.start, mistake.issue.end))
+                spelled = spelled && d->m_checker.check(text.mid(word.first, word.second));
             if (!spelled) continue;
             mistake.start = {line, mistake.issue.start};
             mistake.end = {line, mistake.issue.end};
@@ -223,8 +251,8 @@ QList<CodeEditSpelling::GrammarMistake> CodeEditSpelling::grammarMistakes(int li
 
 QList<CodeEditSpelling::GrammarMistake> CodeEditSpelling::grammarMistakes(TextCursor from, TextCursor to) {
     QList<GrammarMistake> result;
-    if (!m_area || !m_area->document() || !m_enabled || !grammarActive()) return result;
-    const int last = qMin(to.line, m_area->document()->lineCount() - 1);
+    if (!d->m_area || !d->m_area->document() || !d->m_enabled || !grammarActive()) return result;
+    const int last = qMin(to.line, d->m_area->document()->lineCount() - 1);
     for (int line = qMax(0, from.line); line <= last; ++line)
         for (const GrammarMistake& mistake : grammarMistakes(line))
             if (!(mistake.end <= from) && mistake.start < to) result.append(mistake);
@@ -232,91 +260,91 @@ QList<CodeEditSpelling::GrammarMistake> CodeEditSpelling::grammarMistakes(TextCu
 }
 
 std::optional<CodeEditSpelling::GrammarMistake> CodeEditSpelling::grammarMistakeAt(TextCursor position) {
-    if (!m_area || !m_area->document() || !m_enabled || !grammarActive()) return std::nullopt;
-    if (position.line < 0 || position.line >= m_area->document()->lineCount()) return std::nullopt;
+    if (!d->m_area || !d->m_area->document() || !d->m_enabled || !grammarActive()) return std::nullopt;
+    if (position.line < 0 || position.line >= d->m_area->document()->lineCount()) return std::nullopt;
     for (const GrammarMistake& mistake : grammarMistakes(position.line))
         if (position.column >= mistake.start.column && position.column <= mistake.end.column) return mistake;
     return std::nullopt;
 }
 
 void CodeEditSpelling::setUnderlineColor(const QColor& color) {
-    m_color = color;
+    d->m_color = color;
     scheduleCheck();
 }
 
 void CodeEditSpelling::scheduleCheck() {
     // Edits clear all decorations; follow the document the area shows now.
-    if (m_area && m_area->document() != m_document) {
-        if (m_document) disconnect(m_document, nullptr, this, nullptr);
-        m_document = m_area->document();
-        if (m_document) {
+    if (d->m_area && d->m_area->document() != d->m_document) {
+        if (d->m_document) disconnect(d->m_document, nullptr, this, nullptr);
+        d->m_document = d->m_area->document();
+        if (d->m_document) {
             for (auto signal : {&ITextDocument::linesInserted, &ITextDocument::linesRemoved,
                                 &ITextDocument::linesChanged})
-                connect(m_document, signal, this, [this]() {
-                    m_edited = true;
+                connect(d->m_document, signal, this, [this]() {
+                    d->m_edited = true;
                     scheduleCheck();
                 });
             // A new text is checked whole: nothing in it is being typed.
-            connect(m_document, &ITextDocument::documentReset, this, [this]() {
-                m_typedWord = {};
+            connect(d->m_document, &ITextDocument::documentReset, this, [this]() {
+                d->m_typedWord = {};
                 scheduleCheck();
             });
         }
     }
-    if (m_enabled) m_timer->start();
+    if (d->m_enabled) d->m_timer->start();
 }
 
 // The area clears all decorations on an edit and reports the cursor after
 // it; checking at once then, before the next paint, keeps the underlines of
 // the other words from blinking with every typed character.
 void CodeEditSpelling::onCursorMoved(TextCursor position) {
-    if (m_edited) {
+    if (d->m_edited) {
         recheck();
-    } else if (m_typedWord.line >= 0
-               && (position.line != m_typedWord.line || position.column < m_typedWord.start
-                   || position.column > m_typedWord.end)) {
+    } else if (d->m_typedWord.line >= 0
+               && (position.line != d->m_typedWord.line || position.column < d->m_typedWord.start
+                   || position.column > d->m_typedWord.end)) {
         // The cursor left the word being typed: it is finished.
-        m_typedWord = {};
+        d->m_typedWord = {};
         recheck();
     }
 }
 
 void CodeEditSpelling::recheck() {
-    if (!m_area || !m_area->document() || !m_enabled) return;
-    m_timer->stop();
+    if (!d->m_area || !d->m_area->document() || !d->m_enabled) return;
+    d->m_timer->stop();
     // The word at the cursor after an edit is being typed: it is checked once
     // a space or punctuation ends it, or the cursor leaves it.
-    const bool edited = m_edited;
-    m_edited = false;
-    const TextCursor cursor = m_area->cursorPosition();
-    if (edited) m_typedWord = {};
-    if (!m_checker.isReady()) {
-        m_area->setExtraSelections(CodeEditArea::SpellingLayer, {});
-        m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
+    const bool edited = d->m_edited;
+    d->m_edited = false;
+    const TextCursor cursor = d->m_area->cursorPosition();
+    if (edited) d->m_typedWord = {};
+    if (!d->m_checker.isReady()) {
+        d->m_area->setExtraSelections(CodeEditArea::SpellingLayer, {});
+        d->m_area->setExtraSelections(CodeEditArea::GrammarLayer, {});
         emit checked();
         return;
     }
-    m_checker.refreshUserDictionary();
-    ITextDocument* doc = m_area->document();
-    const ViewportState state = m_area->viewportState();
+    d->m_checker.refreshUserDictionary();
+    ITextDocument* doc = d->m_area->document();
+    const ViewportState state = d->m_area->viewportState();
     const int first = qMax(0, state.firstVisibleLine - kMarginLines);
     const int last = qMin(doc->lineCount() - 1, qMax(state.lastVisibleLine, state.firstVisibleLine) + kMarginLines);
     QVector<ExtraSelection> underlines;
     int words = 0;
     for (int line = first; line <= last; ++line) {
         const QString text = doc->lineAt(line);
-        for (const auto& range : m_area->spellCheckRanges(line)) {
-            for (const auto& word : m_checker.checkableWords(text, range.first, range.second)) {
+        for (const auto& range : d->m_area->spellCheckRanges(line)) {
+            for (const auto& word : d->m_checker.checkableWords(text, range.first, range.second)) {
                 const int end = word.first + word.second;
                 if (edited && line == cursor.line && cursor.column >= word.first && cursor.column <= end)
-                    m_typedWord = {line, word.first, end};
-                if (line == m_typedWord.line && word.first == m_typedWord.start) continue;
+                    d->m_typedWord = {line, word.first, end};
+                if (line == d->m_typedWord.line && word.first == d->m_typedWord.start) continue;
                 ++words;
-                if (m_checker.check(text.mid(word.first, word.second))) continue;
+                if (d->m_checker.check(text.mid(word.first, word.second))) continue;
                 ExtraSelection underline;
                 underline.start = {line, word.first};
                 underline.end = {line, end};
-                underline.underline = m_color;
+                underline.underline = d->m_color;
                 underlines.append(underline);
             }
         }
@@ -338,38 +366,38 @@ void CodeEditSpelling::recheck() {
             otherLanguageText = true;
         }
     }
-    m_area->setExtraSelections(CodeEditArea::SpellingLayer, underlines);
+    d->m_area->setExtraSelections(CodeEditArea::SpellingLayer, underlines);
     // Grammar, of the same lines; not in the word being typed, and not in a
     // text of another language (no spelling underlines either).
     QVector<ExtraSelection> grammar;
     if (grammarActive() && !otherLanguageText) {
         for (int line = first; line <= last; ++line)
             for (const GrammarMistake& mistake : grammarMistakes(line)) {
-                if (line == m_typedWord.line && mistake.start.column <= m_typedWord.end
-                        && mistake.end.column >= m_typedWord.start)
+                if (line == d->m_typedWord.line && mistake.start.column <= d->m_typedWord.end
+                        && mistake.end.column >= d->m_typedWord.start)
                     continue;
                 ExtraSelection underline;
                 underline.start = mistake.start;
                 underline.end = mistake.end;
-                underline.underline = m_grammarColor;
+                underline.underline = d->m_grammarColor;
                 grammar.append(underline);
             }
     }
-    m_area->setExtraSelections(CodeEditArea::GrammarLayer, grammar);
+    d->m_area->setExtraSelections(CodeEditArea::GrammarLayer, grammar);
     emit checked();
 }
 
 std::optional<CodeEditSpelling::Misspelling> CodeEditSpelling::misspelledWordAt(TextCursor position) {
-    if (!m_area || !m_area->document() || !m_enabled || !m_checker.isReady()) return std::nullopt;
-    ITextDocument* doc = m_area->document();
+    if (!d->m_area || !d->m_area->document() || !d->m_enabled || !d->m_checker.isReady()) return std::nullopt;
+    ITextDocument* doc = d->m_area->document();
     if (position.line < 0 || position.line >= doc->lineCount()) return std::nullopt;
     const QString text = doc->lineAt(position.line);
-    for (const auto& range : m_area->spellCheckRanges(position.line)) {
+    for (const auto& range : d->m_area->spellCheckRanges(position.line)) {
         if (position.column < range.first || position.column > range.second) continue;
-        for (const auto& word : m_checker.checkableWords(text, range.first, range.second)) {
+        for (const auto& word : d->m_checker.checkableWords(text, range.first, range.second)) {
             if (position.column < word.first || position.column > word.first + word.second) continue;
             const QString found = text.mid(word.first, word.second);
-            if (m_checker.check(found)) return std::nullopt;
+            if (d->m_checker.check(found)) return std::nullopt;
             return Misspelling{{position.line, word.first}, {position.line, word.first + word.second}, found};
         }
     }
@@ -377,24 +405,24 @@ std::optional<CodeEditSpelling::Misspelling> CodeEditSpelling::misspelledWordAt(
 }
 
 void CodeEditSpelling::replaceWord(const Misspelling& misspelling, const QString& replacement) {
-    if (!m_area || !m_area->document() || m_area->readOnly()) return;
-    m_area->undoStack()->push(new ReplaceWordCommand(m_area, misspelling.start, misspelling.end, replacement));
+    if (!d->m_area || !d->m_area->document() || d->m_area->readOnly()) return;
+    d->m_area->undoStack()->push(new ReplaceWordCommand(d->m_area, misspelling.start, misspelling.end, replacement));
 }
 
 QList<CodeEditSpelling::Misspelling> CodeEditSpelling::misspelledWords(TextCursor from, TextCursor to) {
     QList<Misspelling> result;
-    if (!m_area || !m_area->document() || !m_enabled || !m_checker.isReady()) return result;
-    m_checker.refreshUserDictionary();
-    ITextDocument* doc = m_area->document();
+    if (!d->m_area || !d->m_area->document() || !d->m_enabled || !d->m_checker.isReady()) return result;
+    d->m_checker.refreshUserDictionary();
+    ITextDocument* doc = d->m_area->document();
     const int lastLine = qMin(to.line, doc->lineCount() - 1);
     for (int line = qMax(0, from.line); line <= lastLine; ++line) {
         const QString text = doc->lineAt(line);
-        for (const auto& range : m_area->spellCheckRanges(line)) {
-            for (const auto& word : m_checker.checkableWords(text, range.first, range.second)) {
+        for (const auto& range : d->m_area->spellCheckRanges(line)) {
+            for (const auto& word : d->m_checker.checkableWords(text, range.first, range.second)) {
                 const TextCursor start{line, word.first}, end{line, word.first + word.second};
                 if (start < from || to < end) continue;
                 const QString found = text.mid(word.first, word.second);
-                if (!m_checker.check(found)) result.append({start, end, found});
+                if (!d->m_checker.check(found)) result.append({start, end, found});
             }
         }
     }
@@ -402,7 +430,7 @@ QList<CodeEditSpelling::Misspelling> CodeEditSpelling::misspelledWords(TextCurso
 }
 
 void CodeEditSpelling::replaceWords(const QList<QPair<Misspelling, QString>>& replacements) {
-    if (!m_area || !m_area->document() || m_area->readOnly() || replacements.isEmpty()) return;
+    if (!d->m_area || !d->m_area->document() || d->m_area->readOnly() || replacements.isEmpty()) return;
     // The first of overlapping ranges wins.
     QList<QPair<Misspelling, QString>> ordered;
     for (const auto& replacement : replacements) {
@@ -414,19 +442,19 @@ void CodeEditSpelling::replaceWords(const QList<QPair<Misspelling, QString>>& re
     // From the end, so that a replacement does not move the ranges before it.
     std::sort(ordered.begin(), ordered.end(),
               [](const auto& a, const auto& b) { return b.first.start < a.first.start; });
-    QUndoStack* stack = m_area->undoStack();
+    QUndoStack* stack = d->m_area->undoStack();
     stack->beginMacro(QObject::tr("Correct Spelling"));
     for (const auto& [range, replacement] : ordered)
-        stack->push(new ReplaceWordCommand(m_area, range.start, range.end, replacement));
+        stack->push(new ReplaceWordCommand(d->m_area, range.start, range.end, replacement));
     stack->endMacro();
 }
 
 QList<CodeEditSpelling::PhraseCorrection> CodeEditSpelling::phraseCorrections(const Misspelling& misspelling,
                                                                               int maxCount) const {
     QList<PhraseCorrection> result;
-    if (!m_area || !m_area->document() || !m_enabled || !m_checker.isReady()) return result;
+    if (!d->m_area || !d->m_area->document() || !d->m_enabled || !d->m_checker.isReady()) return result;
     const int line = misspelling.start.line;
-    const QString text = m_area->document()->lineAt(line);
+    const QString text = d->m_area->document()->lineAt(line);
     const auto isLetter = [](QChar c) { return c.isLetter() || c.isMark(); };
     // The neighbouring word: letters after one run of spaces.
     struct Neighbour { int start = -1, end = -1; };
@@ -446,7 +474,7 @@ QList<CodeEditSpelling::PhraseCorrection> CodeEditSpelling::phraseCorrections(co
         while (after.end < text.size() && isLetter(text[after.end])) ++after.end;
     }
     const auto add = [&](int start, int end, const QString& first, const QString& second) {
-        for (const QString& phrase : m_checker.splitSuggestions(first, second, maxCount)) {
+        for (const QString& phrase : d->m_checker.splitSuggestions(first, second, maxCount)) {
             if (int(result.size()) >= maxCount) return;
             result.append({{{line, start}, {line, end}, text.mid(start, end - start)}, phrase});
         }
@@ -461,8 +489,8 @@ QList<CodeEditSpelling::PhraseCorrection> CodeEditSpelling::phraseCorrections(co
 // One dictionary for each installed language not in use, loaded the first
 // time it is needed and again when the languages in use change.
 bool CodeEditSpelling::inOtherLanguage(const QString& word) {
-    const QStringList inUse = m_checker.dictionaries();
-    if (!m_otherLanguages || m_otherLanguagesFor != inUse) {
+    const QStringList inUse = d->m_checker.dictionaries();
+    if (!d->m_otherLanguages || d->m_otherLanguagesFor != inUse) {
         QSet<QString> usedLanguages;
         QStringList others;
         const QList<Dictionary> installed = installedDictionaries();
@@ -473,28 +501,47 @@ bool CodeEditSpelling::inOtherLanguage(const QString& word) {
             usedLanguages.insert(dictionary.language);
             others << dictionaryFor(dictionary.language);
         }
-        m_otherLanguages = std::make_unique<SpellChecker>();
-        m_otherLanguages->setLanguages(others);
-        m_otherLanguagesFor = inUse;
+        d->m_otherLanguages = std::make_unique<SpellChecker>();
+        d->m_otherLanguages->setLanguages(others);
+        d->m_otherLanguagesFor = inUse;
     }
     // check() accepts everything when no dictionary is in use.
-    return m_otherLanguages->isReady() && m_otherLanguages->check(word);
+    return d->m_otherLanguages->isReady() && d->m_otherLanguages->check(word);
 }
 
 void CodeEditSpelling::addToDictionary(const QString& word) {
-    m_checker.addToDictionary(word);
+    d->m_checker.addToDictionary(word);
     recheck();
 }
 
 void CodeEditSpelling::setDocumentPath(const QString& path) {
-    if (path == m_checker.documentPath()) return;
-    m_checker.setDocumentPath(path);
+    if (path == d->m_checker.documentPath()) return;
+    d->m_checker.setDocumentPath(path);
     recheck();
 }
 
 void CodeEditSpelling::ignore(const QString& word) {
-    m_checker.ignore(word);
+    d->m_checker.ignore(word);
     recheck();
+}
+
+
+SpellChecker& CodeEditSpelling::checker() { return d->m_checker; }
+QStringList CodeEditSpelling::dictionaries() const { return d->m_checker.dictionaries(); }
+bool CodeEditSpelling::isReady() const { return d->m_checker.isReady(); }
+bool CodeEditSpelling::isEnabled() const { return d->m_enabled; }
+bool CodeEditSpelling::correctsWhileTyping() const { return d->m_correctWhileTyping; }
+void CodeEditSpelling::setHunspellSuggestions(SpellChecker::HunspellSuggestions when) { d->m_checker.setHunspellSuggestions(when); }
+QColor CodeEditSpelling::underlineColor() const { return d->m_color; }
+bool CodeEditSpelling::isGrammarEnabled() const { return d->m_grammarEnabled; }
+QColor CodeEditSpelling::grammarUnderlineColor() const { return d->m_grammarColor; }
+GrammarChecker* CodeEditSpelling::currentGrammar() const { return d->m_grammar ? d->m_grammar.get() : d->m_builtinGrammar.get(); }
+
+QStringList CodeEditSpelling::suggestions(const QString& word, int maxCount) const {
+    return d->m_checker.suggestions(word, maxCount);
+}
+QList<SpellChecker::Suggestion> CodeEditSpelling::scoredSuggestions(const QString& word, int maxCount) const {
+    return d->m_checker.scoredSuggestions(word, maxCount);
 }
 
 } // namespace qce::spell

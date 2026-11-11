@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <qce/encoding/Encoding.h>
 
 #include <QObject>
@@ -33,16 +35,16 @@ public:
 
     /// Format of the document (from decode()); used by encodeForSave().
     void setFormat(const FileFormat& format);
-    const FileFormat& format() const { return m_format; }
+    const FileFormat& format() const;
 
     /// Changes only the encoding, e.g. to "utf8" on the user's request.
     void setEncoding(const QString& encoding);
-    QString encoding() const { return m_format.encoding; }
+    QString encoding() const;
 
     using ChoiceFn = std::function<Choice(const QList<char32_t>& characters,
                                           const QString& encoding)>;
     /// Replaces the default message box (e.g. for tests or a custom UI).
-    void setChoiceHandler(ChoiceFn fn) { m_choice = std::move(fn); }
+    void setChoiceHandler(ChoiceFn fn);
 
     /// The default question: a message box over `parent`.
     static Choice askUser(QWidget* parent, const QList<char32_t>& characters,
@@ -63,9 +65,10 @@ private:
     bool filter(QString& text);
     Choice choose(const QList<char32_t>& characters);
 
-    QPointer<CodeEditArea> m_area;
-    FileFormat m_format;
-    ChoiceFn m_choice;
+    // The state, in EncodingGuard.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
 };
 
 } // namespace qce::encoding

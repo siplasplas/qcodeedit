@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include "FoldMarker.h"
 #include "IHighlighter.h"
 
@@ -137,7 +139,12 @@ struct KeywordList {
 /// XML or any other file format; that's the job of external code (demo).
 class RulesHighlighter : public IHighlighter {
 public:
-    RulesHighlighter() = default;
+    ~RulesHighlighter();
+    RulesHighlighter(const RulesHighlighter& other);
+    RulesHighlighter& operator=(const RulesHighlighter& other);
+    RulesHighlighter(RulesHighlighter&& other) noexcept;
+    RulesHighlighter& operator=(RulesHighlighter&& other) noexcept;
+    RulesHighlighter();
 
     // --- Builder API (used by the XML reader / test code) ---------------
 
@@ -150,14 +157,14 @@ public:
     /// endRegion="curly" matches beginRegion="curly".
     int regionIdForName(const QString& name);
     QString regionNameById(int id) const;
-    int regionCount() const { return m_regionNames.size(); }
+    int regionCount() const;
 
     /// Mutable access to a context, used to append rules after creation
     /// (rules may reference contexts that are defined later).
     HighlightContext& contextRef(int id);
 
-    void setInitialContextId(int id) { m_initialContextId = id; }
-    int  initialContextId() const { return m_initialContextId; }
+    void setInitialContextId(int id);
+    int  initialContextId() const;
 
     // --- Name-based lookup (convenience for readers that parse by name) -
 
@@ -171,7 +178,7 @@ public:
                        const HighlightState& stateIn,
                        QVector<StyleSpan>&   spans,
                        HighlightState&       stateOut) const override;
-    const QVector<TextAttribute>& attributes() const override { return m_attributes; }
+    const QVector<TextAttribute>& attributes() const override;
 
     /// Extended variant that also reports fold-marker events encountered
     /// during matching. Used by RuleBasedFoldingProvider. Emits events in
@@ -218,14 +225,10 @@ private:
     /// Returns the index of the first non-whitespace QChar in `line`, or -1.
     static int firstNonSpacePos(const QString& line);
 
-    QVector<TextAttribute>     m_attributes;
-    QVector<HighlightContext>  m_contexts;
-    QVector<KeywordList>       m_keywords;
-    QHash<QString, int>        m_contextByName;
-    QHash<QString, int>        m_keywordByName;
-    QVector<QString>           m_regionNames;   ///< id → name
-    QHash<QString, int>        m_regionIdByName;
-    int                        m_initialContextId = 0;
+    // The state, in RulesHighlighter.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
 };
 
 } // namespace qce

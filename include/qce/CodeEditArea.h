@@ -41,12 +41,12 @@ public:
     ~CodeEditArea() override;
 
     void setDocument(ITextDocument* doc);
-    ITextDocument* document() const { return m_doc; }
+    ITextDocument* document() const;
 
-    ViewportState viewportState() const { return m_viewportState; }
+    ViewportState viewportState() const;
 
     // --- Cursor ---
-    TextCursor cursorPosition() const { return m_cursor; }
+    TextCursor cursorPosition() const;
     void setCursorPosition(TextCursor pos);
     /// The text position at `viewportPoint` (in viewport() coordinates), as a
     /// click there would place the cursor; e.g. the word under a context-menu
@@ -54,7 +54,7 @@ public:
     TextCursor cursorAt(const QPoint& viewportPoint) const { return cursorFromPoint(viewportPoint); }
 
     // --- Selection ---
-    bool hasSelection() const { return m_anchor != m_cursor; }
+    bool hasSelection() const;
     TextCursor selectionStart() const;
     TextCursor selectionEnd() const;
     QString selectedText() const;
@@ -71,7 +71,7 @@ public:
     /// Cleared on any text change/reset or document replacement; no automatic tracking.
     /// Updating decorations only repaints, without re-highlighting or recomputing folds.
     void setExtraSelections(const QVector<ExtraSelection>& selections);
-    QVector<ExtraSelection> extraSelections() const { return m_selectionLayers.value(0); }
+    QVector<ExtraSelection> extraSelections() const;
 
     /// Decorations in independent layers, so that e.g. spelling underlines and
     /// search matches do not replace each other; setExtraSelections(selections)
@@ -79,7 +79,7 @@ public:
     /// layer overrides only the colors it sets (background, foreground,
     /// underline). All layers are cleared on any text change.
     void setExtraSelections(int layer, const QVector<ExtraSelection>& selections);
-    QVector<ExtraSelection> extraSelections(int layer) const { return m_selectionLayers.value(layer); }
+    QVector<ExtraSelection> extraSelections(int layer) const;
     /// Layer used for spelling underlines by qcodeedit-spell.
     static constexpr int SpellingLayer = 100;
     /// Layer used for grammar underlines by qcodeedit-spell.
@@ -93,7 +93,7 @@ public:
     QList<QPair<int, int>> spellCheckRanges(int line);
 
     void setSelectionColor(const QColor& color);
-    QColor selectionColor() const { return m_selectionColor; }
+    QColor selectionColor() const;
 
     /// Per-line background provider. Returns the fill colour for a logical
     /// line, or an invalid QColor to leave the default. Intended for
@@ -107,7 +107,7 @@ public:
     /// Off by default (invalid QColor). A colour from the line background
     /// provider takes precedence on its lines.
     void setCurrentLineColor(const QColor& color);
-    QColor currentLineColor() const { return m_currentLineColor; }
+    QColor currentLineColor() const;
 
     /// Called before user text enters the document: typed characters, paste
     /// and input-method commits. The filter may change `text`; returning
@@ -115,7 +115,7 @@ public:
     /// to keep a legacy code page document representable. Pass an empty
     /// function to remove it.
     using InsertFilterFn = std::function<bool(QString& text)>;
-    void setInsertFilter(InsertFilterFn fn) { m_insertFilter = std::move(fn); }
+    void setInsertFilter(InsertFilterFn fn);
 
     // --- Undo / redo ---
     void undo();
@@ -124,7 +124,7 @@ public:
     bool canRedo() const;
 
     /// Exposes the undo stack for external wiring (e.g. menu enable/disable).
-    QUndoStack* undoStack() const { return m_undoStack; }
+    QUndoStack* undoStack() const;
 
     // --- Editing ---
     /// Insert `text` at the cursor, replacing the selection, as one undo step
@@ -162,12 +162,12 @@ public:
     /// other widgets. Ctrl+Tab and Shift+Ctrl+Tab always pass through (e.g.
     /// to switch tabs).
     void setTabCaptured(bool captured);
-    bool tabCaptured() const { return m_tabCaptured; }
+    bool tabCaptured() const;
 
     /// Grey hint shown while the document is empty (e.g. "Type a message");
     /// empty = none.
     void setPlaceholderText(const QString& text);
-    QString placeholderText() const { return m_placeholderText; }
+    QString placeholderText() const;
 
     /// The rows the text takes as drawn: wrapped rows with word wrap, lines
     /// without it (collapsed folds excluded); at least 1. E.g. for a field that
@@ -188,12 +188,12 @@ public:
     void ensureVisible(TextCursor pos, int marginRows = 0);
 
     void setReadOnly(bool ro);
-    bool readOnly() const { return m_readOnly; }
+    bool readOnly() const;
 
-    bool overwriteMode() const { return m_overwrite; }
+    bool overwriteMode() const;
 
     void setWordWrap(bool wrap);
-    bool wordWrap() const { return m_wordWrap; }
+    bool wordWrap() const;
 
     void setShowWhitespace(bool show);
     bool showWhitespace() const;
@@ -201,7 +201,7 @@ public:
     /// Attach a syntax highlighter (non-owning). Pass nullptr to disable
     /// highlighting. Schedules a full re-highlight of the document.
     void setHighlighter(IHighlighter* hl);
-    IHighlighter* highlighter() const { return m_highlighter; }
+    IHighlighter* highlighter() const;
 
     /// Documents longer than this are highlighted lazily: visible lines when
     /// painted, the rest in the background (fold regions follow once the
@@ -219,12 +219,12 @@ public:
     /// Attach a folding provider (non-owning). Pass nullptr to disable.
     /// Recomputes regions immediately.
     void setFoldingProvider(IFoldingProvider* p);
-    IFoldingProvider* foldingProvider() const { return m_foldingProvider; }
+    IFoldingProvider* foldingProvider() const;
 
     /// Editor-owned fold state. Exposed so margins (gutter) can read it and
     /// invoke toggleFoldAt(). Non-const so FoldingGutter can call into it.
-    FoldState& foldState() { finishShortHighlight(); return m_foldState; }
-    const FoldState& foldState() const { finishShortHighlight(); return m_foldState; }
+    FoldState& foldState();
+    const FoldState& foldState() const;
 
     /// If a region starts on `line`, toggle its collapsed state. Rebuilds
     /// layout and repaints.
@@ -241,7 +241,7 @@ public:
     /// Text being composed by an input method (IME pre-edit). Painted inline
     /// at the caret but not part of the document; empty when no composition
     /// is in progress.
-    QString preeditString() const { return m_preedit; }
+    QString preeditString() const;
 
     QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
 
@@ -293,69 +293,14 @@ private:
     // A new text set by changing the lines that differ: what it changed, and
     // where the cursor, the anchor and the top line of the view go.
     struct Replacement;
-    std::unique_ptr<Replacement> m_replacement;
-    ITextDocument* m_doc = nullptr;
-    ViewportState  m_viewportState;
-    TextCursor     m_cursor;
-    TextCursor     m_anchor;
-    bool           m_mouseSelecting = false;
-    QColor m_selectionColor{QStringLiteral("#A6D2FF")};
-    LineBackgroundFn m_lineBgProvider;
-    QColor m_currentLineColor;
-    QString m_placeholderText;
+    // The state, in CodeEditArea.cpp: fields added there keep the binary
+    // interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
+
     QColor lineBackground(int line) const;
-    InsertFilterFn m_insertFilter;
-    // Normalized decorations per layer (empty layers are removed).
-    QMap<int, QVector<ExtraSelection>> m_selectionLayers;
-    // Disjoint, sorted segments per logical line, all layers merged; overlap
-    // resolved on bulk update.
-    QHash<int, QVector<ExtraSelection>> m_extraSelectionsByLine;
     void rebuildDecorations();
     void clearAllExtraSelections();
-    bool   m_tabCaptured     = true;
-    bool   m_readOnly        = false;
-    bool   m_overwrite       = false;
-    bool   m_wordWrap        = false;
-
-    std::unique_ptr<LineRenderer>      m_renderer;
-    std::unique_ptr<WrapLayout>        m_wrapLayout;
-
-    IHighlighter*                      m_highlighter = nullptr;
-    QVector<HighlightState>            m_lineEndStates;
-    QVector<QVector<StyleSpan>>        m_lineSpans;
-    /// Fold markers per line, collected while highlighting; lets the folding
-    /// provider build regions without tokenising the document again.
-    QVector<QVector<FoldMarker>>       m_lineFolds;
-    /// Line count the caches above and the fold state match. Differs from the
-    /// document while it has reported a changed line but not yet the lines
-    /// it inserted or removed.
-    int                                m_knownLineCount = 0;
-    /// Earliest changed line whose re-highlight waits for that signal.
-    int                                m_pendingRehighlightFrom = -1;
-    /// Document changes made as one (a text replaced by its differing lines,
-    /// its undo and redo, replaceRanges()): while the depth is above 0 each
-    /// change only moves the per-line caches; the highlighting, the folds,
-    /// the wrap layout and the view follow once, at the end, from the
-    /// earliest line changed (-1: none).
-    int                                m_batchDepth = 0;
-    int                                m_batchRehighlightFrom = -1;
-    /// Lines [0, m_validLines) have up-to-date spans, end states and markers.
-    int                                m_validLines = 0;
-    /// Folds wait for the highlighting to reach the end of the document.
-    bool                               m_foldsPending = false;
-    QTimer*                            m_highlightTimer = nullptr;
-
-    IFoldingProvider*                  m_foldingProvider = nullptr;
-    FoldState                          m_foldState;
-    std::unique_ptr<CursorController>  m_cursorCtrl;
-    std::unique_ptr<CaretPainter>      m_caretPainter;
-    QUndoStack*                        m_undoStack = nullptr;
-
-    // Input-method pre-edit (display only, never in the document or undo).
-    QString                                 m_preedit;
-    QList<QInputMethodEvent::Attribute>     m_preeditAttributes;
-    int                                     m_preeditCursor = 0;  ///< QChar index in m_preedit
-    bool                                    m_preeditCursorVisible = true;
 
     // --- Navigation helpers ---
     void refreshViewportState();

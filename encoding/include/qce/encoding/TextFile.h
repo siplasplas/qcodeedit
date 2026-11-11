@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <qce/encoding/Encoding.h>
 
 #include <QDateTime>
@@ -50,10 +52,10 @@ public:
     ~TextFile() override;
 
     /// The guard keeping typed text storable (e.g. for its choice handler).
-    EncodingGuard* guard() const { return m_guard; }
+    EncodingGuard* guard() const;
 
     /// Empty for a document never opened or saved.
-    QString path() const { return m_path; }
+    QString path() const;
     /// Encoding, BOM and line breaks the file is saved with.
     const FileFormat& format() const;
     QString encoding() const { return format().encoding; }
@@ -67,20 +69,20 @@ public:
 
     /// Languages of files not in UTF-8 (cpg keys, e.g. "pl", "cz"): only
     /// their code pages are considered when detecting; empty = all.
-    void setLegacyLanguages(const QStringList& languages) { m_legacyLanguages = languages; }
-    QStringList legacyLanguages() const { return m_legacyLanguages; }
+    void setLegacyLanguages(const QStringList& languages);
+    QStringList legacyLanguages() const;
 
-    void setTrimWhitespace(TrimWhitespace mode) { m_trim = mode; }
-    TrimWhitespace trimWhitespace() const { return m_trim; }
+    void setTrimWhitespace(TrimWhitespace mode);
+    TrimWhitespace trimWhitespace() const;
 
     /// Changes the bytes read from or written to `path`, e.g. decrypts and
     /// encrypts. A filter returning Failed or Cancelled stops the reading or
     /// saving; Failed should set the message through setErrorString().
     using Filter = std::function<Result(const QString& path, QByteArray* bytes)>;
-    void setReadFilter(Filter filter) { m_readFilter = std::move(filter); }
-    void setWriteFilter(Filter filter) { m_writeFilter = std::move(filter); }
-    void setErrorString(const QString& error) { m_error = error; }
-    QString errorString() const { return m_error; }
+    void setReadFilter(Filter filter);
+    void setWriteFilter(Filter filter);
+    void setErrorString(const QString& error);
+    QString errorString() const;
 
     /// Opens a file with a new undo history and the cursor at the start; an
     /// empty `encoding` detects it. A path that does not exist yet gives an
@@ -107,10 +109,10 @@ public:
     /// The alternatives when the encoding was detected without confidence on
     /// opening (best first; the file is shown in the first); empty when
     /// detection was confident or the encoding was given.
-    const EncodingDetection& uncertainDetection() const { return m_uncertain; }
+    const EncodingDetection& uncertainDetection() const;
 
     /// The text as last read or saved (lines joined by "\n").
-    QString savedText() const { return m_savedText; }
+    QString savedText() const;
 
 signals:
     /// isModified() changed.
@@ -133,24 +135,10 @@ private:
     void updateDiskStamp();
     void updateModified();
 
-    QPointer<CodeEditArea> m_area;
-    SimpleTextDocument* m_document;
-    EncodingGuard* m_guard;
-    QString m_path;
-    QString m_savedText;
-    QString m_error;
-    QStringList m_legacyLanguages;
-    TrimWhitespace m_trim = TrimWhitespace::Off;
-    Filter m_readFilter;
-    Filter m_writeFilter;
-    EncodingDetection m_uncertain;
-    QDateTime m_diskModified;
-    qint64 m_diskSize = -1;
-    bool m_formatChanged = false;    ///< the encoding to save in changed
-    bool m_reportedModified = false; ///< isModified() as last reported
-    bool m_settingFormat = false;    ///< the format changes by reading or saving, not by the user
-    /// Reading or saving: the undo stack's passing states are not reported.
-    bool m_busy = false;
+    // The state, in TextFile.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
 };
 
 } // namespace qce::encoding

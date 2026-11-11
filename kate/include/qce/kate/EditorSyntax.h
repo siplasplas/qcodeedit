@@ -47,22 +47,22 @@ public:
     EditorSyntax& operator=(const EditorSyntax&) = delete;
 
     /// The file whose name chooses the definition in Automatic mode.
-    void setFileName(const QString& path) { m_fileName = path; }
-    QString fileName() const { return m_fileName; }
+    void setFileName(const QString& path);
+    QString fileName() const;
 
-    Mode mode() const { return m_mode; }
+    Mode mode() const;
     void setAutomatic();
     void setPlainText();
     /// `syntaxFile` is a definition's file name in syntaxIndex()
     /// (LanguageEntry::file), e.g. "cpp.xml".
     void setManual(const QString& syntaxFile);
     /// The definition set by setManual(); empty in the other modes.
-    QString syntaxFile() const { return m_syntaxFile; }
+    QString syntaxFile() const;
 
     /// A *.theme file; empty = the default theme for the desktop.
-    void setThemeFile(const QString& path) { m_themeFile = path; }
-    QString themeFile() const { return m_themeFile; }
-    const KateTheme& theme() const { return m_theme; }
+    void setThemeFile(const QString& path);
+    QString themeFile() const;
+    const KateTheme& theme() const;
 
     /// Loads the theme and the definition again and applies them, e.g. after
     /// the mode, the file name or the theme changed, or the Kate data was
@@ -79,15 +79,10 @@ private:
                  const QList<QPair<QString, QString>>& placeholders);
     void clear();
 
-    CodeEdit* m_edit;
-    QPalette m_defaultPalette;
-    KateTheme m_theme;
-    QString m_themeFile;
-    QString m_fileName;
-    QString m_syntaxFile;
-    Mode m_mode = Mode::Automatic;
-    std::unique_ptr<RulesHighlighter> m_highlighter;
-    std::unique_ptr<RuleBasedFoldingProvider> m_foldProvider;
+    // The state, in EditorSyntax.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
 };
 
 } // namespace qce::kate

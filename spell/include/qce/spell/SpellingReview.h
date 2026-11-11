@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <qce/spell/CodeEditSpelling.h>
 
 #include <QDialog>
@@ -85,6 +87,7 @@ struct SpellingReviewItem {
 class SpellingReviewDialog : public QDialog {
     Q_OBJECT
 public:
+    ~SpellingReviewDialog();
     SpellingReviewDialog(const QList<SpellingReviewItem>& items, bool inSelection, CheckedAtFirst checkedAtFirst,
                          QWidget* parent = nullptr, CodeEditSpelling* spelling = nullptr);
 
@@ -95,7 +98,7 @@ public:
     /// How long finding the corrections took, shown with the time a word.
     void setSearchTime(qint64 milliseconds);
     /// Words corrected with Correct while the window stayed open.
-    int correctedSoFar() const { return m_corrected; }
+    int correctedSoFar() const;
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -141,18 +144,11 @@ private:
     /// The score shown in a row (and its sort key); none for a negative one.
     static void showScore(QTreeWidgetItem* row, double score);
 
-    QList<SpellingReviewItem> m_items;
-    QTreeWidget* m_list = nullptr;
-    QLabel* m_summary = nullptr;
-    QComboBox* m_filter = nullptr;
-    QComboBox* m_action = nullptr;
-    QCheckBox* m_pickChecks = nullptr;
-    QLabel* m_searchTime = nullptr;
-    QPointer<CodeEditSpelling> m_spelling;
+    // The state, in SpellingReview.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
     std::function<void()> m_updateButtons;
-    bool m_bulkChange = false;  ///< many rows change: the summary waits
-    int m_rowHeight = 0;        ///< of every row: a correction box fits
-    int m_corrected = 0;        ///< by Correct, the window left open
 };
 
 /// Reviews the misspelled words of the selection of the spelling's editor, or

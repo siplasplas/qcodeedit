@@ -6,57 +6,71 @@ namespace qce {
 // Builder API
 // ---------------------------------------------------------------------------
 
+struct RulesHighlighter::Private {
+    QVector<TextAttribute>     m_attributes;
+    QVector<HighlightContext>  m_contexts;
+    QVector<KeywordList>       m_keywords;
+    QHash<QString, int>        m_contextByName;
+    QHash<QString, int>        m_keywordByName;
+    QVector<QString>           m_regionNames;   ///< id → name
+    QHash<QString, int>        m_regionIdByName;
+    int                        m_initialContextId = 0;
+};
+
+RulesHighlighter::RulesHighlighter() : d(std::make_unique<Private>()) {}
+
+
 int RulesHighlighter::addAttribute(TextAttribute attr) {
-    m_attributes.push_back(std::move(attr));
-    return m_attributes.size() - 1;
+    d->m_attributes.push_back(std::move(attr));
+    return d->m_attributes.size() - 1;
 }
 
 int RulesHighlighter::addContext(HighlightContext ctx) {
     const QString name = ctx.name;
-    m_contexts.push_back(std::move(ctx));
-    const int id = m_contexts.size() - 1;
+    d->m_contexts.push_back(std::move(ctx));
+    const int id = d->m_contexts.size() - 1;
     if (!name.isEmpty()) {
-        m_contextByName.insert(name, id);
+        d->m_contextByName.insert(name, id);
     }
     return id;
 }
 
 int RulesHighlighter::addKeywordList(KeywordList kw) {
     const QString name = kw.name;
-    m_keywords.push_back(std::move(kw));
-    const int id = m_keywords.size() - 1;
+    d->m_keywords.push_back(std::move(kw));
+    const int id = d->m_keywords.size() - 1;
     if (!name.isEmpty()) {
-        m_keywordByName.insert(name, id);
+        d->m_keywordByName.insert(name, id);
     }
     return id;
 }
 
 int RulesHighlighter::regionIdForName(const QString& name) {
     if (name.isEmpty()) return -1;
-    auto it = m_regionIdByName.find(name);
-    if (it != m_regionIdByName.end()) return it.value();
-    const int id = m_regionNames.size();
-    m_regionNames.push_back(name);
-    m_regionIdByName.insert(name, id);
+    auto it = d->m_regionIdByName.find(name);
+    if (it != d->m_regionIdByName.end()) return it.value();
+    const int id = d->m_regionNames.size();
+    d->m_regionNames.push_back(name);
+    d->m_regionIdByName.insert(name, id);
     return id;
 }
 
 QString RulesHighlighter::regionNameById(int id) const {
-    if (id < 0 || id >= m_regionNames.size()) return {};
-    return m_regionNames[id];
+    if (id < 0 || id >= d->m_regionNames.size()) return {};
+    return d->m_regionNames[id];
 }
 
 HighlightContext& RulesHighlighter::contextRef(int id) {
-    Q_ASSERT(id >= 0 && id < m_contexts.size());
-    return m_contexts[id];
+    Q_ASSERT(id >= 0 && id < d->m_contexts.size());
+    return d->m_contexts[id];
 }
 
 int RulesHighlighter::contextIdByName(const QString& name) const {
-    return m_contextByName.value(name, -1);
+    return d->m_contextByName.value(name, -1);
 }
 
 int RulesHighlighter::keywordListIdByName(const QString& name) const {
-    return m_keywordByName.value(name, -1);
+    return d->m_keywordByName.value(name, -1);
 }
 
 // ---------------------------------------------------------------------------
@@ -65,7 +79,7 @@ int RulesHighlighter::keywordListIdByName(const QString& name) const {
 
 HighlightState RulesHighlighter::initialState() const {
     HighlightState s;
-    s.contextStack.push_back(m_initialContextId);
+    s.contextStack.push_back(d->m_initialContextId);
     s.captureStack.push_back({});   // invariant: parallel to contextStack
     return s;
 }
@@ -312,7 +326,7 @@ int RulesHighlighter::matchAt(const HighlightRule& rule,
     }
 
     case HighlightRule::Keyword: {
-        if (rule.keywordListId < 0 || rule.keywordListId >= m_keywords.size()) return 0;
+        if (rule.keywordListId < 0 || rule.keywordListId >= d->m_keywords.size()) return 0;
         // word boundary before
         if (pos > 0 && isIdentifierCont(line.at(pos - 1))) return 0;
         // scan word
@@ -320,7 +334,7 @@ int RulesHighlighter::matchAt(const HighlightRule& rule,
         while (end < line.size() && !isWordDeliminator(line.at(end))) ++end;
         if (end == pos) return 0;
         const QString word = line.mid(pos, end - pos);
-        const KeywordList& kl = m_keywords[rule.keywordListId];
+        const KeywordList& kl = d->m_keywords[rule.keywordListId];
         if (kl.caseSensitive) {
             return kl.words.contains(word) ? (end - pos) : 0;
         } else {
@@ -494,7 +508,7 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
     // Guarantee a non-empty stack: if caller passed an empty state, treat it
     // as "start from the initial context".
     if (stateOut.contextStack.isEmpty()) {
-        stateOut.contextStack.push_back(m_initialContextId);
+        stateOut.contextStack.push_back(d->m_initialContextId);
     }
     // Maintain the captureStack invariant: size matches contextStack. Older
     // callers that constructed HighlightState{} by hand won't have populated
@@ -540,8 +554,8 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
     constexpr int kMaxStalledSteps = 64;
     while (pos < line.size()) {
         const int ctxId = stateOut.contextStack.last();
-        if (ctxId < 0 || ctxId >= m_contexts.size()) break;
-        const HighlightContext& ctx = m_contexts[ctxId];
+        if (ctxId < 0 || ctxId >= d->m_contexts.size()) break;
+        const HighlightContext& ctx = d->m_contexts[ctxId];
         const QStringList& activeCaps = stateOut.captureStack.last();
 
         // Find first matching rule. IncludeRules flattened by iterating
@@ -556,9 +570,9 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
             for (const HighlightRule& rule : c.rules) {
                 if (rule.kind == HighlightRule::IncludeRules) {
                     if (rule.includedContextId >= 0
-                        && rule.includedContextId < m_contexts.size()
+                        && rule.includedContextId < d->m_contexts.size()
                         && rule.includedContextId != ctxId) {
-                        if (tryRef(m_contexts[rule.includedContextId], tryRef)) return true;
+                        if (tryRef(d->m_contexts[rule.includedContextId], tryRef)) return true;
                     }
                     continue;
                 }
@@ -622,12 +636,24 @@ void RulesHighlighter::highlightLineEx(const QString&        line,
     // at end of line).
     if (!stateOut.contextStack.isEmpty()) {
         const int ctxId = stateOut.contextStack.last();
-        if (ctxId >= 0 && ctxId < m_contexts.size()) {
-            const HighlightContext& ctx = m_contexts[ctxId];
+        if (ctxId >= 0 && ctxId < d->m_contexts.size()) {
+            const HighlightContext& ctx = d->m_contexts[ctxId];
             switchCtx(ctx.lineEndPopCount, ctx.lineEndExtraPushContextIds,
                       ctx.lineEndNextContext, QStringList());
         }
     }
 }
+
+
+RulesHighlighter::~RulesHighlighter() = default;
+RulesHighlighter::RulesHighlighter(const RulesHighlighter& other) : d(std::make_unique<Private>(*other.d)) {}
+RulesHighlighter& RulesHighlighter::operator=(const RulesHighlighter& other) { if (this != &other) *d = *other.d; return *this; }
+// The source stays usable, with an empty state.
+RulesHighlighter::RulesHighlighter(RulesHighlighter&& other) noexcept : d(std::make_unique<Private>()) { d.swap(other.d); }
+RulesHighlighter& RulesHighlighter::operator=(RulesHighlighter&& other) noexcept { d.swap(other.d); return *this; }
+int RulesHighlighter::regionCount() const { return d->m_regionNames.size(); }
+void RulesHighlighter::setInitialContextId(int id) { d->m_initialContextId = id; }
+int RulesHighlighter::initialContextId() const { return d->m_initialContextId; }
+const QVector<TextAttribute>& RulesHighlighter::attributes() const { return d->m_attributes; }
 
 } // namespace qce

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include "IFoldingProvider.h"
 
 #include <QHash>
@@ -18,13 +20,16 @@ class RulesHighlighter;
 /// feeding this provider).
 class RuleBasedFoldingProvider : public IFoldingProvider {
 public:
-    explicit RuleBasedFoldingProvider(const RulesHighlighter* hl) : m_hl(hl) {}
+    ~RuleBasedFoldingProvider();
+    RuleBasedFoldingProvider(const RuleBasedFoldingProvider& other);
+    RuleBasedFoldingProvider& operator=(const RuleBasedFoldingProvider& other);
+    RuleBasedFoldingProvider(RuleBasedFoldingProvider&& other) noexcept;
+    RuleBasedFoldingProvider& operator=(RuleBasedFoldingProvider&& other) noexcept;
+    explicit RuleBasedFoldingProvider(const RulesHighlighter* hl);
 
     /// Set a placeholder template for regions with a given group (= Kate
     /// region name). Default "…" used when nothing is configured.
-    void setPlaceholderFor(const QString& group, const QString& text) {
-        m_placeholders.insert(group, text);
-    }
+    void setPlaceholderFor(const QString& group, const QString& text);
 
     QVector<FoldRegion> computeRegions(const ITextDocument* doc) const override;
 
@@ -48,8 +53,10 @@ public:
 private:
     class Pairer;
 
-    const RulesHighlighter* m_hl;
-    QHash<QString, QString> m_placeholders;
+    // The state, in RuleBasedFoldingProvider.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
 };
 
 } // namespace qce

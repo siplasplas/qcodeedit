@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <qce/spell/CodeEditSpelling.h>
 
 #include <QDialog>
@@ -26,12 +28,13 @@ namespace qce::spell {
 class GrammarReviewDialog : public QDialog {
     Q_OBJECT
 public:
+    ~GrammarReviewDialog();
     GrammarReviewDialog(CodeEditSpelling& spelling, int firstLine, int lastLine, bool inSelection,
                         QWidget* parent = nullptr);
     /// Mistakes corrected so far.
-    int correctedSoFar() const { return m_corrected; }
+    int correctedSoFar() const;
     /// Mistakes found in the lines now.
-    int mistakeCount() const { return int(m_mistakes.size()); }
+    int mistakeCount() const;
 
 signals:
     /// openGrammarReview()'s window closed: how many mistakes were corrected.
@@ -48,14 +51,10 @@ private:
     /// problem, line and the whole line of text, separated by tabs.
     void copyRows();
 
-    QPointer<CodeEditSpelling> m_spelling;
-    int m_firstLine = 0;
-    int m_lastLine = 0;
-    QList<CodeEditSpelling::GrammarMistake> m_mistakes;
-    QTreeWidget* m_list = nullptr;
-    QComboBox* m_filter = nullptr;
-    QLabel* m_summary = nullptr;
-    int m_corrected = 0;
+    // The state, in GrammarReview.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
 };
 
 /// Reviews the grammar mistakes of the selection's lines of the spelling's

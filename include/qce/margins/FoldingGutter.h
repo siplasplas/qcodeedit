@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <qce/IMargin.h>
 
 #include <functional>
@@ -19,6 +21,11 @@ class FoldState;
 /// and the callback is user-provided.
 class FoldingGutter : public IMargin {
 public:
+    ~FoldingGutter();
+    FoldingGutter(const FoldingGutter& other);
+    FoldingGutter& operator=(const FoldingGutter& other);
+    FoldingGutter(FoldingGutter&& other) noexcept;
+    FoldingGutter& operator=(FoldingGutter&& other) noexcept;
     using ToggleCallback = std::function<void(int logicalLine)>;
 
     FoldingGutter(const FoldState* state, ToggleCallback toggle);
@@ -30,12 +37,13 @@ public:
     void mousePressed(const QPoint& local,
                       const ViewportState& vp,
                       const QRect& marginRect) override;
-    void hoverChanged(bool hovered) override { m_hovered = hovered; }
+    void hoverChanged(bool hovered) override;
 
 private:
-    const FoldState* m_state;
-    ToggleCallback   m_toggle;
-    bool m_hovered = false;
+    // The state, in FoldingGutter.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
 };
 
 } // namespace qce

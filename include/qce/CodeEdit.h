@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <qce/GutterColors.h>
 
 #include <QWidget>
@@ -42,7 +44,7 @@ public:
 
     /// Direct access to the rendering area, e.g. for font queries or
     /// additional signal connections.
-    CodeEditArea* area() const { return m_area; }
+    CodeEditArea* area() const;
 
     /// Adds a margin to the left rail. Non-owning; caller manages lifetime.
     void addLeftMargin(IMargin* margin);
@@ -61,7 +63,7 @@ public:
     /// and a standalone QScrollBar is placed at the far left of the layout,
     /// kept in sync with the area's scroll position.
     void setScrollBarSide(ScrollBarSide side);
-    ScrollBarSide scrollBarSide() const { return m_scrollBarSide; }
+    ScrollBarSide scrollBarSide() const;
 
     /// Colours of both rails. Invalid entries (the default) are derived from
     /// the area's palette; set them from a theme for exact colours.
@@ -69,11 +71,10 @@ public:
     GutterColors gutterColors() const;
 
 private:
-    CodeEditArea* m_area        = nullptr;
-    LeftRail*     m_leftRail    = nullptr;
-    RightRail*    m_rightRail   = nullptr;
-    QScrollBar*   m_leftVScroll = nullptr; // non-null only in Left mode
-    ScrollBarSide m_scrollBarSide = ScrollBarSide::Right;
+    // The state, in CodeEdit.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
 
     void applyScrollBarSide(ScrollBarSide side);
 };

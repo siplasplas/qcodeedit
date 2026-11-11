@@ -148,9 +148,27 @@ CheckedAtFirst checkedAtFirstFromName(const QString& name) {
     return CheckedAtFirst(qMax(0, int(checkedAtFirstNames().indexOf(name))));
 }
 
+struct SpellingReviewDialog::Private {
+    QList<SpellingReviewItem> m_items;
+    QTreeWidget* m_list = nullptr;
+    QLabel* m_summary = nullptr;
+    QComboBox* m_filter = nullptr;
+    QComboBox* m_action = nullptr;
+    QCheckBox* m_pickChecks = nullptr;
+    QLabel* m_searchTime = nullptr;
+    QPointer<CodeEditSpelling> m_spelling;
+    bool m_bulkChange = false;  ///< many rows change: the summary waits
+    int m_rowHeight = 0;        ///< of every row: a correction box fits
+    int m_corrected = 0;        ///< by Correct, the window left open
+};
+
 SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& items, bool inSelection,
                                            CheckedAtFirst checkedAtFirst, QWidget* parent, CodeEditSpelling* spelling)
-    : QDialog(parent), m_items(items), m_spelling(spelling) {
+    :
+    QDialog(parent),
+      d(std::make_unique<Private>()) {
+    d->m_items = items;
+    d->m_spelling = spelling;
     setWindowTitle(tr("Review Spelling"));
     resize(760, 480);
     auto* layout = new QVBoxLayout(this);
@@ -165,11 +183,11 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     auto* options = new QHBoxLayout;
     auto* showLabel = new QLabel(tr("Sh&ow:"), this);
     options->addWidget(showLabel);
-    m_filter = new QComboBox(this);
+    d->m_filter = new QComboBox(this);
     // The kinds of words, from the surest; the value is the CheckedAtFirst.
     const auto addKind = [this](const QString& text, CheckedAtFirst kind, const QString& tip) {
-        m_filter->addItem(text, int(kind));
-        m_filter->setItemData(m_filter->count() - 1, tip, Qt::ToolTipRole);
+        d->m_filter->addItem(text, int(kind));
+        d->m_filter->setItemData(d->m_filter->count() - 1, tip, Qt::ToolTipRole);
     };
     addKind(tr("All words"), CheckedAtFirst::Every, QString());
     addKind(tr("Sure corrections"), CheckedAtFirst::Sure,
@@ -184,9 +202,9 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     addKind(tr("Words without suggestions"), CheckedAtFirst::NoSuggestions,
             tr("To add to the dictionary, ignore or give your own correction (Own Correction)"));
     const CheckedAtFirst shown = checkedAtFirst == CheckedAtFirst::None ? CheckedAtFirst::Every : checkedAtFirst;
-    m_filter->setCurrentIndex(qMax(0, m_filter->findData(int(shown))));
-    showLabel->setBuddy(m_filter);
-    options->addWidget(m_filter);
+    d->m_filter->setCurrentIndex(qMax(0, d->m_filter->findData(int(shown))));
+    showLabel->setBuddy(d->m_filter);
+    options->addWidget(d->m_filter);
     options->addSpacing(12);
     options->addWidget(new QLabel(tr("Sort:"), this));
     auto* sort = new QComboBox(this);
@@ -197,56 +215,56 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
                       Qt::ToolTipRole);
     options->addWidget(sort);
     options->addStretch();
-    m_action = new QComboBox(this);
-    m_action->addItem(tr("Check all"));
-    m_action->addItem(tr("Uncheck all"));
-    m_action->addItem(tr("Check selected rows"));
-    m_action->addItem(tr("Uncheck selected rows"));
-    m_action->setToolTip(tr("Of the words shown. The last two let several rows be selected (Ctrl, Shift)"));
-    options->addWidget(m_action);
+    d->m_action = new QComboBox(this);
+    d->m_action->addItem(tr("Check all"));
+    d->m_action->addItem(tr("Uncheck all"));
+    d->m_action->addItem(tr("Check selected rows"));
+    d->m_action->addItem(tr("Uncheck selected rows"));
+    d->m_action->setToolTip(tr("Of the words shown. The last two let several rows be selected (Ctrl, Shift)"));
+    options->addWidget(d->m_action);
     auto* apply = new QPushButton(tr("A&pply"), this);
     apply->setAutoDefault(false);
     options->addWidget(apply);
     layout->addLayout(options);
 
-    m_list = new QTreeWidget(this);
-    m_list->setRootIsDecorated(false);
-    m_list->setSelectionMode(QAbstractItemView::SingleSelection);
+    d->m_list = new QTreeWidget(this);
+    d->m_list->setRootIsDecorated(false);
+    d->m_list->setSelectionMode(QAbstractItemView::SingleSelection);
     // Up and Down go from row to row; Alt+Down opens the row's corrections.
-    m_list->installEventFilter(this);
+    d->m_list->installEventFilter(this);
     // Copying rows, e.g. to keep a word and its context: Ctrl+C or the
     // context menu.
-    auto* copy = new QShortcut(QKeySequence::Copy, m_list, nullptr, nullptr, Qt::WidgetShortcut);
+    auto* copy = new QShortcut(QKeySequence::Copy, d->m_list, nullptr, nullptr, Qt::WidgetShortcut);
     connect(copy, &QShortcut::activated, this, [this]() { copyRows(false); });
-    m_list->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_list, &QWidget::customContextMenuRequested, this, [this](const QPoint& position) {
-        if (m_list->selectedItems().isEmpty()) return;
+    d->m_list->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(d->m_list, &QWidget::customContextMenuRequested, this, [this](const QPoint& position) {
+        if (d->m_list->selectedItems().isEmpty()) return;
         QMenu menu(this);
         QAction* rows = menu.addAction(tr("&Copy Rows"), this, [this]() { copyRows(false); });
         rows->setShortcut(QKeySequence::Copy);
         rows->setToolTip(tr("Word, correction, score, line and the whole line of text, separated by tabs"));
         menu.addAction(tr("Copy Con&text"), this, [this]() { copyRows(true); });
-        menu.exec(m_list->viewport()->mapToGlobal(position));
+        menu.exec(d->m_list->viewport()->mapToGlobal(position));
     });
-    m_list->setUniformRowHeights(true);
+    d->m_list->setUniformRowHeights(true);
     // Rows as high as a correction box from the start: otherwise the view
     // measures the first row by its text and grows it later (e.g. when a
     // check box changes), leaving the boxes as low as they were.
     {
         QComboBox probe;
         probe.addItem(QStringLiteral("Ag"));
-        m_rowHeight = qMax(probe.sizeHint().height(), m_list->fontMetrics().height() + 6);
+        d->m_rowHeight = qMax(probe.sizeHint().height(), d->m_list->fontMetrics().height() + 6);
     }
-    m_list->setItemDelegateForColumn(ContextColumn, new ContextDelegate(m_list));
-    m_list->setHeaderLabels({tr("Word"), tr("Correction"), tr("Score"), tr("Line"), tr("Context")});
-    m_list->headerItem()->setToolTip(ScoreColumn, tr("How far the word is from its first correction: the lower, the "
+    d->m_list->setItemDelegateForColumn(ContextColumn, new ContextDelegate(d->m_list));
+    d->m_list->setHeaderLabels({tr("Word"), tr("Correction"), tr("Score"), tr("Line"), tr("Context")});
+    d->m_list->headerItem()->setToolTip(ScoreColumn, tr("How far the word is from its first correction: the lower, the "
                                                      "closer (0.3 a missing diacritic, about 1 a typing slip, more "
                                                      "for a rare word)"));
-    m_list->header()->setStretchLastSection(true);
-    for (int i = 0; i < m_items.size(); ++i) {
-        const SpellingReviewItem& item = m_items[i];
-        auto* row = new ReviewRow(m_list);
-        row->setSizeHint(CorrectionColumn, QSize(0, m_rowHeight));
+    d->m_list->header()->setStretchLastSection(true);
+    for (int i = 0; i < d->m_items.size(); ++i) {
+        const SpellingReviewItem& item = d->m_items[i];
+        auto* row = new ReviewRow(d->m_list);
+        row->setSizeHint(CorrectionColumn, QSize(0, d->m_rowHeight));
         row->setText(WordColumn, item.word.word);
         row->setData(WordColumn, kSortRole, item.word.word);
         row->setData(LineColumn, kSortRole, double(item.word.start.line) * 1e6 + item.word.start.column);
@@ -271,43 +289,43 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
         row->setCheckState(WordColumn, Qt::Unchecked);
         addChoiceBox(row, i);
     }
-    m_list->resizeColumnToContents(WordColumn);
-    m_list->setColumnWidth(CorrectionColumn, qMax(160, m_list->columnWidth(WordColumn) + 40));
-    m_list->resizeColumnToContents(LineColumn);
-    m_list->resizeColumnToContents(ScoreColumn);
-    m_list->sortItems(LineColumn, Qt::AscendingOrder);
+    d->m_list->resizeColumnToContents(WordColumn);
+    d->m_list->setColumnWidth(CorrectionColumn, qMax(160, d->m_list->columnWidth(WordColumn) + 40));
+    d->m_list->resizeColumnToContents(LineColumn);
+    d->m_list->resizeColumnToContents(ScoreColumn);
+    d->m_list->sortItems(LineColumn, Qt::AscendingOrder);
     connect(sort, &QComboBox::activated, this, [this, sort]() {
-        m_list->sortItems(sort->currentData().toInt(), Qt::AscendingOrder);
+        d->m_list->sortItems(sort->currentData().toInt(), Qt::AscendingOrder);
         showCurrent();
     });
-    layout->addWidget(m_list, 1);
-    connect(m_list, &QTreeWidget::itemChanged, this, &SpellingReviewDialog::updateSummary);
+    layout->addWidget(d->m_list, 1);
+    connect(d->m_list, &QTreeWidget::itemChanged, this, &SpellingReviewDialog::updateSummary);
     // Several rows selected at once only for the actions on selected rows.
-    connect(m_action, &QComboBox::currentIndexChanged, this, [this](int action) {
+    connect(d->m_action, &QComboBox::currentIndexChanged, this, [this](int action) {
         const bool several = action >= 2;
-        m_list->setSelectionMode(several ? QAbstractItemView::ExtendedSelection
+        d->m_list->setSelectionMode(several ? QAbstractItemView::ExtendedSelection
                                          : QAbstractItemView::SingleSelection);
         if (!several)
-            if (QTreeWidgetItem* current = m_list->currentItem()) {
-                m_list->clearSelection();
+            if (QTreeWidgetItem* current = d->m_list->currentItem()) {
+                d->m_list->clearSelection();
                 current->setSelected(true);
             }
     });
     connect(apply, &QPushButton::clicked, this, &SpellingReviewDialog::applyAction);
     // A double click shows the word in the text, for more of its context:
     // selected there, scrolled into sight; the window stays open.
-    connect(m_list, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* row) {
-        CodeEditArea* area = m_spelling ? m_spelling->area() : nullptr;
+    connect(d->m_list, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* row) {
+        CodeEditArea* area = d->m_spelling ? d->m_spelling->area() : nullptr;
         if (!area || !row) return;
-        const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
+        const SpellingReviewItem& item = d->m_items[row->data(WordColumn, Qt::UserRole).toInt()];
         area->setSelection(item.word.start, item.word.end);  // scrolls to it
     });
-    connect(m_filter, &QComboBox::activated, this, &SpellingReviewDialog::filter);
+    connect(d->m_filter, &QComboBox::activated, this, &SpellingReviewDialog::filter);
 
     auto* status = new QHBoxLayout;
     // What to do with the selected word, and the user's own dictionary.
     auto* wordActions = new QHBoxLayout;
-    if (m_spelling) {
+    if (d->m_spelling) {
         auto* add = new QPushButton(tr("Add to &Dictionary"), this);
         add->setToolTip(tr("The selected word is right: into the user dictionary, all its rows out of the list"));
         auto* ignore = new QPushButton(tr("&Ignore"), this);
@@ -332,29 +350,29 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
         connect(remember, &QPushButton::clicked, this, &SpellingReviewDialog::rememberCorrection);
         connect(own, &QPushButton::clicked, this, &SpellingReviewDialog::ownCorrection);
         connect(userDictionary, &QPushButton::clicked, this, [this]() {
-            UserDictionaryDialog(m_spelling->checker(), this).exec();
-            m_spelling->recheck();
+            UserDictionaryDialog(d->m_spelling->checker(), this).exec();
+            d->m_spelling->recheck();
         });
         m_updateButtons = [this, add, ignore, remember, own]() {
-            QTreeWidgetItem* current = m_list->currentItem();
+            QTreeWidgetItem* current = d->m_list->currentItem();
             add->setEnabled(current);
             ignore->setEnabled(current);
             own->setEnabled(current);
-            remember->setEnabled(current && m_list->itemWidget(current, CorrectionColumn));
+            remember->setEnabled(current && d->m_list->itemWidget(current, CorrectionColumn));
         };
-        connect(m_list, &QTreeWidget::currentItemChanged, this, m_updateButtons);
+        connect(d->m_list, &QTreeWidget::currentItemChanged, this, m_updateButtons);
         m_updateButtons();
     }
     wordActions->addStretch();
-    m_pickChecks = new QCheckBox(tr("&Picking a correction checks the word"), this);
-    m_pickChecks->setToolTip(tr("Off: only the check box decides which words are corrected"));
-    wordActions->addWidget(m_pickChecks);
+    d->m_pickChecks = new QCheckBox(tr("&Picking a correction checks the word"), this);
+    d->m_pickChecks->setToolTip(tr("Off: only the check box decides which words are corrected"));
+    wordActions->addWidget(d->m_pickChecks);
     layout->addLayout(wordActions);
-    m_summary = new QLabel(this);
-    status->addWidget(m_summary);
+    d->m_summary = new QLabel(this);
+    status->addWidget(d->m_summary);
     status->addStretch();
-    m_searchTime = new QLabel(this);
-    status->addWidget(m_searchTime);
+    d->m_searchTime = new QLabel(this);
+    status->addWidget(d->m_searchTime);
     layout->addLayout(status);
 
     // Correct leaves the window open for the next kind of words; the words
@@ -366,7 +384,7 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
     auto* correctAndClose = buttons->addButton(tr("Correct and C&lose"), QDialogButtonBox::AcceptRole);
     correctAndClose->setToolTip(tr("Corrects the checked words shown and closes the window"));
     buttons->addButton(QDialogButtonBox::Close)->setToolTip(tr("Closes the window; words corrected before stay so"));
-    correct->setEnabled(m_spelling);
+    correct->setEnabled(d->m_spelling);
     connect(correct, &QPushButton::clicked, this, &SpellingReviewDialog::correctNow);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -377,12 +395,12 @@ SpellingReviewDialog::SpellingReviewDialog(const QList<SpellingReviewItem>& item
 
 QList<QPair<SpellingReviewItem::Range, QString>> SpellingReviewDialog::chosenReplacements() const {
     QList<QPair<SpellingReviewItem::Range, QString>> result;
-    for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* row = m_list->topLevelItem(i);
+    for (int i = 0; i < d->m_list->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* row = d->m_list->topLevelItem(i);
         // Only the kind shown: the others stay for the next review.
         if (row->isHidden() || row->checkState(WordColumn) != Qt::Checked) continue;
-        const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
-        const auto* choice = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn));
+        const SpellingReviewItem& item = d->m_items[row->data(WordColumn, Qt::UserRole).toInt()];
+        const auto* choice = qobject_cast<QComboBox*>(d->m_list->itemWidget(row, CorrectionColumn));
         const int index = choice ? choice->currentIndex() : 0;
         if (index < 0 || index >= item.choices.size()) continue;
         result.append({item.choices[index].range, item.choices[index].replacement});
@@ -391,23 +409,23 @@ QList<QPair<SpellingReviewItem::Range, QString>> SpellingReviewDialog::chosenRep
 }
 
 CheckedAtFirst SpellingReviewDialog::checkedAtFirst() const {
-    return CheckedAtFirst(m_filter->currentData().toInt());
+    return CheckedAtFirst(d->m_filter->currentData().toInt());
 }
 
 void SpellingReviewDialog::setSearchTime(qint64 milliseconds) {
-    const double perWord = m_items.isEmpty() ? 0 : double(milliseconds) / double(m_items.size());
-    m_searchTime->setText(tr("Corrections found in %1 s, %2 ms a word")
+    const double perWord = d->m_items.isEmpty() ? 0 : double(milliseconds) / double(d->m_items.size());
+    d->m_searchTime->setText(tr("Corrections found in %1 s, %2 ms a word")
                               .arg(double(milliseconds) / 1000.0, 0, 'f', 2)
                               .arg(perWord, 0, 'f', 1));
 }
 
 void SpellingReviewDialog::applyAction() {
-    const int action = m_action->currentIndex();
+    const int action = d->m_action->currentIndex();
     const Qt::CheckState state = action % 2 == 0 ? Qt::Checked : Qt::Unchecked;
     {
-        const QScopedValueRollback bulk(m_bulkChange, true);
-        for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
-            QTreeWidgetItem* row = m_list->topLevelItem(i);
+        const QScopedValueRollback bulk(d->m_bulkChange, true);
+        for (int i = 0; i < d->m_list->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* row = d->m_list->topLevelItem(i);
             if (row->isHidden() || !(row->flags() & Qt::ItemIsUserCheckable)) continue;
             if (action >= 2 && !row->isSelected()) continue;
             row->setCheckState(WordColumn, state);
@@ -435,9 +453,9 @@ bool SpellingReviewDialog::ofKind(const SpellingReviewItem& item, CheckedAtFirst
 void SpellingReviewDialog::filter() {
     // The words of the kind chosen in "Show"; their checks are kept.
     const CheckedAtFirst kind = checkedAtFirst();
-    for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* row = m_list->topLevelItem(i);
-        row->setHidden(!ofKind(m_items[row->data(WordColumn, Qt::UserRole).toInt()], kind));
+    for (int i = 0; i < d->m_list->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* row = d->m_list->topLevelItem(i);
+        row->setHidden(!ofKind(d->m_items[row->data(WordColumn, Qt::UserRole).toInt()], kind));
     }
     showCurrent();
     updateSummary();
@@ -445,21 +463,21 @@ void SpellingReviewDialog::filter() {
 
 // The selected row stays in sight after sorting or filtering (if shown).
 void SpellingReviewDialog::showCurrent() {
-    QTreeWidgetItem* current = m_list->currentItem();
-    if (current && !current->isHidden()) m_list->scrollToItem(current, QAbstractItemView::PositionAtCenter);
+    QTreeWidgetItem* current = d->m_list->currentItem();
+    if (current && !current->isHidden()) d->m_list->scrollToItem(current, QAbstractItemView::PositionAtCenter);
 }
 
 bool SpellingReviewDialog::eventFilter(QObject* watched, QEvent* event) {
     if (event->type() == QEvent::Wheel && qobject_cast<QComboBox*>(watched)
-            && static_cast<QWidget*>(watched)->parentWidget() == m_list->viewport()) {
-        QCoreApplication::sendEvent(m_list->viewport(), event);
+            && static_cast<QWidget*>(watched)->parentWidget() == d->m_list->viewport()) {
+        QCoreApplication::sendEvent(d->m_list->viewport(), event);
         return true;
     }
-    if (watched == m_list && event->type() == QEvent::KeyPress) {
+    if (watched == d->m_list && event->type() == QEvent::KeyPress) {
         const auto* key = static_cast<QKeyEvent*>(event);
         if (key->key() == Qt::Key_Down && (key->modifiers() & Qt::AltModifier)) {
-            if (QTreeWidgetItem* current = m_list->currentItem())
-                if (auto* box = qobject_cast<QComboBox*>(m_list->itemWidget(current, CorrectionColumn)))
+            if (QTreeWidgetItem* current = d->m_list->currentItem())
+                if (auto* box = qobject_cast<QComboBox*>(d->m_list->itemWidget(current, CorrectionColumn)))
                     box->showPopup();
             return true;
         }
@@ -468,25 +486,25 @@ bool SpellingReviewDialog::eventFilter(QObject* watched, QEvent* event) {
 }
 
 void SpellingReviewDialog::addChoiceBox(QTreeWidgetItem* row, int index) {
-    auto* choice = new QComboBox(m_list);
+    auto* choice = new QComboBox(d->m_list);
     // Not in the keyboard's way: arrows move between rows, Alt+Down opens it.
     choice->setFocusPolicy(Qt::NoFocus);
     // Nor in the wheel's: it scrolls the list (eventFilter()), never changes
     // a correction unseen.
     choice->installEventFilter(this);
-    choice->setFixedHeight(m_rowHeight);
-    for (const auto& correction : m_items[index].choices) choice->addItem(correction.label);
+    choice->setFixedHeight(d->m_rowHeight);
+    for (const auto& correction : d->m_items[index].choices) choice->addItem(correction.label);
     // Picking a correction, also the one shown, checks the word only when
     // asked for ("Picking a correction checks the word").
     connect(choice, &QComboBox::activated, this, [this, row]() {
-        if (m_pickChecks->isChecked()) row->setCheckState(WordColumn, Qt::Checked);
+        if (d->m_pickChecks->isChecked()) row->setCheckState(WordColumn, Qt::Checked);
     });
     // The score follows the correction shown.
     connect(choice, &QComboBox::currentIndexChanged, this, [this, row, index](int shown) {
-        const auto& choices = m_items[index].choices;
+        const auto& choices = d->m_items[index].choices;
         showScore(row, shown >= 0 && shown < choices.size() ? choices[shown].score : -1);
     });
-    m_list->setItemWidget(row, CorrectionColumn, choice);
+    d->m_list->setItemWidget(row, CorrectionColumn, choice);
 }
 
 void SpellingReviewDialog::ignoreUnknownWords(const QString& text) {
@@ -494,7 +512,7 @@ void SpellingReviewDialog::ignoreUnknownWords(const QString& text) {
     // user's words know (a name, a term) are right in this text: ignored in
     // its file, not added to the dictionary.
     static const QRegularExpression wordPattern(QStringLiteral("[\\p{L}\\p{M}]+(?:['\\x{2019}][\\p{L}\\p{M}]+)*"));
-    SpellChecker& checker = m_spelling->checker();
+    SpellChecker& checker = d->m_spelling->checker();
     for (auto it = wordPattern.globalMatch(text); it.hasNext();) {
         const QString word = it.next().captured();
         if (!checker.check(word)) checker.ignore(word);
@@ -502,11 +520,11 @@ void SpellingReviewDialog::ignoreUnknownWords(const QString& text) {
 }
 
 void SpellingReviewDialog::ownCorrection() {
-    QTreeWidgetItem* current = m_list->currentItem();
-    if (!current || !m_spelling) return;
+    QTreeWidgetItem* current = d->m_list->currentItem();
+    if (!current || !d->m_spelling) return;
     const QString word = current->text(WordColumn);
     const int currentIndex = current->data(WordColumn, Qt::UserRole).toInt();
-    const SpellingReviewItem& currentItem = m_items[currentIndex];
+    const SpellingReviewItem& currentItem = d->m_items[currentIndex];
     // The word with its neighbours on the line: the text up to the space
     // before the word before it and after the word after it.
     const QString& line = currentItem.lineText;
@@ -553,10 +571,10 @@ void SpellingReviewDialog::ownCorrection() {
     if (withNeighbours->isChecked()) {
         // This place only: a choice of this row replacing the three words.
         if (correction.isEmpty() || correction == phrase) return;
-        SpellingReviewItem& item = m_items[currentIndex];
+        SpellingReviewItem& item = d->m_items[currentIndex];
         const SpellingReviewItem::Range range{{item.word.start.line, from}, {item.word.end.line, to}, phrase};
         item.choices.prepend({range, correction, QStringLiteral("%1 → %2").arg(phrase, correction), 0});
-        if (auto* box = qobject_cast<QComboBox*>(m_list->itemWidget(current, CorrectionColumn))) {
+        if (auto* box = qobject_cast<QComboBox*>(d->m_list->itemWidget(current, CorrectionColumn))) {
             box->insertItem(0, item.choices.front().label);
             box->setCurrentIndex(0);
         } else {
@@ -571,17 +589,17 @@ void SpellingReviewDialog::ownCorrection() {
         return;
     }
     if (correction.isEmpty() || correction == word) return;
-    m_spelling->checker().addCorrection(word, correction);
-    m_bulkChange = true;
+    d->m_spelling->checker().addCorrection(word, correction);
+    d->m_bulkChange = true;
     // Every row of the word: that correction first, score 0, checked.
-    for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* row = m_list->topLevelItem(i);
+    for (int i = 0; i < d->m_list->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* row = d->m_list->topLevelItem(i);
         if (row->text(WordColumn) != word) continue;
         const int index = row->data(WordColumn, Qt::UserRole).toInt();
-        SpellingReviewItem& item = m_items[index];
+        SpellingReviewItem& item = d->m_items[index];
         item.choices.prepend({item.word, correction, correction, 0});
         item.confident = item.single = true;
-        if (auto* sameBox = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn))) {
+        if (auto* sameBox = qobject_cast<QComboBox*>(d->m_list->itemWidget(row, CorrectionColumn))) {
             sameBox->insertItem(0, correction);
             sameBox->setCurrentIndex(0);
         } else {
@@ -592,7 +610,7 @@ void SpellingReviewDialog::ownCorrection() {
         showScore(row, 0);
         row->setCheckState(WordColumn, Qt::Checked);
     }
-    m_bulkChange = false;
+    d->m_bulkChange = false;
     updateSummary();
     if (m_updateButtons) m_updateButtons();
 }
@@ -604,20 +622,20 @@ void SpellingReviewDialog::showScore(QTreeWidgetItem* row, double score) {
 }
 
 void SpellingReviewDialog::copyRows(bool contextOnly) const {
-    QList<QTreeWidgetItem*> rows = m_list->selectedItems();
+    QList<QTreeWidgetItem*> rows = d->m_list->selectedItems();
     // In the order shown, not the order selected.
     std::sort(rows.begin(), rows.end(), [this](QTreeWidgetItem* a, QTreeWidgetItem* b) {
-        return m_list->indexOfTopLevelItem(a) < m_list->indexOfTopLevelItem(b);
+        return d->m_list->indexOfTopLevelItem(a) < d->m_list->indexOfTopLevelItem(b);
     });
     QStringList lines;
     for (QTreeWidgetItem* row : rows) {
         if (row->isHidden()) continue;
-        const SpellingReviewItem& item = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
+        const SpellingReviewItem& item = d->m_items[row->data(WordColumn, Qt::UserRole).toInt()];
         if (contextOnly) {
             lines << item.lineText;
             continue;
         }
-        const auto* choice = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn));
+        const auto* choice = qobject_cast<QComboBox*>(d->m_list->itemWidget(row, CorrectionColumn));
         lines << QStringList{row->text(WordColumn), choice ? choice->currentText() : QString(), row->text(ScoreColumn),
                              row->text(LineColumn), item.lineText}
                      .join(QLatin1Char('\t'));
@@ -626,23 +644,23 @@ void SpellingReviewDialog::copyRows(bool contextOnly) const {
 }
 
 void SpellingReviewDialog::rememberCorrection() {
-    QTreeWidgetItem* current = m_list->currentItem();
-    if (!current || !m_spelling) return;
-    const SpellingReviewItem& item = m_items[current->data(WordColumn, Qt::UserRole).toInt()];
-    const auto* box = qobject_cast<QComboBox*>(m_list->itemWidget(current, CorrectionColumn));
+    QTreeWidgetItem* current = d->m_list->currentItem();
+    if (!current || !d->m_spelling) return;
+    const SpellingReviewItem& item = d->m_items[current->data(WordColumn, Qt::UserRole).toInt()];
+    const auto* box = qobject_cast<QComboBox*>(d->m_list->itemWidget(current, CorrectionColumn));
     if (!box || box->currentIndex() < 0 || box->currentIndex() >= item.choices.size()) return;
     const SpellingReviewItem::Choice chosen = item.choices[box->currentIndex()];
     // A moved space changes two words: not a correction of this one.
     if (!(chosen.range.start == item.word.start && chosen.range.end == item.word.end)) return;
     const QString word = item.word.word;
-    m_spelling->checker().addCorrection(word, chosen.replacement);
-    m_bulkChange = true;
+    d->m_spelling->checker().addCorrection(word, chosen.replacement);
+    d->m_bulkChange = true;
     // Every row of the word: that correction, score 0, checked.
-    for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* row = m_list->topLevelItem(i);
+    for (int i = 0; i < d->m_list->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* row = d->m_list->topLevelItem(i);
         if (row->text(WordColumn) != word) continue;
-        SpellingReviewItem& same = m_items[row->data(WordColumn, Qt::UserRole).toInt()];
-        auto* sameBox = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn));
+        SpellingReviewItem& same = d->m_items[row->data(WordColumn, Qt::UserRole).toInt()];
+        auto* sameBox = qobject_cast<QComboBox*>(d->m_list->itemWidget(row, CorrectionColumn));
         if (!sameBox) continue;
         int index = -1;
         for (int k = 0; k < same.choices.size(); ++k)
@@ -655,40 +673,40 @@ void SpellingReviewDialog::rememberCorrection() {
         showScore(row, 0);
         row->setCheckState(WordColumn, Qt::Checked);
     }
-    m_bulkChange = false;
+    d->m_bulkChange = false;
     updateSummary();
 }
 
 void SpellingReviewDialog::acceptWord(bool addToDictionary) {
-    QTreeWidgetItem* current = m_list->currentItem();
-    if (!current || !m_spelling) return;
+    QTreeWidgetItem* current = d->m_list->currentItem();
+    if (!current || !d->m_spelling) return;
     const QString word = current->text(WordColumn);
-    if (addToDictionary) m_spelling->addToDictionary(word);
-    else m_spelling->ignore(word);
+    if (addToDictionary) d->m_spelling->addToDictionary(word);
+    else d->m_spelling->ignore(word);
     // The rows of the word go; the selection moves on to the next row left
     // (else the one before), to go on with the next word.
-    int next = m_list->indexOfTopLevelItem(current);
-    for (int i = m_list->topLevelItemCount() - 1; i >= 0; --i) {
-        if (m_list->topLevelItem(i)->text(WordColumn) != word) continue;
-        delete m_list->takeTopLevelItem(i);
+    int next = d->m_list->indexOfTopLevelItem(current);
+    for (int i = d->m_list->topLevelItemCount() - 1; i >= 0; --i) {
+        if (d->m_list->topLevelItem(i)->text(WordColumn) != word) continue;
+        delete d->m_list->takeTopLevelItem(i);
         if (i < next) --next;
     }
     QTreeWidgetItem* following = nullptr;
-    for (int i = next; i < m_list->topLevelItemCount() && !following; ++i)
-        if (!m_list->topLevelItem(i)->isHidden()) following = m_list->topLevelItem(i);
-    for (int i = qMin(next, m_list->topLevelItemCount()) - 1; i >= 0 && !following; --i)
-        if (!m_list->topLevelItem(i)->isHidden()) following = m_list->topLevelItem(i);
+    for (int i = next; i < d->m_list->topLevelItemCount() && !following; ++i)
+        if (!d->m_list->topLevelItem(i)->isHidden()) following = d->m_list->topLevelItem(i);
+    for (int i = qMin(next, d->m_list->topLevelItemCount()) - 1; i >= 0 && !following; --i)
+        if (!d->m_list->topLevelItem(i)->isHidden()) following = d->m_list->topLevelItem(i);
     if (following) {
-        m_list->setCurrentItem(following);
-        m_list->scrollToItem(following);
+        d->m_list->setCurrentItem(following);
+        d->m_list->scrollToItem(following);
     }
-    m_list->setFocus();
+    d->m_list->setFocus();
     updateSummary();
     if (m_updateButtons) m_updateButtons();
 }
 
 void SpellingReviewDialog::correctNow() {
-    CodeEditArea* area = m_spelling ? m_spelling->area() : nullptr;
+    CodeEditArea* area = d->m_spelling ? d->m_spelling->area() : nullptr;
     if (!area || !area->document()) return;
     ITextDocument* doc = area->document();
     // The checked words shown, still where they were found, none overlapping
@@ -703,12 +721,12 @@ void SpellingReviewDialog::correctNow() {
     const auto overlaps = [](const SpellingReviewItem::Range& a, const SpellingReviewItem::Range& b) {
         return a.start < b.end && b.start < a.end;
     };
-    for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* row = m_list->topLevelItem(i);
+    for (int i = 0; i < d->m_list->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* row = d->m_list->topLevelItem(i);
         if (row->isHidden() || row->checkState(WordColumn) != Qt::Checked) continue;
         const int index = row->data(WordColumn, Qt::UserRole).toInt();
-        const SpellingReviewItem& item = m_items[index];
-        const auto* choice = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn));
+        const SpellingReviewItem& item = d->m_items[index];
+        const auto* choice = qobject_cast<QComboBox*>(d->m_list->itemWidget(row, CorrectionColumn));
         const int k = choice ? choice->currentIndex() : 0;
         if (k < 0 || k >= item.choices.size()) continue;
         const auto& chosen = item.choices[k];
@@ -724,9 +742,9 @@ void SpellingReviewDialog::correctNow() {
     // The text is read-only while the window is open, but for this.
     const bool wasReadOnly = area->readOnly();
     area->setReadOnly(false);
-    m_spelling->replaceWords(replacements);
+    d->m_spelling->replaceWords(replacements);
     area->setReadOnly(wasReadOnly);
-    m_corrected += int(done.size());
+    d->m_corrected += int(done.size());
 
     // The words left on those lines move by the replacements before them;
     // a correction of theirs over a replaced word (a moved space) goes.
@@ -739,18 +757,18 @@ void SpellingReviewDialog::correctNow() {
     };
     QSet<int> lines;
     for (const Done& d : done) lines.insert(d.range.start.line);
-    const QScopedValueRollback bulk(m_bulkChange, true);
-    for (QTreeWidgetItem* row : std::as_const(doneRows)) delete m_list->takeTopLevelItem(m_list->indexOfTopLevelItem(row));
-    for (int i = m_list->topLevelItemCount() - 1; i >= 0; --i) {
-        QTreeWidgetItem* row = m_list->topLevelItem(i);
+    const QScopedValueRollback bulk(d->m_bulkChange, true);
+    for (QTreeWidgetItem* row : std::as_const(doneRows)) delete d->m_list->takeTopLevelItem(d->m_list->indexOfTopLevelItem(row));
+    for (int i = d->m_list->topLevelItemCount() - 1; i >= 0; --i) {
+        QTreeWidgetItem* row = d->m_list->topLevelItem(i);
         const int index = row->data(WordColumn, Qt::UserRole).toInt();
-        SpellingReviewItem& item = m_items[index];
+        SpellingReviewItem& item = d->m_items[index];
         if (!lines.contains(item.word.start.line)) continue;
         if (std::any_of(done.cbegin(), done.cend(), [&](const Done& d) { return overlaps(d.range, item.word); })) {
-            delete m_list->takeTopLevelItem(i);
+            delete d->m_list->takeTopLevelItem(i);
             continue;
         }
-        auto* box = qobject_cast<QComboBox*>(m_list->itemWidget(row, CorrectionColumn));
+        auto* box = qobject_cast<QComboBox*>(d->m_list->itemWidget(row, CorrectionColumn));
         for (int k = int(item.choices.size()) - 1; k >= 0; --k) {
             auto& choice = item.choices[k];
             if (std::any_of(done.cbegin(), done.cend(), [&](const Done& d) { return overlaps(d.range, choice.range); })) {
@@ -765,7 +783,7 @@ void SpellingReviewDialog::correctNow() {
         item.word.end = moved(item.word.end);
         item.lineText = doc->lineAt(item.word.start.line);
         if (item.choices.isEmpty() && box) {
-            delete m_list->takeTopLevelItem(i);
+            delete d->m_list->takeTopLevelItem(i);
             continue;
         }
         row->setData(LineColumn, kSortRole, double(item.word.start.line) * 1e6 + item.word.start.column);
@@ -774,13 +792,13 @@ void SpellingReviewDialog::correctNow() {
         row->setData(ContextColumn, kBoldStartRole, shown.wordStart);
         row->setToolTip(ContextColumn, item.lineText);
     }
-    if (QTreeWidgetItem* current = m_list->currentItem(); !current || current->isHidden())
-        for (int i = 0; i < m_list->topLevelItemCount(); ++i)
-            if (!m_list->topLevelItem(i)->isHidden()) {
-                m_list->setCurrentItem(m_list->topLevelItem(i));
+    if (QTreeWidgetItem* current = d->m_list->currentItem(); !current || current->isHidden())
+        for (int i = 0; i < d->m_list->topLevelItemCount(); ++i)
+            if (!d->m_list->topLevelItem(i)->isHidden()) {
+                d->m_list->setCurrentItem(d->m_list->topLevelItem(i));
                 break;
             }
-    m_bulkChange = false;
+    d->m_bulkChange = false;
     updateSummary();
     if (m_updateButtons) m_updateButtons();
 }
@@ -788,18 +806,18 @@ void SpellingReviewDialog::correctNow() {
 void SpellingReviewDialog::updateSummary() {
     // Counting every row: once after a change of many rows, not for each
     // (and not before the label exists, while the window is being made).
-    if (m_bulkChange || !m_summary) return;
+    if (d->m_bulkChange || !d->m_summary) return;
     int checked = 0, shown = 0;
-    for (int i = 0; i < m_list->topLevelItemCount(); ++i) {
-        const QTreeWidgetItem* row = m_list->topLevelItem(i);
+    for (int i = 0; i < d->m_list->topLevelItemCount(); ++i) {
+        const QTreeWidgetItem* row = d->m_list->topLevelItem(i);
         if (row->isHidden()) continue;
         ++shown;
         if (row->checkState(WordColumn) == Qt::Checked) ++checked;
     }
-    m_summary->setText(tr("%1 of %2 words shown to correct (%3 misspelled in all)")
+    d->m_summary->setText(tr("%1 of %2 words shown to correct (%3 misspelled in all)")
                            .arg(checked)
                            .arg(shown)
-                           .arg(m_list->topLevelItemCount()));
+                           .arg(d->m_list->topLevelItemCount()));
 }
 
 namespace {
@@ -923,5 +941,9 @@ SpellingReviewDialog* openSpellingReview(CodeEditSpelling& spelling, CheckedAtFi
     dialog->show();
     return dialog;
 }
+
+
+SpellingReviewDialog::~SpellingReviewDialog() = default;
+int SpellingReviewDialog::correctedSoFar() const { return d->m_corrected; }
 
 } // namespace qce::spell

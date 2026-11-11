@@ -11,6 +11,16 @@ namespace qce {
 
 // Pairs begin/end markers line by line with a Kate-style stack keyed by
 // region id. Shared by computeRegions() and regionsFromLineMarkers().
+struct RuleBasedFoldingProvider::Private {
+    const RulesHighlighter* m_hl;
+    QHash<QString, QString> m_placeholders;
+};
+
+RuleBasedFoldingProvider::RuleBasedFoldingProvider(const RulesHighlighter* hl) : d(std::make_unique<Private>()) {
+    d->m_hl = hl;
+}
+
+
 class RuleBasedFoldingProvider::Pairer {
 public:
     explicit Pairer(const RuleBasedFoldingProvider& p) : m_p(p) {}
@@ -40,8 +50,8 @@ public:
                 r.endLine     = li;
                 r.endColumn   = f.column + f.length;
                 r.group       = groupName(f.regionId);
-                const auto it = m_p.m_placeholders.find(r.group);
-                r.placeholder = (it != m_p.m_placeholders.end())
+                const auto it = m_p.d->m_placeholders.find(r.group);
+                r.placeholder = (it != m_p.d->m_placeholders.end())
                     ? *it : QStringLiteral("\u2026");
                 m_regions.push_back(std::move(r));
             }
@@ -58,7 +68,7 @@ private:
     // Looked up once per region id rather than once per region.
     const QString& groupName(int id) {
         auto it = m_names.find(id);
-        if (it == m_names.end()) it = m_names.insert(id, m_p.m_hl->regionNameById(id));
+        if (it == m_names.end()) it = m_names.insert(id, m_p.d->m_hl->regionNameById(id));
         return *it;
     }
 
@@ -69,17 +79,17 @@ private:
 };
 
 QVector<FoldRegion> RuleBasedFoldingProvider::computeRegions(const ITextDocument* doc) const {
-    if (!m_hl || !doc) return {};
+    if (!d->m_hl || !doc) return {};
 
     Pairer pairer(*this);
-    HighlightState state = m_hl->initialState();
+    HighlightState state = d->m_hl->initialState();
     QVector<StyleSpan>  spans;
     QVector<FoldMarker> folds;
     const int n = doc->lineCount();
 
     for (int li = 0; li < n; ++li) {
         HighlightState next;
-        m_hl->highlightLineEx(doc->lineAt(li), state, spans, next, folds);
+        d->m_hl->highlightLineEx(doc->lineAt(li), state, spans, next, folds);
         state = next;
         pairer.addLine(li, folds);
     }
@@ -91,7 +101,7 @@ bool RuleBasedFoldingProvider::regionsFromLineMarkers(
         const QVector<QVector<FoldMarker>>& markersPerLine,
         QVector<FoldRegion>&                 regions) const {
     // Markers from another highlighter would carry other region ids.
-    if (!m_hl || hl != static_cast<const IHighlighter*>(m_hl)) return false;
+    if (!d->m_hl || hl != static_cast<const IHighlighter*>(d->m_hl)) return false;
     Pairer pairer(*this);
     for (int li = 0; li < markersPerLine.size(); ++li) pairer.addLine(li, markersPerLine[li]);
     regions = pairer.take();
@@ -105,7 +115,7 @@ void RuleBasedFoldingProvider::foldersInBytes(const char*           data,
                                                HighlightState&       stateOut) const {
     markers.clear();
     stateOut = stateIn;
-    if (!m_hl || len <= 0) return;
+    if (!d->m_hl || len <= 0) return;
 
     QVector<StyleSpan>  spans;      // throwaway — we only want folds
     QVector<FoldMarker> lineFolds;
@@ -124,7 +134,7 @@ void RuleBasedFoldingProvider::foldersInBytes(const char*           data,
         HighlightState before = stateOut;
         spans.clear();
         lineFolds.clear();
-        m_hl->highlightLineEx(line, before, spans, stateOut, lineFolds);
+        d->m_hl->highlightLineEx(line, before, spans, stateOut, lineFolds);
 
         // Translate each fold event's QChar column/length to byte offsets
         // inside the line, then add the line's base byte offset.
@@ -141,6 +151,18 @@ void RuleBasedFoldingProvider::foldersInBytes(const char*           data,
 
         i = eol + (eol < len ? 1 : 0);
     }
+}
+
+
+RuleBasedFoldingProvider::~RuleBasedFoldingProvider() = default;
+RuleBasedFoldingProvider::RuleBasedFoldingProvider(const RuleBasedFoldingProvider& other) : d(std::make_unique<Private>(*other.d)) {}
+RuleBasedFoldingProvider& RuleBasedFoldingProvider::operator=(const RuleBasedFoldingProvider& other) { if (this != &other) *d = *other.d; return *this; }
+// The source stays usable, with an empty state.
+RuleBasedFoldingProvider::RuleBasedFoldingProvider(RuleBasedFoldingProvider&& other) noexcept : d(std::make_unique<Private>()) { d.swap(other.d); }
+RuleBasedFoldingProvider& RuleBasedFoldingProvider::operator=(RuleBasedFoldingProvider&& other) noexcept { d.swap(other.d); return *this; }
+
+void RuleBasedFoldingProvider::setPlaceholderFor(const QString& group, const QString& text) {
+    d->m_placeholders.insert(group, text);
 }
 
 } // namespace qce

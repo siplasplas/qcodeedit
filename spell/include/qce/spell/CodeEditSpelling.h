@@ -43,17 +43,17 @@ public:
     CodeEditArea* area() const;
     /// Its checker, e.g. for the user dictionary and corrections; call
     /// recheck() after changing them.
-    SpellChecker& checker() { return m_checker; }
+    SpellChecker& checker();
 
     /// Dictionaries or language codes, e.g. {"pl"} or {"en", "pl"}.
     void setLanguages(const QStringList& languages);
-    QStringList dictionaries() const { return m_checker.dictionaries(); }
+    QStringList dictionaries() const;
     /// At least one dictionary is in use.
-    bool isReady() const { return m_checker.isReady(); }
+    bool isReady() const;
 
     /// On by default; off removes the underlines.
     void setEnabled(bool enabled);
-    bool isEnabled() const { return m_enabled; }
+    bool isEnabled() const;
 
     /// Off by default. On: a misspelled word with a single suggestion close
     /// to it (SpellChecker::isConfident()) and no moved space to choose
@@ -61,13 +61,13 @@ public:
     /// it; not in pasted text, not a word right in another installed language. The
     /// correction is its own undo step: undo brings back the word as typed.
     void setCorrectWhileTyping(bool correct);
-    bool correctsWhileTyping() const { return m_correctWhileTyping; }
+    bool correctsWhileTyping() const;
 
     /// See SpellChecker::setHunspellSuggestions().
-    void setHunspellSuggestions(SpellChecker::HunspellSuggestions when) { m_checker.setHunspellSuggestions(when); }
+    void setHunspellSuggestions(SpellChecker::HunspellSuggestions when);
 
     void setUnderlineColor(const QColor& color);
-    QColor underlineColor() const { return m_color; }
+    QColor underlineColor() const;
 
     struct Misspelling {
         TextCursor start;
@@ -78,14 +78,10 @@ public:
     /// where checking applies.
     std::optional<Misspelling> misspelledWordAt(TextCursor position);
     /// Suggestions for a word, up to `maxCount`.
-    QStringList suggestions(const QString& word, int maxCount = 8) const {
-        return m_checker.suggestions(word, maxCount);
-    }
+    QStringList suggestions(const QString& word, int maxCount = 8) const;
     /// Suggestions with their scores (see SpellChecker::scoredSuggestions(),
     /// SpellChecker::isConfident()).
-    QList<SpellChecker::Suggestion> scoredSuggestions(const QString& word, int maxCount = 8) const {
-        return m_checker.scoredSuggestions(word, maxCount);
-    }
+    QList<SpellChecker::Suggestion> scoredSuggestions(const QString& word, int maxCount = 8) const;
     /// Replaces a misspelled word as one undo step.
     void replaceWord(const Misspelling& misspelling, const QString& replacement);
     /// All misspelled words in [from, to), in order, where checking applies
@@ -125,9 +121,9 @@ public:
     GrammarChecker* grammarChecker() const { return currentGrammar(); }
     /// On by default; off removes the grammar underlines.
     void setGrammarEnabled(bool enabled);
-    bool isGrammarEnabled() const { return m_grammarEnabled; }
+    bool isGrammarEnabled() const;
     void setGrammarUnderlineColor(const QColor& color);
-    QColor grammarUnderlineColor() const { return m_grammarColor; }
+    QColor grammarUnderlineColor() const;
     /// A grammar mistake in the editor, with its replacements ready for
     /// replaceWord().
     struct GrammarMistake {
@@ -160,35 +156,17 @@ private:
     void onCursorMoved(TextCursor position);
     // Grammar checking applies: enabled, a checker, and a dictionary of its language in use.
     bool grammarActive() const;
-    GrammarChecker* currentGrammar() const { return m_grammar ? m_grammar.get() : m_builtinGrammar.get(); }
+    GrammarChecker* currentGrammar() const;
     // The grammar mistakes of a line whose words are all spelled right.
     QList<GrammarMistake> grammarMistakes(int line);
 
-    QPointer<CodeEditArea> m_area;
-    QPointer<ITextDocument> m_document;  // whose changes trigger a check
-    SpellChecker m_checker;
+    // The state, in CodeEditSpelling.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
     /// Whether a word is right in an installed language not in use (to tell
     /// a text in another language from one full of mistakes).
     bool inOtherLanguage(const QString& word);
-    std::unique_ptr<SpellChecker> m_otherLanguages;
-    QStringList m_otherLanguagesFor;  ///< the dictionaries in use it was made for
-    QTimer* m_timer = nullptr;
-    QColor m_color{Qt::red};
-    std::shared_ptr<GrammarChecker> m_grammar;         // given by the program
-    std::shared_ptr<GrammarChecker> m_builtinGrammar;  // of the languages, when none is given
-    bool m_grammarEnabled = true;
-    QColor m_grammarColor{0x20, 0x60, 0xff};
-    bool m_enabled = true;
-    bool m_correctWhileTyping = false;
-    // The text changed since the last check.
-    bool m_edited = false;
-    // The word being typed (the one at the cursor after an edit), not
-    // underlined until the cursor leaves it; line -1 when none.
-    struct TypedWord {
-        int line = -1;
-        int start = 0;
-        int end = 0;
-    } m_typedWord;
 };
 
 } // namespace qce::spell

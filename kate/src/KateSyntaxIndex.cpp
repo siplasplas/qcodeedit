@@ -50,6 +50,17 @@ static bool parseBool(QStringView v) {
     return v == QLatin1String("true") || v == QLatin1String("1");
 }
 
+struct KateSyntaxIndex::Private {
+    QString                m_dataDir;
+    QList<LanguageEntry>   m_entries;
+    QHash<QString, int>    m_byName;
+    QHash<QString, int>    m_byFile;
+    bool                   m_dirty = false;
+};
+
+KateSyntaxIndex::KateSyntaxIndex() : d(std::make_unique<Private>()) {}
+
+
 std::optional<LanguageEntry> KateSyntaxIndex::readHeader(const QString& filePath) {
     QFile f(filePath);
     if (!f.open(QIODevice::ReadOnly)) return std::nullopt;
@@ -121,11 +132,11 @@ static LanguageEntry fromJson(const QJsonObject& o) {
 // -----------------------------------------------------------------------------
 
 QString KateSyntaxIndex::syntaxDir() const {
-    return m_dataDir + QStringLiteral("/syntax");
+    return d->m_dataDir + QStringLiteral("/syntax");
 }
 
 QString KateSyntaxIndex::indexPath() const {
-    return m_dataDir + QStringLiteral("/index.json");
+    return d->m_dataDir + QStringLiteral("/index.json");
 }
 
 QString KateSyntaxIndex::filePath(const LanguageEntry& e) const {
@@ -134,7 +145,7 @@ QString KateSyntaxIndex::filePath(const LanguageEntry& e) const {
 
 KateSyntaxIndex KateSyntaxIndex::load(const QString& dataDir) {
     KateSyntaxIndex idx;
-    idx.m_dataDir = QDir::cleanPath(dataDir);
+    idx.d->m_dataDir = QDir::cleanPath(dataDir);
 
     QFile f(idx.indexPath());
     bool loaded = false;
@@ -144,25 +155,25 @@ KateSyntaxIndex KateSyntaxIndex::load(const QString& dataDir) {
             && root.value(QLatin1String("syntaxVersion")).toString()
                    == supportedSyntaxVersion().toString()) {
             const QJsonArray langs = root.value(QLatin1String("languages")).toArray();
-            idx.m_entries.reserve(langs.size());
+            idx.d->m_entries.reserve(langs.size());
             for (const QJsonValue& v : langs) {
                 LanguageEntry e = fromJson(v.toObject());
                 if (!e.file.isEmpty() && !e.name.isEmpty())
-                    idx.m_entries.append(std::move(e));
+                    idx.d->m_entries.append(std::move(e));
             }
             loaded = true;
         }
     }
 
     // Missing, unreadable or stale index.json → must be (re)written.
-    idx.m_dirty = !loaded;
+    idx.d->m_dirty = !loaded;
     idx.refresh();
     return idx;
 }
 
 bool KateSyntaxIndex::refresh() {
     QHash<QString, LanguageEntry> old;
-    for (LanguageEntry& e : m_entries) old.insert(e.file, std::move(e));
+    for (LanguageEntry& e : d->m_entries) old.insert(e.file, std::move(e));
 
     QList<LanguageEntry> fresh;
     bool changed = false;
@@ -190,25 +201,25 @@ bool KateSyntaxIndex::refresh() {
     }
     if (!old.isEmpty()) changed = true;   // files removed from disk
 
-    m_entries = std::move(fresh);
+    d->m_entries = std::move(fresh);
     rebuildLookup();
-    if (changed) m_dirty = true;
+    if (changed) d->m_dirty = true;
     return changed;
 }
 
 void KateSyntaxIndex::invalidate(const QString& file) {
-    const auto it = m_byFile.constFind(file);
-    if (it == m_byFile.cend()) return;
-    m_entries[*it].size  = -1;   // never matches a real file
-    m_entries[*it].mtime = -1;
+    const auto it = d->m_byFile.constFind(file);
+    if (it == d->m_byFile.cend()) return;
+    d->m_entries[*it].size  = -1;   // never matches a real file
+    d->m_entries[*it].mtime = -1;
 }
 
 bool KateSyntaxIndex::save() {
-    if (m_dataDir.isEmpty()) return false;
-    if (!QDir().mkpath(m_dataDir)) return false;
+    if (d->m_dataDir.isEmpty()) return false;
+    if (!QDir().mkpath(d->m_dataDir)) return false;
 
     QJsonArray langs;
-    for (const LanguageEntry& e : m_entries) langs.append(toJson(e));
+    for (const LanguageEntry& e : d->m_entries) langs.append(toJson(e));
     QJsonObject root;
     root[QLatin1String("format")]        = kFormat;
     root[QLatin1String("syntaxVersion")] = supportedSyntaxVersion().toString();
@@ -218,30 +229,30 @@ bool KateSyntaxIndex::save() {
     if (!f.open(QIODevice::WriteOnly)) return false;
     f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
     if (!f.commit()) return false;
-    m_dirty = false;
+    d->m_dirty = false;
     return true;
 }
 
 void KateSyntaxIndex::rebuildLookup() {
-    m_byName.clear();
-    m_byFile.clear();
-    for (int i = 0; i < m_entries.size(); ++i) {
-        const LanguageEntry& e = m_entries[i];
-        m_byFile.insert(e.file, i);
-        auto it = m_byName.find(e.name);
-        if (it == m_byName.end() || m_entries[*it].version < e.version)
-            m_byName.insert(e.name, i);
+    d->m_byName.clear();
+    d->m_byFile.clear();
+    for (int i = 0; i < d->m_entries.size(); ++i) {
+        const LanguageEntry& e = d->m_entries[i];
+        d->m_byFile.insert(e.file, i);
+        auto it = d->m_byName.find(e.name);
+        if (it == d->m_byName.end() || d->m_entries[*it].version < e.version)
+            d->m_byName.insert(e.name, i);
     }
 }
 
 const LanguageEntry* KateSyntaxIndex::byName(const QString& name) const {
-    const auto it = m_byName.constFind(name);
-    return it == m_byName.cend() ? nullptr : &m_entries[*it];
+    const auto it = d->m_byName.constFind(name);
+    return it == d->m_byName.cend() ? nullptr : &d->m_entries[*it];
 }
 
 const LanguageEntry* KateSyntaxIndex::byFile(const QString& file) const {
-    const auto it = m_byFile.constFind(file);
-    return it == m_byFile.cend() ? nullptr : &m_entries[*it];
+    const auto it = d->m_byFile.constFind(file);
+    return it == d->m_byFile.cend() ? nullptr : &d->m_entries[*it];
 }
 
 QList<const LanguageEntry*> KateSyntaxIndex::forFileName(const QString& path,
@@ -250,7 +261,7 @@ QList<const LanguageEntry*> KateSyntaxIndex::forFileName(const QString& path,
     QList<const LanguageEntry*> result;
     if (fileName.isEmpty()) return result;
 
-    for (const LanguageEntry& e : m_entries) {
+    for (const LanguageEntry& e : d->m_entries) {
         if (e.unsupported && !includeUnsupported) continue;
         const auto patterns = QStringView(e.extensions).split(QLatin1Char(';'), Qt::SkipEmptyParts);
         for (QStringView pat : patterns) {
@@ -268,5 +279,17 @@ QList<const LanguageEntry*> KateSyntaxIndex::forFileName(const QString& path,
                      });
     return result;
 }
+
+
+KateSyntaxIndex::~KateSyntaxIndex() = default;
+KateSyntaxIndex::KateSyntaxIndex(const KateSyntaxIndex& other) : d(std::make_unique<Private>(*other.d)) {}
+KateSyntaxIndex& KateSyntaxIndex::operator=(const KateSyntaxIndex& other) { if (this != &other) *d = *other.d; return *this; }
+// The source stays usable, with an empty state.
+KateSyntaxIndex::KateSyntaxIndex(KateSyntaxIndex&& other) noexcept : d(std::make_unique<Private>()) { d.swap(other.d); }
+KateSyntaxIndex& KateSyntaxIndex::operator=(KateSyntaxIndex&& other) noexcept { d.swap(other.d); return *this; }
+bool KateSyntaxIndex::saveIfDirty() { return d->m_dirty ? save() : true; }
+bool KateSyntaxIndex::isDirty() const { return d->m_dirty; }
+QString KateSyntaxIndex::dataDir() const { return d->m_dataDir; }
+const QList<LanguageEntry>& KateSyntaxIndex::languages() const { return d->m_entries; }
 
 } // namespace qce::kate

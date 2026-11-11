@@ -1,4 +1,6 @@
 #pragma once
+
+#include <memory>
 // Grammar checking of nearby words by their readings (Morphology), with
 // right words one typing slip away offered when they fit ("ze" written for
 // "że": a preposition before a verb).
@@ -76,13 +78,18 @@ bool loadGrammarRules(const std::string& path, GrammarRules& rules, std::string*
 
 class Grammar {
 public:
-    explicit Grammar(const Morphology& morphology) : m_morphology(morphology) {}
+    ~Grammar();
+    Grammar(const Grammar& other);
+    Grammar& operator=(const Grammar& other);
+    Grammar(Grammar&& other) noexcept;
+    Grammar& operator=(Grammar&& other) noexcept;
+    explicit Grammar(const Morphology& morphology);
     std::vector<Finding> check(const std::vector<Token>& tokens) const;
 
     /// The language's words (loadGrammarRules()); without them the rules
     /// know no exceptions and offer no words.
-    void setRules(GrammarRules rules) { m_rules = std::move(rules); }
-    const GrammarRules& rules() const { return m_rules; }
+    void setRules(GrammarRules rules);
+    const GrammarRules& rules() const;
 
     /// The words one typing slip away of the kinds offered: the user's
     /// choice of likely ones (a diacritic; letters swapped or a neighbouring
@@ -106,11 +113,10 @@ public:
     bool loadForms(const std::string& path, std::string* error = nullptr);
 
 private:
-    const Morphology& m_morphology;
-    GrammarRules m_rules;
-    std::unordered_map<std::string, std::vector<std::pair<std::string, long>>> m_forms;
-    Complements m_complements;
-    bool m_hasComplements = false;
+    // The state, in Grammar.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
 };
 
 } // namespace qce::grammar

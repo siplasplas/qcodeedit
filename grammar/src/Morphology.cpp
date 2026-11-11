@@ -145,9 +145,20 @@ uint32_t readU32(const uint8_t* bytes) {
 
 } // namespace
 
+struct MorphologyBuilder::Private {
+    std::vector<std::string> m_strings{""};
+    std::unordered_map<std::string, uint32_t> m_stringIds{{"", 0}};
+    std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint32_t> m_infoIds;
+    std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> m_infos;
+    std::vector<std::string> m_readings;
+    long m_entries = 0;
+};
+
+MorphologyBuilder::MorphologyBuilder() : d(std::make_unique<Private>()) {}
+
 uint32_t MorphologyBuilder::stringId(std::string_view text) {
-    const auto [it, added] = m_stringIds.try_emplace(std::string(text), uint32_t(m_strings.size()));
-    if (added) m_strings.emplace_back(text);
+    const auto [it, added] = d->m_stringIds.try_emplace(std::string(text), uint32_t(d->m_strings.size()));
+    if (added) d->m_strings.emplace_back(text);
     return it->second;
 }
 
@@ -155,25 +166,25 @@ bool MorphologyBuilder::add(std::string_view form, std::string_view lemma, std::
                             std::string_view label, std::string_view qualifiers) {
     const std::string code = lemmaCode(form, lemma);
     if (code.empty() || form.empty() || form.find('\0') != std::string_view::npos) return false;
-    ++m_entries;
+    ++d->m_entries;
     const std::tuple info{stringId(tag), stringId(label), stringId(qualifiers)};
-    const auto [it, added] = m_infoIds.try_emplace(info, uint32_t(m_infos.size()));
-    if (added) m_infos.push_back(info);
+    const auto [it, added] = d->m_infoIds.try_emplace(info, uint32_t(d->m_infos.size()));
+    if (added) d->m_infos.push_back(info);
     std::string reading(form);
     reading += '\0';
     reading += code;
     reading += '\0';
     for (uint32_t i = kInfoWidth; i-- > 0;) reading += char((it->second >> (8 * i)) & 0xFF);
-    m_readings.push_back(std::move(reading));
+    d->m_readings.push_back(std::move(reading));
     return true;
 }
 
 bool MorphologyBuilder::write(const std::string& outputPath, MorphologyStats* stats, std::string* error) {
     MorphologyStats numbers;
-    numbers.entries = m_entries;
-    const std::vector<std::string>& strings = m_strings;
-    const auto& infos = m_infos;
-    std::vector<std::string>& readings = m_readings;
+    numbers.entries = d->m_entries;
+    const std::vector<std::string>& strings = d->m_strings;
+    const auto& infos = d->m_infos;
+    std::vector<std::string>& readings = d->m_readings;
     if (infos.size() >= (1u << (8 * kInfoWidth))) {
         if (error) *error = "too many (tag, label, qualifiers)";
         return false;
@@ -303,6 +314,22 @@ bool MorphologyBuilder::write(const std::string& outputPath, MorphologyStats* st
     return true;
 }
 
+struct Morphology::Private {
+    std::vector<std::string> m_strings;
+    std::vector<Info> m_infos;
+    uint32_t m_infoWidth = 3;
+    uint32_t m_root = 0;
+    std::array<uint8_t, 32> m_labels{};  // frequent labels by number (1–31)
+    // The states one after another, each its arcs: a flags byte (last arc,
+    // target the end, target right after this state, a frequent label's
+    // number), the label byte unless frequent, and the target's offset in
+    // 7-bit groups unless the end or right after. States are ordered depth
+    // first, so most arcs need no address (as Morfologik's CFSA2).
+    std::vector<uint8_t> m_automaton;
+};
+
+Morphology::Morphology() : d(std::make_unique<Private>()) {}
+
 bool Morphology::load(const std::string& path, std::string* error) {
     std::ifstream file(path, std::ios::binary);
     const std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
@@ -325,53 +352,53 @@ bool Morphology::load(const std::string& path, std::string* error) {
         p += 4;
         return value;
     };
-    m_infoWidth = u32();
+    d->m_infoWidth = u32();
     const uint32_t stringCount = u32();
-    m_strings.clear();
+    d->m_strings.clear();
     for (uint32_t i = 0; ok && i < stringCount; ++i) {
         const uint32_t size = u32();
         if (!ok || uint32_t(end - p) < size) return fail("truncated");
-        m_strings.emplace_back(reinterpret_cast<const char*>(p), size);
+        d->m_strings.emplace_back(reinterpret_cast<const char*>(p), size);
         p += size;
     }
     const uint32_t infoCount = u32();
-    m_infos.clear();
+    d->m_infos.clear();
     for (uint32_t i = 0; ok && i < infoCount; ++i) {
         const Info info{u32(), u32(), u32()};
-        if (info.tag >= m_strings.size() || info.label >= m_strings.size() || info.qualifiers >= m_strings.size())
+        if (info.tag >= d->m_strings.size() || info.label >= d->m_strings.size() || info.qualifiers >= d->m_strings.size())
             return fail("bad info");
-        m_infos.push_back(info);
+        d->m_infos.push_back(info);
     }
     if (!ok || uint32_t(end - p) < kFrequentLabels) return fail("truncated");
-    std::copy(p, p + kFrequentLabels, m_labels.begin());
+    std::copy(p, p + kFrequentLabels, d->m_labels.begin());
     p += kFrequentLabels;
-    m_root = u32();
+    d->m_root = u32();
     const uint32_t size = u32();
-    if (!ok || m_infoWidth == 0 || m_infoWidth > 4 || uint64_t(end - p) != size || m_root >= size)
+    if (!ok || d->m_infoWidth == 0 || d->m_infoWidth > 4 || uint64_t(end - p) != size || d->m_root >= size)
         return fail("truncated");
-    m_automaton.assign(p, end);
+    d->m_automaton.assign(p, end);
     return true;
 }
 
 Morphology::Arc Morphology::arcAt(size_t pos) const {
     Arc arc;
-    const size_t size = m_automaton.size();
+    const size_t size = d->m_automaton.size();
     if (pos >= size) return arc;
-    const uint8_t flags = m_automaton[pos++];
+    const uint8_t flags = d->m_automaton[pos++];
     arc.last = flags & kLastFlag;
     arc.nextState = flags & kNextFlag;
     if (flags & kLabelMask) {
-        arc.label = m_labels[flags & kLabelMask];
+        arc.label = d->m_labels[flags & kLabelMask];
     } else {
         if (pos >= size) return arc;
-        arc.label = m_automaton[pos++];
+        arc.label = d->m_automaton[pos++];
     }
     if (flags & kEndFlag) {
         arc.target = kEndState;
     } else if (!arc.nextState) {
         uint32_t value = 0;
         for (int shift = 0; pos < size && shift < 35; shift += 7) {
-            const uint8_t b = m_automaton[pos++];
+            const uint8_t b = d->m_automaton[pos++];
             value |= uint32_t(b & 0x7F) << shift;
             if (!(b & 0x80)) break;
         }
@@ -385,7 +412,7 @@ Morphology::Arc Morphology::arcAt(size_t pos) const {
 size_t Morphology::arcsEnd(size_t state) const {
     for (size_t pos = state;;) {
         const Arc arc = arcAt(pos);
-        if (!arc.valid) return m_automaton.size();
+        if (!arc.valid) return d->m_automaton.size();
         if (arc.last) return arc.end;
         pos = arc.end;
     }
@@ -420,7 +447,7 @@ void Morphology::paths(uint32_t state, std::string& path, const std::function<vo
 }
 
 bool Morphology::contains(std::string_view form) const {
-    uint32_t state = m_root;
+    uint32_t state = d->m_root;
     for (const char c : form)
         if ((state = next(state, uint8_t(c))) == kNoState) return false;
     return next(state, 0) != kNoState;
@@ -428,8 +455,8 @@ bool Morphology::contains(std::string_view form) const {
 
 std::vector<Reading> Morphology::analyse(std::string_view form) const {
     std::vector<Reading> result;
-    if (m_automaton.empty() || form.empty()) return result;
-    uint32_t state = m_root;
+    if (d->m_automaton.empty() || form.empty()) return result;
+    uint32_t state = d->m_root;
     for (const char c : form)
         if ((state = next(state, uint8_t(c))) == kNoState) return result;
     if ((state = next(state, 0)) == kNoState) return result;
@@ -437,22 +464,38 @@ std::vector<Reading> Morphology::analyse(std::string_view form) const {
     paths(state, path, [&](const std::string& code) {
         // p + 1, k + 1, added bytes, separator, the info number.
         const size_t separator = code.find('\0', 2);
-        if (code.size() < 3 || separator == std::string::npos || code.size() != separator + 1 + m_infoWidth) return;
+        if (code.size() < 3 || separator == std::string::npos || code.size() != separator + 1 + d->m_infoWidth) return;
         const size_t cutStart = uint8_t(code[0]) - 1u, cutEnd = uint8_t(code[1]) - 1u;
         if (cutStart + cutEnd > form.size()) return;
         uint32_t infoId = 0;
         for (size_t i = separator + 1; i < code.size(); ++i) infoId = infoId << 8 | uint8_t(code[i]);
-        if (infoId >= m_infos.size()) return;
-        const Info& info = m_infos[infoId];
+        if (infoId >= d->m_infos.size()) return;
+        const Info& info = d->m_infos[infoId];
         Reading reading;
         reading.lemma.assign(form.substr(cutStart, form.size() - cutStart - cutEnd));
         reading.lemma.append(code, 2, separator - 2);
-        reading.tag = m_strings[info.tag];
-        reading.label = m_strings[info.label];
-        reading.qualifiers = m_strings[info.qualifiers];
+        reading.tag = d->m_strings[info.tag];
+        reading.label = d->m_strings[info.label];
+        reading.qualifiers = d->m_strings[info.qualifiers];
         result.push_back(std::move(reading));
     });
     return result;
 }
+
+
+Morphology::~Morphology() = default;
+Morphology::Morphology(const Morphology& other) : d(std::make_unique<Private>(*other.d)) {}
+Morphology& Morphology::operator=(const Morphology& other) { if (this != &other) *d = *other.d; return *this; }
+// The source stays usable, with an empty state.
+Morphology::Morphology(Morphology&& other) noexcept : d(std::make_unique<Private>()) { d.swap(other.d); }
+Morphology& Morphology::operator=(Morphology&& other) noexcept { d.swap(other.d); return *this; }
+
+
+MorphologyBuilder::~MorphologyBuilder() = default;
+MorphologyBuilder::MorphologyBuilder(const MorphologyBuilder& other) : d(std::make_unique<Private>(*other.d)) {}
+MorphologyBuilder& MorphologyBuilder::operator=(const MorphologyBuilder& other) { if (this != &other) *d = *other.d; return *this; }
+// The source stays usable, with an empty state.
+MorphologyBuilder::MorphologyBuilder(MorphologyBuilder&& other) noexcept : d(std::make_unique<Private>()) { d.swap(other.d); }
+MorphologyBuilder& MorphologyBuilder::operator=(MorphologyBuilder&& other) noexcept { d.swap(other.d); return *this; }
 
 } // namespace qce::grammar

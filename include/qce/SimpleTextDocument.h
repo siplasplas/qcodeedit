@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include "ITextDocument.h"
 
 #include <QStringList>
@@ -20,7 +22,7 @@ class SimpleTextDocument : public ITextDocument {
     Q_OBJECT
 public:
     explicit SimpleTextDocument(QObject* parent = nullptr);
-    ~SimpleTextDocument() override = default;
+    ~SimpleTextDocument() override;
 
     // --- ITextDocument read interface ---
     int     lineCount()    const override;
@@ -49,8 +51,10 @@ public:
     QString toPlainText() const;
 
 private:
-    QStringList m_lines{QString()};
-    mutable int m_maxLineLength = -1;
+    // The state, in SimpleTextDocument.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
 
     void invalidateCache();
 

@@ -1,4 +1,6 @@
 #pragma once
+
+#include <memory>
 // The morphology of a language as a minimal automaton: every reading of
 // every form of a morphological dictionary (as PoliMorf), found by the form.
 //
@@ -43,6 +45,12 @@ struct MorphologyStats {
 /// (spellmorf reads them from PoliMorf).
 class MorphologyBuilder {
 public:
+    MorphologyBuilder();
+    ~MorphologyBuilder();
+    MorphologyBuilder(const MorphologyBuilder& other);
+    MorphologyBuilder& operator=(const MorphologyBuilder& other);
+    MorphologyBuilder(MorphologyBuilder&& other) noexcept;
+    MorphologyBuilder& operator=(MorphologyBuilder&& other) noexcept;
     /// Adds a reading; false when it cannot be written (an empty form, a
     /// NUL byte, a lemma too unlike its form).
     bool add(std::string_view form, std::string_view lemma, std::string_view tag, std::string_view label = {},
@@ -54,16 +62,20 @@ public:
 private:
     uint32_t stringId(std::string_view text);
 
-    std::vector<std::string> m_strings{""};
-    std::unordered_map<std::string, uint32_t> m_stringIds{{"", 0}};
-    std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint32_t> m_infoIds;
-    std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> m_infos;
-    std::vector<std::string> m_readings;
-    long m_entries = 0;
+    // The state, in Morphology.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
 };
 
 class Morphology {
 public:
+    Morphology();
+    ~Morphology();
+    Morphology(const Morphology& other);
+    Morphology& operator=(const Morphology& other);
+    Morphology(Morphology&& other) noexcept;
+    Morphology& operator=(Morphology&& other) noexcept;
     bool load(const std::string& path, std::string* error = nullptr);
     /// The readings of a form, as written (no case folding); none when unknown.
     std::vector<Reading> analyse(std::string_view form) const;
@@ -87,20 +99,13 @@ private:
     // Calls `onPath` with every byte string from `state` to the end.
     void paths(uint32_t state, std::string& path, const std::function<void(const std::string&)>& onPath) const;
 
-    std::vector<std::string> m_strings;
+    // The state, in Morphology.cpp: fields added there keep the
+    // binary interface (the size of this class does not change).
+    struct Private;
+    std::unique_ptr<Private> d;
     struct Info {
         uint32_t tag, label, qualifiers;
     };
-    std::vector<Info> m_infos;
-    uint32_t m_infoWidth = 3;
-    uint32_t m_root = 0;
-    std::array<uint8_t, 32> m_labels{};  // frequent labels by number (1–31)
-    // The states one after another, each its arcs: a flags byte (last arc,
-    // target the end, target right after this state, a frequent label's
-    // number), the label byte unless frequent, and the target's offset in
-    // 7-bit groups unless the end or right after. States are ordered depth
-    // first, so most arcs need no address (as Morfologik's CFSA2).
-    std::vector<uint8_t> m_automaton;
 };
 
 } // namespace qce::grammar

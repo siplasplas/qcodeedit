@@ -268,3 +268,27 @@ endif()
 if(QCE_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
+
+# --- After installing ---------------------------------------------------
+
+# Shared libraries installed straight into the system: the dynamic linker's
+# cache is refreshed (ldconfig), or programs do not find the new libraries
+# until it is. Last, after the parts' install rules above. Skipped for
+# packaging (DESTDIR); a failure (e.g. not root, for a prefix in the home
+# directory) is only reported.
+if(QCE_SHARED AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    install(CODE [[
+        if("$ENV{DESTDIR}" STREQUAL "")
+            find_program(qce_ldconfig ldconfig PATHS /sbin /usr/sbin)
+            if(qce_ldconfig)
+                execute_process(COMMAND "${qce_ldconfig}" RESULT_VARIABLE qce_ldconfig_result
+                                OUTPUT_QUIET ERROR_QUIET)
+                if(qce_ldconfig_result EQUAL 0)
+                    message(STATUS "Refreshed the shared library cache (ldconfig)")
+                else()
+                    message(STATUS "ldconfig failed; if programs do not find libqcodeedit, run: sudo ldconfig")
+                endif()
+            endif()
+        endif()
+    ]])
+endif()

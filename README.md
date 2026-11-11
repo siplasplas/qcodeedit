@@ -235,6 +235,10 @@ sudo cmake --install build              # defaults to /usr/local
 cmake --install build --prefix "$HOME/.local"
 ```
 
+Installing the shared libraries into the system also refreshes the dynamic
+linker's cache (`ldconfig`), so that programs find them at once; for
+packaging (`DESTDIR`) it does not, and without root it only says so.
+
 Installed layout under `${prefix}`:
 
 ```

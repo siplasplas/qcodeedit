@@ -2,7 +2,7 @@
 # themes. Kept apart from qcodeedit-kate so that parsing Kate files never
 # pulls in Qt Network.
 
-add_library(qcodeedit-katedata STATIC
+add_library(qcodeedit-katedata ${QCE_LIBRARY_TYPE}
     src/KateDataDownloader.cpp
     include/qce/kate/KateDataDownloader.h
 )
@@ -18,6 +18,7 @@ target_link_libraries(qcodeedit-katedata
 )
 
 add_library(qcodeedit::katedata ALIAS qcodeedit-katedata)
+qce_library_version(qcodeedit-katedata)
 set_target_properties(qcodeedit-katedata PROPERTIES EXPORT_NAME katedata)
 
 # Command-line fetcher: qce-kate-fetch [--dir <dataDir>] [--check]

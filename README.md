@@ -149,12 +149,13 @@ Options:
   `~/.local/share/kate-data/<version>` on Linux. The only part that needs Qt
   Network. Up to 1.12 the data was in `~/.local/share/qcodeedit/kate-<version>`;
   programs call `qce::kate::migrateDataRoot()` once at start-up to move it, and
-  must be rebuilt with the new qcodeedit (the libraries are static). See
+  must be rebuilt with the new qcodeedit (the libraries were static then). See
   [docs/KATE_DATA.md](docs/KATE_DATA.md).
 - `QCE_BUILD_ENCODING=ON` (default) — builds `qcodeedit-encoding` (code pages
   and UTF, detection, the editor's encoding guard) on the
   [cpg](https://github.com/siplasplas/cpg) library. Needs ICU and zlib; an
-  installed cpg 1.2.0 is used, otherwise it is fetched. See
+  installed cpg 1.2.0 (1.3.0 for shared libraries) is used, otherwise it is
+  fetched. See
   [docs/ENCODING.md](docs/ENCODING.md).
 - `QCE_BUILD_GRAMMAR=ON` (default) — builds `qcodeedit-grammar`, plain C++
   without Qt or other libraries: a morphology file (every form's readings in
@@ -189,12 +190,42 @@ Options:
   lines between the common start and end are taken as one change at once,
   still one undo step. Linking `qcodeedit::diff` is enough; the program
   calls nothing (a program that loads a new file clears the undo history
-  itself, as before). An installed DiffMerge 1.6 is used; otherwise
-  libdiffcore's sources are fetched and built into the library.
+  itself, as before). For static libraries an installed DiffMerge 1.6 is
+  used; otherwise (and always for shared libraries) libdiffcore's sources
+  are fetched and built into the library.
+- `QCE_SHARED` — shared libraries; on by default when qcodeedit is built on
+  its own, off when a parent project fetches it (FetchContent,
+  add_subdirectory), which then gets static libraries unless it sets the
+  option. The code is position-independent either way, so the static
+  libraries can go into a plugin.
+
+## Versions and the binary interface
+
+Since 1.71 the libraries are shared (`libqcodeedit.so.1.71.0`, and the same
+for every part), so that the programs and plugins of one process use one
+copy, and a program need not be rebuilt for a newer qcodeedit.
+
+- The SONAME carries the number of the binary interface (ABI), not the
+  version: `libqcodeedit.so.1`. It changes only when the binary interface
+  does: a field of a plain struct (`TextCursor`, `ExtraSelection`, ...), a
+  virtual function of an interface (`IHighlighter`, `IMargin`, ...), a
+  signature. The classes keep their fields in a private part (pimpl), so
+  new fields do not change it. Within one ABI a newer library only adds
+  things.
+- `<qce/Version.h>` has the version the code is built with
+  (`QCE_VERSION_MAJOR`, `_MINOR`, `_PATCH`, `_STRING`, `QCE_ABI_VERSION`);
+  `qce::libraryVersion()` returns the version of the libraries running, and
+  `qce::libraryFits()` tells whether they fit: the same ABI and the same
+  version or a newer one. A plugin should check it before it creates
+  anything.
+
+After installing 1.71 over an older qcodeedit, remove the old static
+libraries (`/usr/local/lib/libqcodeedit*.a`) and rebuild the programs that
+linked them.
 
 ## Install
 
-Installs the static library plus public headers plus CMake config files
+Installs the libraries plus public headers plus CMake config files
 so downstream projects can use `find_package(qcodeedit)`.
 
 ```bash
@@ -210,15 +241,16 @@ Installed layout under `${prefix}`:
 include/qce/*.h                            — core public headers
 include/qce/margins/*.h                    — margin headers
 include/qce/kate/*.h                       — companion (optional)
-lib/libqcodeedit.a                         — core static library
-lib/libqcodeedit-kate.a                    — companion static library
-lib/libqcodeedit-katedata.a                — downloader static library
-lib/libqcodeedit-encoding.a                — encodings static library
-lib/libqcodeedit-grammar.a                 — grammar static library (plain C++)
+include/qce/Version.h                      — version and ABI (generated)
+lib/libqcodeedit.so*                       — core library
+lib/libqcodeedit-kate.so*                  — companion library
+lib/libqcodeedit-katedata.so*              — downloader library
+lib/libqcodeedit-encoding.so*              — encodings library
+lib/libqcodeedit-grammar.so*               — grammar library (plain C++)
 share/qcodeedit/grammar/pl.grammar         — the grammar's words for Polish
-lib/libqcodeedit-spell.a                   — spell checking static library
-lib/libqcodeedit-spelldata.a               — word frequency downloader
-lib/libqcodeedit-diff.a                    — setText by differing lines
+lib/libqcodeedit-spell.so*                 — spell checking library
+lib/libqcodeedit-spelldata.so*             — word frequency downloader
+lib/libqcodeedit-diff.so*                  — setText by differing lines
 share/qcodeedit-diff/AutoInstall.cpp       — built into programs linking it
 lib/cmake/qcodeedit/                       — find_package(qcodeedit)
 lib/cmake/qcodeedit-kate/                  — find_package(qcodeedit-kate)

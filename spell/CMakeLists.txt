@@ -15,7 +15,7 @@ if(NOT HUNSPELL_FOUND OR NOT SQLITE3_FOUND)
     return()
 endif()
 
-add_library(qcodeedit-spell STATIC
+add_library(qcodeedit-spell ${QCE_LIBRARY_TYPE}
     src/SpellChecker.cpp
     src/CodeEditSpelling.cpp
     src/FormIndex.cpp
@@ -56,6 +56,7 @@ if(TARGET qcodeedit-grammar)
 endif()
 
 add_library(qcodeedit::spell ALIAS qcodeedit-spell)
+qce_library_version(qcodeedit-spell)
 set_target_properties(qcodeedit-spell PROPERTIES EXPORT_NAME spell)
 
 # --- Install ------------------------------------------------------------

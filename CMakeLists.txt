@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.21)
-project(qcodeedit LANGUAGES CXX VERSION 1.70.0)
+project(qcodeedit LANGUAGES CXX VERSION 1.71.0)
+
+# The binary interface of all parts: changes whenever a plain struct's field,
+# an interface's virtual function or a signature does (the classes hide
+# their fields, see include/qce/Version.h). The shared libraries' SONAME is
+# lib<part>.so.<ABI>.
+set(QCE_ABI_VERSION 1)
 
 # --- Global options -----------------------------------------------------
 
@@ -20,6 +26,26 @@ option(QCE_BUILD_SPELLTUNE
        "Build tools/spelltune (fits the spelling suggestions' costs to typing mistakes; not installed)" OFF)
 option(QCE_BUILD_DIFF
        "Build qcodeedit-diff (setText changes only the differing lines; needs DiffMerge's libdiffcore)" ON)
+
+# Shared libraries when built on its own, so that every program and plugin
+# of a process uses one copy (one Kate index, one set of dictionaries);
+# static when fetched by a parent project, unless it asks otherwise.
+option(QCE_SHARED "Build the qcodeedit libraries as shared libraries" ${PROJECT_IS_TOP_LEVEL})
+if(QCE_SHARED)
+    set(QCE_LIBRARY_TYPE SHARED)
+else()
+    set(QCE_LIBRARY_TYPE STATIC)
+endif()
+# Position-independent also when static (and for what is fetched), so that
+# the libraries can go into a shared object (a plugin).
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# The version and the ABI (SONAME) of a part's library.
+function(qce_library_version target)
+    set_target_properties(${target} PROPERTIES
+        VERSION ${PROJECT_VERSION}
+        SOVERSION ${QCE_ABI_VERSION})
+endfunction()
 
 include(GNUInstallDirs)
 
@@ -47,7 +73,10 @@ endif()
 
 # --- Library ------------------------------------------------------------
 
-add_library(qcodeedit STATIC
+configure_file(cmake/Version.h.in ${CMAKE_CURRENT_BINARY_DIR}/include/qce/Version.h @ONLY)
+
+add_library(qcodeedit ${QCE_LIBRARY_TYPE}
+    src/Version.cpp
     src/ITextDocument.cpp
     src/SimpleTextDocument.cpp
     src/CodeEditArea.cpp
@@ -117,8 +146,10 @@ target_include_directories(qcodeedit
 
 target_include_directories(qcodeedit PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
+qce_library_version(qcodeedit)
 
 target_link_libraries(qcodeedit
     PUBLIC  Qt6::Core Qt6::Gui Qt6::Widgets
@@ -166,6 +197,7 @@ install(FILES
     include/qce/LeftRail.h
     include/qce/RightRail.h
     include/qce/LineDiff.h
+    ${CMAKE_CURRENT_BINARY_DIR}/include/qce/Version.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/qce
 )
 install(FILES

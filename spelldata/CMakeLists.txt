@@ -2,7 +2,7 @@
 # spelling suggestions. Kept apart from qcodeedit-spell so that spell
 # checking never pulls in Qt Network.
 
-add_library(qcodeedit-spelldata STATIC
+add_library(qcodeedit-spelldata ${QCE_LIBRARY_TYPE}
     src/WordFrequencyDownloader.cpp
     include/qce/spell/WordFrequencyDownloader.h
 )
@@ -18,6 +18,7 @@ target_link_libraries(qcodeedit-spelldata
 )
 
 add_library(qcodeedit::spelldata ALIAS qcodeedit-spelldata)
+qce_library_version(qcodeedit-spelldata)
 set_target_properties(qcodeedit-spelldata PROPERTIES EXPORT_NAME spelldata)
 
 # --- Install ------------------------------------------------------------

@@ -3,7 +3,7 @@
 # so applications that don't need Kate files (or that use another source
 # for highlighting rules) can skip the XML dependency.
 
-add_library(qcodeedit-kate STATIC
+add_library(qcodeedit-kate ${QCE_LIBRARY_TYPE}
     src/KateXmlReader.cpp
     src/KateTheme.cpp
     src/KateSyntaxVersion.cpp
@@ -32,6 +32,7 @@ target_link_libraries(qcodeedit-kate
 )
 
 add_library(qcodeedit::kate ALIAS qcodeedit-kate)
+qce_library_version(qcodeedit-kate)
 
 # Install-tree export name: qcodeedit::kate (matches the build-tree alias).
 set_target_properties(qcodeedit-kate PROPERTIES EXPORT_NAME kate)

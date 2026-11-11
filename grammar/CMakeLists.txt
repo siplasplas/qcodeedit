@@ -5,7 +5,7 @@
 # its rules file (data/pl.grammar), and words one typing slip away that fit.
 # Plain C++: no Qt, no other library; qcodeedit-spell shows it in the editor.
 
-add_library(qcodeedit-grammar STATIC
+add_library(qcodeedit-grammar ${QCE_LIBRARY_TYPE}
     src/Grammar.cpp
     src/Morphology.cpp
     src/Tag.cpp
@@ -28,6 +28,7 @@ set_target_properties(qcodeedit-grammar PROPERTIES
 )
 
 add_library(qcodeedit::grammar ALIAS qcodeedit-grammar)
+qce_library_version(qcodeedit-grammar)
 
 # The rules files of the languages, in the source tree (tests) and installed.
 set(QCE_GRAMMAR_SOURCE_DATA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/data CACHE INTERNAL "")

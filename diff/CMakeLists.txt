@@ -8,8 +8,12 @@
 # An installed DiffMerge 1.6 or later is used. Otherwise libdiffcore's
 # sources of the tag below are built into qcodeedit-diff itself: installing
 # a DiffMerge package with libdiffcore alone would clash with projects that
-# fetch the whole of DiffMerge (e.g. agentin).
-find_package(DiffMerge 1.6 CONFIG QUIET COMPONENTS Core)
+# fetch the whole of DiffMerge (e.g. agentin). Shared qcodeedit libraries
+# always build the sources in: an installed static libdiffcore may not be
+# position-independent.
+if(NOT QCE_SHARED)
+    find_package(DiffMerge 1.6 CONFIG QUIET COMPONENTS Core)
+endif()
 if(TARGET DiffMerge::Core)
     set(QCE_DIFF_USES_DIFFMERGE ON)
 else()
@@ -27,7 +31,7 @@ else()
     set(QCE_DIFFCORE_DIR ${diffmerge_sources_SOURCE_DIR}/libdiffcore)
 endif()
 
-add_library(qcodeedit-diff STATIC
+add_library(qcodeedit-diff ${QCE_LIBRARY_TYPE}
     src/LineDiff.cpp
     include/qce/diff/LineDiff.h
 )
@@ -65,6 +69,7 @@ target_sources(qcodeedit-diff INTERFACE
 )
 
 add_library(qcodeedit::diff ALIAS qcodeedit-diff)
+qce_library_version(qcodeedit-diff)
 set_target_properties(qcodeedit-diff PROPERTIES EXPORT_NAME diff)
 
 # --- Install ------------------------------------------------------------

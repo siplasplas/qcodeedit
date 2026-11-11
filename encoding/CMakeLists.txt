@@ -3,10 +3,16 @@
 # code page document storable. Kept apart from the core library so that only
 # applications that want it need cpg (and through it ICU and zlib).
 
-# An installed cpg 1.2.0 or later is used (calibrated detection confidence,
-# plausible alternatives, preview of differing lines, several languages);
-# otherwise the tag below is fetched and built in, library only.
-find_package(cpg 1.2.0 QUIET)
+# An installed cpg is used (calibrated detection confidence, plausible
+# alternatives, preview of differing lines, several languages): 1.2.0 or
+# later, 1.3.0 for shared qcodeedit libraries (cpg position-independent, or
+# shared itself); otherwise the tag below is fetched and built in, library
+# only.
+if(QCE_SHARED)
+    find_package(cpg 1.3.0 QUIET)
+else()
+    find_package(cpg 1.2.0 QUIET)
+endif()
 if(NOT TARGET cpg::cpg)
     include(FetchContent)
     # Installed along with qcodeedit, so that qcodeedit-encoding's package
@@ -15,13 +21,13 @@ if(NOT TARGET cpg::cpg)
     FetchContent_Declare(
         cpg
         GIT_REPOSITORY https://github.com/siplasplas/cpg.git
-        GIT_TAG v1.2.0
+        GIT_TAG v1.3.0
         GIT_SHALLOW TRUE
     )
     FetchContent_MakeAvailable(cpg)
 endif()
 
-add_library(qcodeedit-encoding STATIC
+add_library(qcodeedit-encoding ${QCE_LIBRARY_TYPE}
     src/Encoding.cpp
     src/EncodingGuard.cpp
     src/TextFile.cpp
@@ -49,6 +55,7 @@ target_compile_definitions(qcodeedit-encoding PRIVATE
 )
 
 add_library(qcodeedit::encoding ALIAS qcodeedit-encoding)
+qce_library_version(qcodeedit-encoding)
 set_target_properties(qcodeedit-encoding PROPERTIES EXPORT_NAME encoding)
 
 # --- Install ------------------------------------------------------------
